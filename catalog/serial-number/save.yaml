@@ -1,0 +1,152 @@
+id: serial-number-config-save
+domain: serial-number
+title: 保存给号服务配置
+description: 新增或更新实体的流水号与编码生成规则
+method: POST
+path: /api-gateway/sei-basic/serialNumberConfig/save
+permission: write
+risk: high
+requestSchema:
+  type: object
+  additionalProperties: true
+  required:
+    - appModuleCode
+    - appModuleName
+    - entityClassName
+    - configType
+    - name
+    - expressionConfig
+    - minNumber
+    - maxNumber
+    - useDeleted
+    - cycleStrategy
+    - activated
+    - genFlag
+    - tenantCode
+    - publicFlag
+    - tenantIsolation
+    - configItem
+  properties:
+    id:
+      type: string
+      description: 配置 ID；更新时必填
+    appModuleCode:
+      type: string
+      description: 应用模块编码
+    appModuleName:
+      type: string
+      description: 应用模块名称
+    entityClassName:
+      type: string
+      description: 使用给号规则的实体完整类名
+    configType:
+      type: string
+      description: 配置类型，例如 CODE_TYPE
+    name:
+      type: string
+      description: 给号规则名称
+    expressionConfig:
+      type: string
+      description: 编码表达式，例如 '#{00000}'
+    minNumber:
+      type: integer
+      minimum: 0
+      description: 最小流水号
+    maxNumber:
+      type: integer
+      minimum: 0
+      description: 最大流水号；0 表示不限制
+    useDeleted:
+      type: boolean
+      description: 是否复用已删除记录的号码
+    cycleStrategy:
+      type: string
+      description: 循环策略，例如 MAX_CYCLE
+    returnStrategy:
+      type:
+        - string
+        - "null"
+      description: 号码归还策略
+    activated:
+      type: boolean
+      description: 是否启用
+    genFlag:
+      type: boolean
+      description: 是否允许生成
+    tenantCode:
+      type: string
+      description: 租户编码
+    publicFlag:
+      type: boolean
+      description: 是否为公共配置
+    tenantIsolation:
+      type: boolean
+      description: 是否启用租户隔离
+    isolationExpression:
+      type: string
+      description: 隔离表达式
+    configItem:
+      type: array
+      minItems: 1
+      description: 编码表达式组成项
+      items:
+        type: object
+        additionalProperties: true
+        required:
+          - elementName
+          - elementCode
+          - elementValue
+          - isolation
+          - linkCharacter
+          - sort
+        properties:
+          id:
+            type: string
+            description: 配置项 ID
+          configId:
+            type: string
+            description: 所属配置 ID
+          elementName:
+            type: string
+            description: 元素名称
+          elementCode:
+            type: string
+            description: 元素编码
+          elementValue:
+            type: string
+            description: 元素值
+          isolation:
+            type: boolean
+            description: 是否作为隔离条件
+          linkCharacter:
+            type: string
+            description: 连接字符
+          sort:
+            type: integer
+            description: 排序号
+example:
+  id: FB08F00B-B24A-11EC-A8BB-0242C0A84502
+  appModuleCode: BASIC
+  appModuleName: 基础应用
+  entityClassName: com.changhong.sei.basic.entity.PositionCategory
+  configType: CODE_TYPE
+  name: 岗位类别
+  expressionConfig: "#{00000}"
+  minNumber: 2
+  maxNumber: 0
+  useDeleted: false
+  cycleStrategy: MAX_CYCLE
+  returnStrategy: null
+  activated: true
+  genFlag: true
+  tenantCode: global
+  publicFlag: true
+  tenantIsolation: true
+  isolationExpression: ""
+  configItem:
+    - elementName: 流水号编码
+      elementCode: SERIAL_CODE
+      elementValue: "5"
+      isolation: false
+      linkCharacter: EMPTY
+      sort: 0

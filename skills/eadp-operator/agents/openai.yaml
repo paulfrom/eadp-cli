@@ -1,0 +1,4 @@
+interface:
+  display_name: "EADP Operator"
+  short_description: "Safe EADP query, sync, and permission workflows"
+  default_prompt: "Use $eadp-operator to inspect, synchronize, or change EADP permissions safely."

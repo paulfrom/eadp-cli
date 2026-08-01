@@ -1,0 +1,50 @@
+{
+  "name": "eadp-cli",
+  "version": "0.8.0",
+  "description": "面向 EADP 多环境与业务接口编排的命令行工具",
+  "type": "module",
+  "bin": {
+    "eadp": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "catalog",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "presmoke": "npm run build",
+    "smoke": "node ./scripts/smoke-test.mjs",
+    "test:package": "node ./scripts/package-install-test.mjs",
+    "install:local": "npm pack && node ./scripts/install-local-package.mjs && node ./scripts/install-local-skill.mjs",
+    "release": "node ./scripts/release.mjs",
+    "check": "npm run build && npm test",
+    "prepack": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "eadp",
+    "cli",
+    "api",
+    "workflow"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "commander": "^14.0.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.0",
+    "vitest": "^3.2.4"
+  }
+}

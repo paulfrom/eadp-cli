@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tgz
+.eadp-cli/
+coverage/
+.codebase-memory/
