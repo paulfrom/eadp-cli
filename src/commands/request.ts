@@ -3,6 +3,7 @@ import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { sendRequest, buildUrl } from "../http/client.js";
 import { flattenPairs, parsePairs, printValue, readJsonInput } from "../io.js";
+import { assertPathTenantScope } from "../tenant.js";
 
 interface RequestCommandOptions {
   env?: string;
@@ -32,6 +33,7 @@ export function registerRequestCommand(program: Command, store: ConfigStore): vo
     .action(async (method: string, path: string, options: RequestCommandOptions) => {
       const config = await store.load();
       const environment = resolveEnvironment(config, options.env);
+      assertPathTenantScope(environment.config.tenantCode, path, environment.name);
       const body = await readJsonInput({ bodyFile: options.body, data: options.data });
       const query = parsePairs(options.query, "=");
       const headers = flattenPairs(parsePairs(options.header, ":"));

@@ -51,7 +51,16 @@ eadp env list
 
 配置文件默认位于 `~/.eadp-cli/config.yaml`。也可使用 `--token-env <变量名>`，只保存环境变量名。
 
+`env add` 会先使用该 URL 和 Token 请求 `account/getByApiKey?apiKey=<token>`，读取并保存 `tenantCode`；验证失败时不会保存新的 Token。
+Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env add`。
+
 请求时通过 `--env dev2` 显式选择环境；省略 `--env` 时使用 `--default` 指定的默认环境。
+
+租户隔离规则：
+
+- 功能项、菜单、给号配置的增删改查只能使用 `tenantCode: global` 的环境；
+- 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
+- `request` 和 `api call` 也执行同样的路径租户校验，不能通过通用接口绕过规则。
 
 ## 通用请求
 
@@ -64,10 +73,23 @@ eadp request POST /api-gateway/sei-basic/serialNumberConfig/save \
 
 ## 接口目录
 
+接口目录采用最小必要集合，包含组织、岗位、员工查询，用户权限核查，菜单权限判断，BPM 只读查询
+和给号接口。`api list` 输出接口 ID、接口名称、路径、风险和可调用状态；`api describe` 可继续
+查看请求体和查询参数。动态查询模板会列出有限的资源示例，但必须通过对应业务命令执行。
+
 ```bash
 eadp api domains
 eadp api list --domain serial-number
 eadp api describe serial-number-config-save
+
+eadp api list --domain organization
+eadp api list --domain permission
+eadp api describe permission-role-menu-feature-tree
+
+eadp api call permission-role-menu-feature-tree \
+  --env dev \
+  --query featureRoleId=<功能角色ID> \
+  --dry-run
 
 eadp api call serial-number-config-save \
   --body ./serial-number.json \
@@ -314,6 +336,8 @@ eadp resource sync feature \
 
 同步按功能项 `code` 匹配目标记录，并使用应用模块代码、功能项组代码重新解析目标环境
 ID；不会复制源环境数据库 ID。同步默认只预览，当前完整注册的同步资源为 `feature`。
+执行 `diff` 或 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
+不会读取迁移数据，也不会写入目标环境。
 
 ## 给用户或岗位分配和移除角色
 

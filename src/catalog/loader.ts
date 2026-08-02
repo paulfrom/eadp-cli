@@ -12,9 +12,15 @@ export async function loadCatalog(
   directory = process.env.EADP_CATALOG_DIR ?? defaultCatalogDirectory
 ): Promise<EndpointDefinition[]> {
   const files = await collectYamlFiles(directory);
-  const endpoints = await Promise.all(
-    files.map(async (file) => endpointSchema.parse(parse(await readFile(file, "utf8"))))
-  );
+  const endpoints = (
+    await Promise.all(
+      files.map(async (file) => {
+        const parsed = parse(await readFile(file, "utf8")) as unknown;
+        const definitions = Array.isArray(parsed) ? parsed : [parsed];
+        return definitions.map((definition) => endpointSchema.parse(definition));
+      })
+    )
+  ).flat();
   const ids = new Set<string>();
   for (const endpoint of endpoints) {
     if (ids.has(endpoint.id)) {

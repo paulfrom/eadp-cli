@@ -7,6 +7,7 @@ import {
   PermissionClient,
   type PermissionRecord
 } from "../permission/client.js";
+import { assertTenantScope } from "../tenant.js";
 
 interface CommonOptions {
   env?: string;
@@ -1011,6 +1012,7 @@ async function createContext(store: ConfigStore, options: CommonOptions): Promis
   client: PermissionClient;
 }> {
   const resolved = resolveEnvironment(await store.load(), options.env);
+  assertTenantScope(resolved.config.tenantCode, "non-global", resolved.name);
   return {
     environment: resolved.name,
     client: new PermissionClient({

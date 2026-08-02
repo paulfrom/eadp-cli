@@ -27,6 +27,22 @@ afterEach(async () => {
 });
 
 describe("permission 命令", () => {
+  it("global 环境不能执行权限查询或配置", async () => {
+    const { store } = await createFixtureServer((_request, response) =>
+      respond(response, undefined, 404)
+    );
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["permission", "verify", "--user", "lin", "--json"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用非 global 租户");
+  });
+
   it("functional inspect 汇总功能权限配置并按角色读取授权树", async () => {
     const requestedPaths: string[] = [];
     const { store } = await createFixtureServer((request, response) => {
@@ -727,7 +743,8 @@ async function createFixtureServer(
     environments: {
       dev: {
         baseUrl: `http://127.0.0.1:${address.port}`,
-        token: "secret"
+        token: "secret",
+        tenantCode: "tenant-a"
       }
     }
   });

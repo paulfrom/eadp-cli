@@ -9,6 +9,7 @@ import {
   type ResourceRecord
 } from "../resource/client.js";
 import { getResourceSpec, listResourceSpecs, type ResourceSpec } from "../resource/specs.js";
+import { assertPathTenantScope } from "../tenant.js";
 
 interface QueryOptions {
   env?: string;
@@ -79,6 +80,11 @@ export function registerResourceCommands(program: Command, store: ConfigStore): 
     )
     .action(async (resourceName: string, options: QueryOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
+      assertPathTenantScope(
+        resolved.config.tenantCode,
+        `/api-gateway/${options.service}/${resourceName}`,
+        resolved.name
+      );
       const filters = buildFilters(options);
       const client = createClient(resolved, options.service, options.timeout);
       const result = await client.findByPage(resourceName, {
@@ -163,6 +169,7 @@ async function executeSync(
   const config = await store.load();
   const source = resolveEnvironment(config, options.source);
   const target = resolveEnvironment(config, options.target);
+  assertMigrationTenantScope(source, target, spec);
   const sourceClient = createClient(source, spec.service, options.timeout);
   const targetClient = createClient(target, spec.service, options.timeout);
   const filters = buildFilters({
@@ -241,6 +248,16 @@ async function executeSync(
     },
     options.compact
   );
+}
+
+function assertMigrationTenantScope(
+  source: ReturnType<typeof resolveEnvironment>,
+  target: ReturnType<typeof resolveEnvironment>,
+  spec: ResourceSpec
+): void {
+  const resourcePath = `/api-gateway/${spec.service}/${spec.endpoint}`;
+  assertPathTenantScope(source.config.tenantCode, resourcePath, source.name);
+  assertPathTenantScope(target.config.tenantCode, resourcePath, target.name);
 }
 
 function createClient(

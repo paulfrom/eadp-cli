@@ -54,7 +54,8 @@ describe("request 命令", () => {
       environments: {
         dev: {
           baseUrl: `http://127.0.0.1:${address.port}`,
-          token: "secret"
+          token: "secret",
+          tenantCode: "tenant-a"
         }
       }
     });
@@ -65,5 +66,42 @@ describe("request 命令", () => {
     );
 
     expect(JSON.parse(capturedBody)).toEqual({ name: "岗位类别" });
+  });
+
+  it("非 global 环境不能通过通用 request 绕过功能项的 global 限制", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"success":true}');
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("测试服务器启动失败");
+    }
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-request-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(join(directory, "config"));
+    await store.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: {
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          token: "secret",
+          tenantCode: "tenant-a"
+        }
+      }
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["request", "GET", "/api-gateway/sei-basic/feature/findByPage"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用 global 租户");
+    expect(requestCount).toBe(0);
   });
 });

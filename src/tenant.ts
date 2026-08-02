@@ -1,0 +1,85 @@
+import { CliError } from "./errors.js";
+import { sendRequest } from "./http/client.js";
+
+export type TenantScope = "global" | "non-global";
+
+const GLOBAL_RESOURCE_SEGMENTS = new Set([
+  "feature",
+  "menu",
+  "serialnumberconfig"
+]);
+
+/**
+ * Validate the token against the current environment and return its tenant code.
+ * The caller must persist the token only after this request succeeds.
+ */
+export async function fetchTenantCode(options: {
+  baseUrl: string;
+  token: string;
+  timeoutMs?: number;
+}): Promise<string> {
+  const result = await sendRequest({
+    baseUrl: options.baseUrl,
+    token: options.token,
+    method: "GET",
+    path: "/api-gateway/sei-basic/account/getByApiKey",
+    query: { apiKey: [options.token] },
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+  });
+  const envelope = result.data;
+  const data = isRecord(envelope) ? envelope.data : undefined;
+  const tenantCode = isRecord(data) ? data.tenantCode : undefined;
+  if (typeof tenantCode !== "string" || tenantCode.trim() === "") {
+    throw new CliError("account/getByApiKey 未返回有效 tenantCode");
+  }
+  return tenantCode.trim();
+}
+
+export function scopeForPath(path: string): TenantScope {
+  const segments = path
+    .split(/[?#]/, 1)[0]!
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => segment.toLocaleLowerCase());
+  return segments.some((segment) => GLOBAL_RESOURCE_SEGMENTS.has(segment))
+    ? "global"
+    : "non-global";
+}
+
+export function assertTenantScope(
+  tenantCode: string | undefined,
+  requiredScope: TenantScope,
+  environmentName?: string
+): void {
+  if (!tenantCode) {
+    throw new CliError(
+      `环境${environmentName ? ` ${environmentName}` : ""} 未记录 tenantCode，请重新执行 env add 验证 Token`
+    );
+  }
+
+  const actualScope = tenantCode === "global" ? "global" : "non-global";
+  if (actualScope === requiredScope) {
+    return;
+  }
+
+  if (requiredScope === "global") {
+    throw new CliError(
+      `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 ${tenantCode}，功能项、菜单和给号配置操作必须使用 global 租户`
+    );
+  }
+  throw new CliError(
+    `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 global，该操作必须使用非 global 租户`
+  );
+}
+
+export function assertPathTenantScope(
+  tenantCode: string | undefined,
+  path: string,
+  environmentName?: string
+): void {
+  assertTenantScope(tenantCode, scopeForPath(path), environmentName);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

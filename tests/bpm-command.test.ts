@@ -47,7 +47,8 @@ describe("bpm configure", () => {
       environments: {
         dev: {
           baseUrl: `http://127.0.0.1:${address.port}`,
-          token: "secret"
+          token: "secret",
+          tenantCode: "tenant-a"
         }
       }
     });
@@ -71,6 +72,48 @@ describe("bpm configure", () => {
     expect(state.flowTypes).toHaveLength(1);
     expect(state.pageRelations.get("entity-1")).toHaveLength(3);
     expect(state.interfaceRelations.get("entity-1")).toHaveLength(4);
+  });
+
+  it("global 环境不能执行 BPM 配置", async () => {
+    const project = await createProjectFixture();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ success: true, data: {} }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("测试服务器启动失败");
+    }
+
+    const configDirectory = await mkdtemp(join(tmpdir(), "eadp-bpm-config-"));
+    temporaryDirectories.push(configDirectory);
+    const store = new ConfigStore(configDirectory);
+    await store.save({
+      currentEnvironment: "global",
+      environments: {
+        global: {
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          token: "secret",
+          tenantCode: "global"
+        }
+      }
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "bpm",
+          "configure",
+          "--project",
+          project,
+          "--flow",
+          "TBS_PROJECT"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用非 global 租户");
   });
 });
 

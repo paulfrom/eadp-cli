@@ -15,6 +15,9 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 4. Add `--json` to commands whose output will be interpreted.
 5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
 
+`env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
+re-run `eadp env add` for that environment; do not infer it or edit the config directly.
+
 Do not use raw `eadp request` when a dedicated `resource` or `permission` command covers the operation.
 
 ## Resolve parameters before asking the user or acting
@@ -66,6 +69,13 @@ Load only the selected workflow unless the request combines workflows.
 - Resolve every missing or ambiguous parameter through the read-only procedure above before requesting user input.
 - For a person, prefer employee number. Permit exact employee name only when it resolves to one employee; never choose among duplicates.
 - For cross-environment operations, preserve source/target direction exactly as requested.
+- Use a `global` environment only for feature, menu, and serial-number configuration queries or writes.
+  Use a non-`global` environment for permission and position configuration/assignment, user queries,
+  BPM configuration, and all other operations. The generic `request` and `api call` commands enforce
+  the same path policy and must not be used to bypass it.
+- When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and
+  records the returned `tenantCode`. If validation fails, the new Token is not saved; stop and report
+  the failure without retrying.
 - Preview every write first. Show the planned create, update, grant, or revoke set.
 - Execute only after the user has authorized the write or explicitly requested completion.
 - Never pass `--apply` during exploration or when identity/dependency resolution is ambiguous.

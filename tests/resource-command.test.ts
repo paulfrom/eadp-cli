@@ -254,6 +254,68 @@ describe("resource commands", () => {
       appModuleId: "target-app-id"
     });
   });
+
+  it("迁移前先校验源和目标租户，任一不满足时不发起远程请求", async () => {
+    let sourceRequestCount = 0;
+    let targetRequestCount = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => {
+        sourceRequestCount += 1;
+        respond(response, { rows: [], total: 0 });
+      },
+      target: (_request, response) => {
+        targetRequestCount += 1;
+        respond(response, { rows: [], total: 0 });
+      }
+    });
+
+    await store.update((config) => {
+      config.environments.target!.tenantCode = "tenant-a";
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "resource",
+          "sync",
+          "feature",
+          "--source",
+          "source",
+          "--target",
+          "target",
+          "--json"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用 global 租户");
+    expect(sourceRequestCount).toBe(0);
+    expect(targetRequestCount).toBe(0);
+
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "tenant-a";
+      config.environments.target!.tenantCode = "global";
+    });
+    sourceRequestCount = 0;
+    targetRequestCount = 0;
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "resource",
+          "diff",
+          "feature",
+          "--source",
+          "source",
+          "--target",
+          "target",
+          "--json"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用 global 租户");
+    expect(sourceRequestCount).toBe(0);
+    expect(targetRequestCount).toBe(0);
+  });
 });
 
 async function createFixtureServer(
@@ -279,8 +341,8 @@ async function createFixtureServer(
   await store.save({
     currentEnvironment: "source",
     environments: {
-      source: { baseUrl: urls.source!, token: "source-secret" },
-      target: { baseUrl: urls.target!, token: "target-secret" }
+      source: { baseUrl: urls.source!, token: "source-secret", tenantCode: "global" },
+      target: { baseUrl: urls.target!, token: "target-secret", tenantCode: "global" }
     }
   });
   return { store };

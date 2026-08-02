@@ -1,0 +1,259 @@
+- id: resource-find-by-page
+  name: resource.findByPage
+  domain: organization
+  title: 查询组织、岗位和员工
+  description: resource query 使用的只读分页请求；通过资源名查询组织机构、岗位或员工。
+  method: POST
+  path: /api-gateway/{service}/{resource}/findByPage
+  permission: read
+  risk: low
+  callable: false
+  source: src/resource/client.ts
+  resourceExamples:
+    - sei-basic/organization
+    - sei-basic/position
+    - sei-basic/employee
+  requestSchema:
+    type: object
+    additionalProperties: true
+    required:
+      - pageInfo
+      - filters
+      - sortOrders
+    properties:
+      pageInfo:
+        type: object
+        required:
+          - page
+          - rows
+      filters:
+        type: array
+      sortOrders:
+        type: array
+      quickSearchValue:
+        type: string
+      quickSearchProperties:
+        type: array
+
+- id: permission-employee-by-code
+  name: permission.employee.findByCode
+  domain: organization
+  title: 按员工号查询员工
+  description: 根据员工编码查询员工，用于权限主体解析。
+  method: GET
+  path: /api-gateway/sei-basic/employee/findByCode
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: code
+      required: true
+      description: 员工编码
+
+- id: permission-employee-quick-search
+  name: permission.employee.quickSearch
+  domain: organization
+  title: 按姓名或员工号快速查询员工
+  description: 权限命令解析员工姓名或编码时使用的只读查询。
+  method: POST
+  path: /api-gateway/sei-basic/employee/quickSearch
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  requestSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - quickSearchValue
+      - pageInfo
+      - filters
+      - sortOrders
+    properties:
+      quickSearchValue:
+        type: string
+      pageInfo:
+        type: object
+        required:
+          - page
+          - rows
+      filters:
+        type: array
+      sortOrders:
+        type: array
+
+- id: permission-feature-roles-by-account
+  name: permission.user.getFeatureRolesByAccount
+  domain: user
+  title: 查询用户功能角色
+  description: 按用户账号查询功能角色，菜单权限判断使用该结果。
+  method: GET
+  path: /api-gateway/sei-basic/user/getFeatureRolesByAccount
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: account
+      required: true
+      description: 用户账号
+    - name: includeProject
+      required: true
+      description: 是否包含项目角色；CLI 固定传 true
+      example: true
+
+- id: permission-data-roles-by-account
+  name: permission.user.getDataRolesByAccount
+  domain: user
+  title: 查询用户数据角色
+  description: 按用户账号查询数据角色。
+  method: GET
+  path: /api-gateway/sei-basic/user/getDataRolesByAccount
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: account
+      required: true
+      description: 用户账号
+    - name: includeProject
+      required: true
+      description: 是否包含项目角色；CLI 固定传 true
+      example: true
+
+- id: permission-check-user-features
+  name: permission.user.checkUserFeaturesAuthority
+  domain: user
+  title: 校验用户功能权限
+  description: 批量判断用户是否拥有指定功能编码。
+  method: POST
+  path: /api-gateway/sei-basic/user/checkUserFeaturesAuthority
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  requestSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - userId
+      - featureCodes
+    properties:
+      userId:
+        type: string
+      featureCodes:
+        type: array
+        minItems: 1
+        items:
+          type: string
+
+- id: permission-authorized-entities
+  name: permission.user.getNormalUserAuthorizedEntities
+  domain: user
+  title: 查询用户数据权限实体
+  description: 查询用户在指定业务实体和功能范围下可访问的实体 ID。
+  method: GET
+  path: /api-gateway/sei-basic/user/getNormalUserAuthorizedEntities
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: userId
+      required: true
+      description: 用户 ID
+    - name: entityClassName
+      required: true
+      description: 业务实体完整类名
+    - name: featureCode
+      required: true
+      description: 功能编码；CLI 未提供时传空字符串
+      example: ""
+    - name: parentEntityId
+      required: true
+      description: 父实体 ID；CLI 未提供时传 none
+      example: none
+
+- id: permission-menu-tree
+  name: permission.menu.getMenuTree
+  domain: permission
+  title: 查询菜单树
+  description: 查询基础服务菜单树，用于按菜单代码、名称或路径解析菜单。
+  method: GET
+  path: /api-gateway/sei-basic/menu/getMenuTree
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+
+- id: permission-role-menu-feature-tree
+  name: permission.featureRoleFeature.getMenuFeatureTree
+  domain: permission
+  title: 查询功能角色菜单功能树
+  description: 查询指定功能角色关联的菜单和功能项，用于判断目录自身及子级功能权限。
+  method: GET
+  path: /api-gateway/sei-basic/featureRoleFeature/getMenuFeatureTree
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: featureRoleId
+      required: true
+      description: 功能角色 ID
+
+- id: permission-authorized-menu-roots
+  name: permission.featureRoleFeature.getAuthorizedMenuRootNodes
+  domain: permission
+  title: 查询功能角色已授权菜单根节点
+  description: 查询指定功能角色已经授权的菜单根节点。
+  method: GET
+  path: /api-gateway/sei-basic/featureRoleFeature/getAuthorizedMenuRootNodes
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: featureRoleId
+      required: true
+      description: 功能角色 ID
+
+- id: permission-feature-role-by-code
+  name: permission.featureRole.findByCode
+  domain: permission
+  title: 按编码查询功能角色
+  description: 根据功能角色编码解析功能角色 ID，供权限核查使用。
+  method: GET
+  path: /api-gateway/sei-basic/featureRole/findByCode
+  permission: read
+  risk: low
+  source: src/permission/client.ts
+  queryParameters:
+    - name: code
+      required: true
+      description: 功能角色编码
+
+- id: bpm-find-by-page
+  name: bpm.findByPage
+  domain: bpm
+  title: BPM 资源分页查询
+  description: BPM inspect 使用的只读查询请求，仅登记查询能力，不登记保存和关系写入接口。
+  method: POST
+  path: /api-gateway/sei-bpm/{resource}/findByPage
+  permission: read
+  risk: low
+  callable: false
+  source: src/bpm/client.ts
+  resourceExamples:
+    - conBusinessModule
+    - conBusinessEntity
+    - conPage
+    - conInterface
+    - conFlowType
+  requestSchema:
+    type: object
+    additionalProperties: true
+    required:
+      - pageInfo
+      - filters
+    properties:
+      pageInfo:
+        type: object
+        required:
+          - page
+          - rows
+      filters:
+        type: array

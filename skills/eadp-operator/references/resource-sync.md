@@ -11,7 +11,9 @@ Use this workflow for requests such as:
 2. Confirm the source and target environment names are distinct.
 3. Confirm the requested resource is listed as a registered sync resource.
 4. Resolve “新增” to an explicit creation month or range.
-5. Never use arbitrary API calls to imitate synchronization for an unregistered resource.
+5. Before reading either environment, confirm both environments satisfy the resource's tenant
+   scope. Stop immediately if either tenant is invalid; do not read migration data or write the target.
+6. Never use arbitrary API calls to imitate synchronization for an unregistered resource.
 
 ## Compare first
 

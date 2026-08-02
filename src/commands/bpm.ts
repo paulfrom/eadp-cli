@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { BpmClient } from "../bpm/client.js";
 import { configureBpmProject } from "../bpm/configure.js";
 import { discoverBpmProject, selectBpmFlow } from "../bpm/discovery.js";
+import { assertTenantScope } from "../tenant.js";
 import type { ConfigStore } from "../config/store.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { printValue } from "../io.js";
@@ -69,9 +70,10 @@ export function registerBpmCommands(program: Command, store: ConfigStore): void 
 安全规则：按业务代码和 URL 查重；已有配置复用，缺失项创建，关系只补差集，最后回查验证。`
     )
     .action(async (options: ConfigureOptions) => {
+      const resolved = resolveEnvironment(await store.load(), options.env);
+      assertTenantScope(resolved.config.tenantCode, "non-global", resolved.name);
       const definition = await discoverBpmProject(options.project);
       const flow = selectBpmFlow(definition, options.flow);
-      const resolved = resolveEnvironment(await store.load(), options.env);
       const timeoutMs = Number(options.timeout);
       const client = new BpmClient({
         baseUrl: resolved.config.baseUrl,

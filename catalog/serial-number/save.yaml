@@ -1,4 +1,5 @@
 id: serial-number-config-save
+name: serialNumberConfig.save
 domain: serial-number
 title: 保存给号服务配置
 description: 新增或更新实体的流水号与编码生成规则
