@@ -9,6 +9,9 @@ const environment = {
   ...process.env,
   EADP_CONFIG_DIR: configurationDirectory,
   CODEX_HOME: join(configurationDirectory, "codex"),
+  WORKBUDDY_HOME: join(configurationDirectory, "workbuddy"),
+  CLAUDE_HOME: join(configurationDirectory, "claude"),
+  QODER_HOME: join(configurationDirectory, "qoder"),
   EADP_SMOKE_TOKEN: "smoke-secret"
 };
 const smokeServer = await startSmokeServer();
@@ -25,20 +28,38 @@ try {
     "EADP_SMOKE_TOKEN",
     "--default"
   ]);
+  run([
+    "env",
+    "add",
+    "disposable",
+    "--url",
+    smokeBaseUrl,
+    "--token-env",
+    "EADP_SMOKE_TOKEN"
+  ]);
+  const environmentRemove = run(["env", "remove", "disposable"]);
 
   const environments = run(["env", "list"]);
   const rootHelp = run(["--help"]);
-  const catalog = run(["api", "list", "--domain", "serial-number"]);
-  const bpmHelp = run(["bpm", "--help"]);
-  const permissionHelp = run(["permission", "--help"]);
-  const functionalPermissionHelp = run(["permission", "functional", "--help"]);
-  const dataPermissionHelp = run(["permission", "data", "--help"]);
-  const principalPermissionHelp = run(["permission", "principal", "--help"]);
+  const catalog = run(["inspect", "api", "--domain", "serial-number"]);
+  const bpmHelp = run(["inspect", "bpm", "--help"]);
+  const permissionHelp = run(["inspect", "permission", "--help"]);
+  const functionalPermissionHelp = run([
+    "inspect",
+    "permission",
+    "functional",
+    "--help"
+  ]);
+  const dataPermissionHelp = run(["inspect", "permission", "data", "--help"]);
+  const functionalRoleHelp = run(["apply", "functional-role", "--help"]);
+  const dataRoleHelp = run(["apply", "data-role", "--help"]);
+  const assignRoleHelp = run(["assign", "role", "--help"]);
+  const revokeRoleHelp = run(["revoke", "role", "--help"]);
+  const verifyHelp = run(["verify", "--help"]);
   const skillHelp = run(["skill", "--help"]);
   const skillInstall = run(["skill", "install"]);
   const skillUpgrade = run(["skill", "upgrade"]);
   const dryRun = run([
-    "api",
     "call",
     "serial-number-config-save",
     "--env",
@@ -77,11 +98,17 @@ try {
   if (!catalog.includes("serial-number-config-save")) {
     throw new Error("接口目录烟雾测试失败");
   }
-  if (!rootHelp.includes("update")) {
-    throw new Error("CLI update 命令帮助烟雾测试失败");
+  if (
+    ["inspect", "query", "call", "apply", "assign", "revoke", "sync", "verify"].some(
+      (command) => !rootHelp.includes(command)
+    ) ||
+    !rootHelp.includes("--timeout <ms>") ||
+    !rootHelp.includes("--compact")
+  ) {
+    throw new Error("统一命令树帮助烟雾测试失败");
   }
   if (
-    !bpmHelp.includes("全新上下文推荐流程") ||
+    !bpmHelp.includes("从真实项目代码发现有业务实现的 BPM 流程") ||
     !bpmHelp.includes("项目无需 YAML")
   ) {
     throw new Error("BPM 自发现帮助烟雾测试失败");
@@ -89,23 +116,36 @@ try {
   if (
     !permissionHelp.includes("functional") ||
     !permissionHelp.includes("data") ||
-    !permissionHelp.includes("verify") ||
-    !functionalPermissionHelp.includes("inspect") ||
-    !functionalPermissionHelp.includes("apply") ||
-    !functionalPermissionHelp.includes("assign") ||
-    !dataPermissionHelp.includes("apply") ||
-    !dataPermissionHelp.includes("assign") ||
-    !principalPermissionHelp.includes("assign")
+    !functionalPermissionHelp.includes("汇总应用、功能项、菜单、角色组和功能角色") ||
+    !dataPermissionHelp.includes("数据角色") ||
+    !functionalRoleHelp.includes("功能角色代码") ||
+    !dataRoleHelp.includes("数据角色代码") ||
+    !assignRoleHelp.includes("授权主体类型") ||
+    !revokeRoleHelp.includes("授权主体类型") ||
+    !verifyHelp.includes("--employee-code")
   ) {
     throw new Error("权限命令帮助烟雾测试失败");
   }
   if (
     !skillHelp.includes("install") ||
     !skillHelp.includes("upgrade") ||
+    !skillHelp.includes("WorkBuddy") ||
     !skillInstall.includes('"operation": "install"') ||
-    !skillUpgrade.includes('"operation": "upgrade"')
+    !skillInstall.includes('"host": "workbuddy"') ||
+    !skillInstall.includes('"host": "claude"') ||
+    !skillInstall.includes('"host": "qoder"') ||
+    !skillUpgrade.includes('"operation": "upgrade"') ||
+    !skillUpgrade.includes('"host": "workbuddy"') ||
+    !skillUpgrade.includes('"host": "claude"') ||
+    !skillUpgrade.includes('"host": "qoder"')
   ) {
     throw new Error("Skill 安装和升级烟雾测试失败");
+  }
+  if (
+    !environmentRemove.includes('"removedEnvironment": "disposable"') ||
+    environments.includes('"name": "disposable"')
+  ) {
+    throw new Error("环境移除烟雾测试失败");
   }
   if (!dryRun.includes('"x-api-token": "***"')) {
     throw new Error("Dry Run 未正确脱敏 Token");
@@ -120,10 +160,14 @@ try {
         success: true,
         environment: "dev",
         defaultEnvironment: "dev",
+        environmentRemovable: true,
         catalog: "serial-number",
         bpmDiscoverable: true,
         permissionDiscoverable: true,
         skillInstallable: true,
+        workbuddyInstallable: true,
+        claudeInstallable: true,
+        qoderInstallable: true,
         tokenMasked: true
       },
       null,

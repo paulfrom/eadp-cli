@@ -1,4 +1,4 @@
-import { Command, Option } from "commander";
+import { Option, type Command } from "commander";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError } from "../errors.js";
@@ -9,20 +9,21 @@ import {
   type ResourceRecord
 } from "../resource/client.js";
 import { getResourceSpec, listResourceSpecs, type ResourceSpec } from "../resource/specs.js";
+import { getRuntimeOptions, type RuntimeOptions } from "../runtime-options.js";
 import { assertPathTenantScope } from "../tenant.js";
+import type { VerbCommands } from "./verbs.js";
 
 interface QueryOptions {
   env?: string;
   service: string;
+  entityClass?: string;
+  configType?: string;
   createdIn?: string;
   from?: string;
   to?: string;
   timeField: string;
   filter: string[];
   quick?: string;
-  timeout: string;
-  json?: boolean;
-  compact?: boolean;
 }
 
 interface SyncOptions {
@@ -32,31 +33,49 @@ interface SyncOptions {
   from?: string;
   to?: string;
   timeField: string;
-  timeout: string;
   apply?: boolean;
-  json?: boolean;
-  compact?: boolean;
 }
 
-export function registerResourceCommands(program: Command, store: ConfigStore): void {
-  const resource = program
+export function registerResourceCommands(
+  commands: Pick<VerbCommands, "inspect" | "query" | "sync">,
+  store: ConfigStore,
+  root: Command
+): void {
+  commands.inspect
     .command("resource")
-    .description("按时间和过滤条件查询资源，并在环境间预览或同步注册资源")
-    .addHelpText(
-      "after",
-      `
-查询支持任意具有 findByPage 接口的资源；同步需要注册字段与依赖映射。
-当前可同步资源：${listResourceSpecs().join(", ")}
+    .description("查看已注册的跨环境同步资源类型")
+    .argument("[resource]", "注册资源名；省略时列出全部")
+    .action((resourceName?: string) => {
+      if (!resourceName) {
+        printValue(
+          {
+            kind: "eadp.resource.catalog.v1",
+            resources: listResourceSpecs()
+          },
+          getRuntimeOptions(root).compact
+        );
+        return;
+      }
+      const spec = getResourceSpec(resourceName);
+      printValue(
+        {
+          kind: "eadp.resource.catalog.v1",
+          resource: resourceName,
+          service: spec.service,
+          endpoint: spec.endpoint,
+          identityField: spec.identityField,
+          writableFields: spec.writableFields
+        },
+        getRuntimeOptions(root).compact
+      );
+    });
 
-安全规则：sync 默认只输出差异；只有提供 --apply 才会写入目标环境。`
-    );
-
-  resource
-    .command("query")
-    .description("查询一个环境中的资源")
+  commands.query
     .argument("<resource>", "资源接口名，例如 feature、dataRole")
     .option("--env <name>", "环境名称；默认使用当前环境")
     .option("--service <name>", "网关服务名", "sei-basic")
+    .option("--entity-class <name>", "给号配置实体完整类名；仅用于 serialNumberConfig")
+    .option("--config-type <type>", "给号配置类型；serialNumberConfig 默认为 CODE_TYPE")
     .option("--created-in <yyyy-mm>", "按创建月份查询")
     .option("--from <datetime>", "起始时间，包含")
     .option("--to <datetime>", "结束时间，不包含")
@@ -67,16 +86,13 @@ export function registerResourceCommands(program: Command, store: ConfigStore): 
         .argParser(collect)
     )
     .option("--quick <text>", "快速查询文本")
-    .option("--timeout <ms>", "单次请求超时", "30000")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp resource query feature --env dev --created-in 2026-07 --json
-  eadp resource query feature --env dev \\
-    --filter appModuleCode:EQ:BASIC --filter canMenu:EQ:true --json`
+  eadp query feature --env dev --created-in 2026-07
+  eadp query feature --env dev --filter appModuleCode:EQ:BASIC
+  eadp query serialNumberConfig --env global --entity-class com.example.Order`
     )
     .action(async (resourceName: string, options: QueryOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
@@ -85,12 +101,34 @@ export function registerResourceCommands(program: Command, store: ConfigStore): 
         `/api-gateway/${options.service}/${resourceName}`,
         resolved.name
       );
+      const runtime = getRuntimeOptions(root);
+      const serialQuery = resourceName.toLocaleLowerCase() === "serialnumberconfig";
+      if (!serialQuery && (options.entityClass || options.configType)) {
+        throw new CliError("--entity-class 和 --config-type 仅适用于 serialNumberConfig");
+      }
       const filters = buildFilters(options);
-      const client = createClient(resolved, options.service, options.timeout);
+      if (serialQuery) {
+        if (options.entityClass) {
+          filters.push({
+            fieldName: "entityClassName",
+            operator: "EQ",
+            value: options.entityClass
+          });
+        }
+        filters.push({
+          fieldName: "configType",
+          operator: "EQ",
+          value: options.configType ?? "CODE_TYPE"
+        });
+      }
+      const client = createClient(resolved, options.service, runtime.timeoutMs);
       const result = await client.findByPage(resourceName, {
         filters,
         ...(options.quick === undefined ? {} : { quickSearchValue: options.quick })
       });
+      const identity = serialQuery
+        ? validateSerialNumberIdentity(result.rows, options.entityClass)
+        : undefined;
       printValue(
         {
           kind: "eadp.resource.query.v1",
@@ -99,29 +137,14 @@ export function registerResourceCommands(program: Command, store: ConfigStore): 
           resource: resourceName,
           filters,
           total: result.total,
-          items: result.rows
+          items: result.rows,
+          ...(identity === undefined ? {} : { identity })
         },
-        options.compact
+        runtime.compact
       );
     });
 
-  registerSyncLike(resource, store, "diff", false);
-  registerSyncLike(resource, store, "sync", true);
-}
-
-function registerSyncLike(
-  resource: Command,
-  store: ConfigStore,
-  commandName: "diff" | "sync",
-  allowApply: boolean
-): void {
-  const command = resource
-    .command(commandName)
-    .description(
-      commandName === "diff"
-        ? "比较源环境与目标环境中的注册资源"
-        : "预览或执行注册资源的跨环境同步"
-    )
+  commands.sync
     .argument("<resource>", "注册资源名")
     .requiredOption("--source <env>", "源环境名称")
     .requiredOption("--target <env>", "目标环境名称")
@@ -129,38 +152,26 @@ function registerSyncLike(
     .option("--from <datetime>", "源资源起始时间，包含")
     .option("--to <datetime>", "源资源结束时间，不包含")
     .option("--time-field <name>", "时间字段", "createdDate")
-    .option("--timeout <ms>", "单次请求超时", "30000")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON");
-  if (allowApply) {
-    command.option("--apply", "执行目标环境写入；默认只预览");
-  }
-  command
+    .option("--apply", "执行目标环境写入；默认只预览")
     .addHelpText(
       "after",
       `
 示例：
-  eadp resource ${commandName} feature --source dev --target test \\
-    --created-in 2026-07 --json${
-      allowApply
-        ? `
-  eadp resource sync feature --source dev --target test \\
-    --created-in 2026-07 --apply --json`
-        : ""
-    }`
+  eadp sync feature --source dev --target test --created-in 2026-07
+  eadp sync feature --source dev --target test --created-in 2026-07 --apply
+
+执行前会校验源、目标环境的租户条件；任一环境不满足时不会读取迁移数据。`
     )
     .action(async (resourceName: string, options: SyncOptions) => {
-      await executeSync(store, resourceName, {
-        ...options,
-        apply: allowApply && options.apply === true
-      });
+      await executeSync(store, resourceName, options, getRuntimeOptions(root));
     });
 }
 
 async function executeSync(
   store: ConfigStore,
   resourceName: string,
-  options: SyncOptions
+  options: SyncOptions,
+  runtime: RuntimeOptions
 ): Promise<void> {
   if (options.source === options.target) {
     throw new CliError("源环境和目标环境不能相同");
@@ -170,12 +181,10 @@ async function executeSync(
   const source = resolveEnvironment(config, options.source);
   const target = resolveEnvironment(config, options.target);
   assertMigrationTenantScope(source, target, spec);
-  const sourceClient = createClient(source, spec.service, options.timeout);
-  const targetClient = createClient(target, spec.service, options.timeout);
+  const sourceClient = createClient(source, spec.service, runtime.timeoutMs);
+  const targetClient = createClient(target, spec.service, runtime.timeoutMs);
   const filters = buildFilters({
-    ...(options.createdIn === undefined
-      ? {}
-      : { createdIn: options.createdIn }),
+    ...(options.createdIn === undefined ? {} : { createdIn: options.createdIn }),
     ...(options.from === undefined ? {} : { from: options.from }),
     ...(options.to === undefined ? {} : { to: options.to }),
     timeField: options.timeField,
@@ -246,7 +255,7 @@ async function executeSync(
       changes,
       verified
     },
-    options.compact
+    runtime.compact
   );
 }
 
@@ -263,21 +272,54 @@ function assertMigrationTenantScope(
 function createClient(
   environment: ReturnType<typeof resolveEnvironment>,
   service: string,
-  timeout: string
+  timeoutMs: number
 ): ResourceClient {
   return new ResourceClient({
     baseUrl: environment.config.baseUrl,
     token: environment.token,
     service,
-    timeoutMs: parseTimeout(timeout)
+    timeoutMs
   });
 }
 
+function validateSerialNumberIdentity(
+  rows: ResourceRecord[],
+  selectedEntityClass?: string
+):
+  | {
+      field: "entityClassName";
+      value: string;
+      exists: boolean;
+      unique: true;
+    }
+  | undefined {
+  const groups = new Map<string, ResourceRecord[]>();
+  for (const row of rows) {
+    const value = row.entityClassName;
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new CliError("给号配置缺少有效 entityClassName");
+    }
+    const key = value.trim().toLocaleLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const duplicate = [...groups.values()].find((records) => records.length > 1);
+  if (duplicate) {
+    throw new CliError(
+      `给号配置 entityClassName 不唯一：${String(duplicate[0]!.entityClassName)}（匹配 ${duplicate.length} 条）`
+    );
+  }
+  return selectedEntityClass
+    ? {
+        field: "entityClassName",
+        value: selectedEntityClass,
+        exists: rows.length === 1,
+        unique: true
+      }
+    : undefined;
+}
+
 function buildFilters(
-  options: Pick<
-    QueryOptions,
-    "createdIn" | "from" | "to" | "timeField" | "filter"
-  >
+  options: Pick<QueryOptions, "createdIn" | "from" | "to" | "timeField" | "filter">
 ): ResourceFilter[] {
   if (options.createdIn && (options.from || options.to)) {
     throw new CliError("--created-in 不能与 --from 或 --to 同时使用");
@@ -291,18 +333,10 @@ function buildFilters(
     );
   } else {
     if (options.from) {
-      filters.push({
-        fieldName: options.timeField,
-        operator: "GE",
-        value: options.from
-      });
+      filters.push({ fieldName: options.timeField, operator: "GE", value: options.from });
     }
     if (options.to) {
-      filters.push({
-        fieldName: options.timeField,
-        operator: "LT",
-        value: options.to
-      });
+      filters.push({ fieldName: options.timeField, operator: "LT", value: options.to });
     }
   }
   return filters;
@@ -326,9 +360,7 @@ function parseScalar(source: string): unknown {
   if (source === "false") return false;
   if (source === "null") return null;
   const numberValue = Number(source);
-  return source.trim() !== "" && Number.isFinite(numberValue)
-    ? numberValue
-    : source;
+  return source.trim() !== "" && Number.isFinite(numberValue) ? numberValue : source;
 }
 
 function monthRange(source: string): { from: string; to: string } {
@@ -362,10 +394,7 @@ function findByIdentity(
   const normalized = value.toLocaleLowerCase();
   const matches = records.filter((record) => {
     const candidate = record[spec.identityField];
-    return (
-      typeof candidate === "string" &&
-      candidate.toLocaleLowerCase() === normalized
-    );
+    return typeof candidate === "string" && candidate.toLocaleLowerCase() === normalized;
   });
   if (matches.length > 1) {
     throw new CliError(`目标环境业务唯一键重复：${spec.identityField}=${value}`);
@@ -384,14 +413,6 @@ function diffFields(
   return fields.filter(
     (field) => JSON.stringify(before[field]) !== JSON.stringify(desired[field])
   );
-}
-
-function parseTimeout(source: string): number {
-  const timeoutMs = Number(source);
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new CliError(`超时时间无效：${source}`);
-  }
-  return timeoutMs;
 }
 
 function collect(value: string, previous: string[]): string[] {

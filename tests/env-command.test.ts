@@ -81,6 +81,75 @@ describe("env add", () => {
       tenantCode: "tenant-a"
     });
   });
+
+  it("租户接口 success=false 时即使携带 tenantCode 也不保存环境", async () => {
+    const baseUrl = await startTenantServer();
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-envelope-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["env", "add", "dev", "--url", baseUrl, "--token", "failed-envelope"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("EADP 请求失败：invalid token");
+
+    expect((await store.load()).environments).not.toHaveProperty("dev");
+  });
+
+  it("移除环境，并在移除默认环境时清空默认值", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-remove-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: {
+          baseUrl: "http://dev.example.com",
+          token: "dev-token",
+          tenantCode: "tenant-a"
+        },
+        test: {
+          baseUrl: "http://test.example.com",
+          token: "test-token",
+          tenantCode: "tenant-b"
+        }
+      }
+    });
+
+    await createProgram(store).parseAsync(["env", "remove", "dev"], {
+      from: "user"
+    });
+
+    const config = await store.load();
+    expect(config.environments).not.toHaveProperty("dev");
+    expect(config.environments).toHaveProperty("test");
+    expect(config.currentEnvironment).toBeUndefined();
+  });
+
+  it("拒绝移除不存在的环境且不修改配置", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-remove-missing-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: {
+          baseUrl: "http://dev.example.com",
+          token: "dev-token",
+          tenantCode: "tenant-a"
+        }
+      }
+    });
+
+    await expect(
+      createProgram(store).parseAsync(["env", "remove", "missing"], {
+        from: "user"
+      })
+    ).rejects.toThrow("环境不存在：missing");
+    expect((await store.load()).currentEnvironment).toBe("dev");
+  });
 });
 
 async function startTenantServer(): Promise<string> {
@@ -100,6 +169,17 @@ async function startTenantServer(): Promise<string> {
     if (token === "bad-token") {
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ success: false, message: "invalid token" }));
+      return;
+    }
+    if (token === "failed-envelope") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          success: false,
+          message: "invalid token",
+          data: { tenantCode: "must-not-be-used" }
+        })
+      );
       return;
     }
     response.writeHead(200, { "content-type": "application/json" });

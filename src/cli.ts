@@ -7,12 +7,13 @@ import { registerApiCommands } from "./commands/api.js";
 import { registerBpmCommands } from "./commands/bpm.js";
 import { registerEnvironmentCommands } from "./commands/env.js";
 import { registerPermissionCommands } from "./commands/permission.js";
-import { registerRequestCommand } from "./commands/request.js";
 import { registerResourceCommands } from "./commands/resource.js";
 import { registerSkillCommands } from "./commands/skill.js";
 import { registerUpdateCommand } from "./commands/update.js";
+import { registerVerbCommands } from "./commands/verbs.js";
 import { ConfigStore } from "./config/store.js";
 import { CliError, errorMessage } from "./errors.js";
+import { addRuntimeOptions } from "./runtime-options.js";
 import { cliVersion } from "./version.js";
 
 export function createProgram(store = new ConfigStore()): Command {
@@ -23,12 +24,13 @@ export function createProgram(store = new ConfigStore()): Command {
     .version(cliVersion)
     .showHelpAfterError();
 
+  addRuntimeOptions(program);
+  const commands = registerVerbCommands(program);
   registerEnvironmentCommands(program, store);
-  registerRequestCommand(program, store);
-  registerResourceCommands(program, store);
-  registerApiCommands(program, store);
-  registerBpmCommands(program, store);
-  registerPermissionCommands(program, store);
+  registerResourceCommands(commands, store, program);
+  registerApiCommands(commands, store, program);
+  registerBpmCommands(commands, store, program);
+  registerPermissionCommands(commands, store, program);
   registerSkillCommands(program);
   registerUpdateCommand(program);
   return program;

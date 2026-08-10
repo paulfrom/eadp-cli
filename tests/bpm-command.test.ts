@@ -25,8 +25,8 @@ afterEach(async () => {
   );
 });
 
-describe("bpm configure", () => {
-  it("在全新上下文中从项目清单完成幂等基础配置", async () => {
+describe("apply bpm", () => {
+  it("在全新上下文中从项目代码完成幂等基础配置", async () => {
     const project = await createProjectFixture();
     const state = createBpmServerState();
     const server = createServer((request, response) =>
@@ -54,24 +54,24 @@ describe("bpm configure", () => {
     });
 
     const args = [
+      "--compact",
+      "apply",
       "bpm",
-      "configure",
       "--project",
       project,
       "--flow",
-      "TBS_PROJECT",
-      "--apply",
-      "--compact"
+      "com.sdh.tbs.project.entity.Project",
+      "--apply"
     ];
     await createProgram(store).parseAsync(args, { from: "user" });
     await createProgram(store).parseAsync(args, { from: "user" });
 
     expect(state.entities).toHaveLength(1);
-    expect(state.pages).toHaveLength(3);
-    expect(state.interfaces).toHaveLength(4);
+    expect(state.pages).toHaveLength(0);
+    expect(state.interfaces).toHaveLength(2);
     expect(state.flowTypes).toHaveLength(1);
-    expect(state.pageRelations.get("entity-1")).toHaveLength(3);
-    expect(state.interfaceRelations.get("entity-1")).toHaveLength(4);
+    expect(state.pageRelations.get("entity-1") ?? []).toHaveLength(0);
+    expect(state.interfaceRelations.get("entity-1")).toHaveLength(2);
   });
 
   it("global 环境不能执行 BPM 配置", async () => {
@@ -104,12 +104,12 @@ describe("bpm configure", () => {
     await expect(
       createProgram(store).parseAsync(
         [
+          "apply",
           "bpm",
-          "configure",
           "--project",
           project,
           "--flow",
-          "TBS_PROJECT"
+          "com.sdh.tbs.project.entity.Project"
         ],
         { from: "user" }
       )
@@ -240,45 +240,32 @@ async function createProjectFixture(): Promise<string> {
   const project = await mkdtemp(join(tmpdir(), "eadp-bpm-project-"));
   temporaryDirectories.push(project);
   await mkdir(join(project, "backend"), { recursive: true });
-  await mkdir(join(project, "docs", "contracts"), { recursive: true });
   await writeFile(
     join(project, "backend", "settings.gradle"),
     "rootProject.name = 'sdh-tbs'\n",
     "utf8"
   );
-  await writeFile(
-    join(project, "docs", "contracts", "BPM流程配置登记册.md"),
-    `# BPM 流程配置登记册
-
-| 项 | 值 |
-|----|-----|
-| 关联业务模块 | 贸易业务系统 |
-
-## 1. 项目申请
-
-**流程模型**：\`TBS_PROJECT\`
-
-### 业务实体
-| 名称 | 代码 | 接口名 | PC 查看单据 url | 移动端查看单据 url |
-|---|---|---|---|---|
-| 项目申请 | \`com.sdh.tbs.project.entity.Project\` | \`project\` | \`/project/apply/detail\` | |
-
-### 集成接口
-| 名称 | 方法 | 接口类型 |
-|---|---|---|
-| 项目申请-流程启动前事件 | \`project/beforeStartFlow\` | 事件 |
-| 项目申请-流程启动后事件 | \`project/afterStartFlow\` | 事件 |
-| 项目申请-流程结束前事件 | \`project/beforeEndFlow\` | 事件 |
-| 项目申请-流程结束后事件 | \`project/afterEndFlow\` | 事件 |
-
-### 工作页面
-| 名称 | pc 端处理 url |
-|---|---|
-| 项目申请-流程中编辑 | \`/project/apply/approve/edit\` |
-| 项目申请-流程中查看 | \`/project/apply/approve/view\` |
-| 项目申请-已办查看 | \`/project/apply/detail\`（不套流程） |
-`,
-    "utf8"
-  );
+  const javaRoot = join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "project");
+  await mkdir(join(javaRoot, "api"), { recursive: true });
+  await mkdir(join(javaRoot, "entity"), { recursive: true });
+  await mkdir(join(javaRoot, "controller"), { recursive: true });
+  await writeFile(join(javaRoot, "api", "ProjectApi.java"),
+    'package com.sdh.tbs.project.api; public interface ProjectApi { String PATH = "/project"; }', "utf8");
+  await writeFile(join(javaRoot, "entity", "Project.java"),
+    'package com.sdh.tbs.project.entity; public class Project extends BaseFlowEntity {}', "utf8");
+  await writeFile(join(javaRoot, "controller", "ProjectController.java"), `
+package com.sdh.tbs.project.controller;
+import com.sdh.tbs.project.api.ProjectApi;
+import com.sdh.tbs.project.entity.Project;
+@Tag(name = "ProjectApi", description = "项目申请服务")
+@RequestMapping(path = ProjectApi.PATH)
+public class ProjectController extends BaseFlowController<Project, ProjectDto> {
+  public ResultData<Void> beforeStartFlow(BpmInvokeParams params) {
+    return service.validateBeforeStart(params.getBusinessId());
+  }
+  public ResultData<Void> afterEndFlow(BpmInvokeParams params) {
+    return service.afterEndFlow(params);
+  }
+}`, "utf8");
   return project;
 }

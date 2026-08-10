@@ -7,7 +7,7 @@ Use this workflow for requests such as:
 
 ## Preconditions
 
-1. Run `eadp resource --help`.
+1. Run `eadp inspect resource --help` and `eadp sync --help`.
 2. Confirm the source and target environment names are distinct.
 3. Confirm the requested resource is listed as a registered sync resource.
 4. Resolve “新增” to an explicit creation month or range.
@@ -15,12 +15,12 @@ Use this workflow for requests such as:
    scope. Stop immediately if either tenant is invalid; do not read migration data or write the target.
 6. Never use arbitrary API calls to imitate synchronization for an unregistered resource.
 
-## Compare first
+## Compare and preview first
 
 Run:
 
 ```text
-eadp resource diff feature --source A --target B --created-in 2026-07 --json
+eadp sync feature --source A --target B --created-in 2026-07
 ```
 
 Review:
@@ -33,14 +33,6 @@ Review:
 
 If the CLI reports a missing target dependency, stop and report the missing business code. Do not reuse the source ID.
 
-## Preview
-
-Run:
-
-```text
-eadp resource sync feature --source A --target B --created-in 2026-07 --json
-```
-
 The absence of `--apply` is mandatory during planning. Present create/update counts and potentially destructive updates to the user.
 
 ## Apply and verify
@@ -48,7 +40,7 @@ The absence of `--apply` is mandatory during planning. Present create/update cou
 Only after authorization:
 
 ```text
-eadp resource sync feature --source A --target B --created-in 2026-07 --apply --json
+eadp sync feature --source A --target B --created-in 2026-07 --apply
 ```
 
 Require `verified: true`. A result with `applied: false` and all items unchanged is a successful idempotent outcome.

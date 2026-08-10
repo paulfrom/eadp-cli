@@ -1,6 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
-import { parse } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { CliError } from "../errors.js";
 import type {
   BpmBusinessModuleDefinition,
@@ -8,45 +7,44 @@ import type {
   BpmProjectDefinition
 } from "./schema.js";
 
-const REGISTRY_CANDIDATES = [
-  join("docs", "contracts", "BPM流程配置登记册.md"),
-  join("docs", "BPM流程配置登记册.md"),
-  "BPM流程配置登记册.md"
-];
+interface JavaSource {
+  path: string;
+  source: string;
+  packageName?: string;
+  typeName?: string;
+}
+
+const EVENT_NAMES: Record<string, string> = {
+  beforeStartFlow: "流程启动前事件",
+  afterStartFlow: "流程启动后事件",
+  beforeEndFlow: "流程结束前事件",
+  afterEndFlow: "流程结束后事件"
+};
 
 export async function discoverBpmProject(projectInput: string): Promise<BpmProjectDefinition> {
   const projectPath = resolve(projectInput);
   await ensureDirectory(projectPath);
-  const registry = await findReadableFile(
-    REGISTRY_CANDIDATES.map((candidate) => join(projectPath, candidate))
-  );
-  if (!registry) {
+  const javaSources = await readJavaSources(projectPath);
+  const flows = discoverFlows(javaSources);
+  if (flows.length === 0) {
     throw new CliError(
       [
-        "未发现 BPM 配置登记册。",
-        `已检查：${REGISTRY_CANDIDATES.join("、")}`,
-        "真实项目无需 YAML；请提供现有 BPM 登记册，或在登记册缺失时明确业务流程名称。"
+        "未从项目代码中发现包含实际业务逻辑的 BPM 流程。",
+        "识别依据：BaseFlowController 的具体实现、Entity 类型、API PATH，以及真实 BPM 回调或 startDefaultFlow 调用。",
+        "不会读取 BPM流程配置登记册.md，也不会为仅返回成功的空回调生成配置。"
       ].join("\n")
     );
   }
 
-  const markdown = await readFile(registry, "utf8");
   const moduleCode = await discoverModuleCode(projectPath);
   const webBaseAddress = await discoverWebBaseAddress(projectPath);
-  const moduleName =
-    matchTableValue(markdown, "关联业务模块") ?? moduleCode;
-  const flows = parseRegistryFlows(markdown);
-  if (flows.length === 0) {
-    throw new CliError(`BPM 登记册中没有可解析的流程：${registry}`);
-  }
-
   const businessModule: BpmBusinessModuleDefinition = {
     code: moduleCode,
-    name: moduleName,
+    name: moduleCode,
     serviceName: moduleCode,
     ...(webBaseAddress ? { webBaseAddress } : {})
   };
-  return { projectPath, sourcePath: registry, businessModule, flows };
+  return { projectPath, sourcePath: projectPath, businessModule, flows };
 }
 
 export function selectBpmFlow(
@@ -73,89 +71,181 @@ export function selectBpmFlow(
   );
 }
 
-function parseRegistryFlows(markdown: string): BpmFlowDefinition[] {
-  const headings = [...markdown.matchAll(/^##\s+(?:\d+\.\s*)?(.+?)\s*$/gm)];
+function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
+  const types = new Map<string, JavaSource>();
+  for (const item of sources) {
+    if (item.typeName) {
+      types.set(item.typeName, item);
+      if (item.packageName) {
+        types.set(`${item.packageName}.${item.typeName}`, item);
+      }
+    }
+  }
+  const startedEntities = discoverStartedEntities(sources);
   const flows: BpmFlowDefinition[] = [];
-  for (let index = 0; index < headings.length; index += 1) {
-    const heading = headings[index]!;
-    const name = heading[1]!.trim();
-    if (name.includes("目录") || name.includes("模板")) {
+  const entityCodes = new Set<string>();
+
+  for (const controller of sources) {
+    const declaration = controller.source.match(
+      /class\s+(\w+Controller)\b[^\{]*\bextends\s+BaseFlowController\s*<\s*([\w.]+)\s*,/
+    );
+    if (!declaration?.[2]) {
       continue;
     }
-    const start = (heading.index ?? 0) + heading[0].length;
-    const end = headings[index + 1]?.index ?? markdown.length;
-    const section = markdown.slice(start, end);
-    const code = section.match(/\*\*流程模型\*\*[：:]\s*`([^`]+)`/)?.[1]?.trim();
-    if (!code) {
+    const entityType = declaration[2];
+    const entityCode = resolveTypeName(controller, entityType);
+    const callbacks = discoverCallbacks(controller.source);
+    const startsDefaultFlow = startedEntities.has(entityCode);
+    if (callbacks.length === 0 && !startsDefaultFlow) {
       continue;
     }
-    const entityRows = parseMarkdownTable(section, "业务实体");
-    const entity = entityRows[0];
-    if (!entity || entity.length < 4) {
-      throw new CliError(`流程 ${name} 缺少业务实体配置`);
+
+    const serviceName = discoverServiceName(controller, types);
+    if (!serviceName) {
+      continue;
     }
-    const interfaceRows = parseMarkdownTable(section, "集成接口");
-    const pageRows = parseMarkdownTable(section, "工作页面");
+    if (entityCodes.has(entityCode)) {
+      throw new CliError(`BPM Entity 对应多个 Controller，无法唯一确定：${entityCode}`);
+    }
+    entityCodes.add(entityCode);
+    const name = discoverBusinessName(controller.source, simpleName(entityType));
     flows.push({
       name,
-      code,
-      entity: {
-        name: entity[0]!,
-        code: entity[1]!,
-        serviceName: entity[2]!,
-        ...(entity[3] ? { pcLookUrl: cleanCell(entity[3]) } : {})
-      },
-      interfaces: interfaceRows.map((row) => ({
-        name: row[0]!,
-        url: row[1]!,
+      code: entityCode,
+      entity: { name, code: entityCode, serviceName },
+      interfaces: callbacks.map((methodName) => ({
+        name: `${name}-${EVENT_NAMES[methodName] ?? methodName}`,
+        url: `${serviceName}/${methodName}`,
         interfaceType: "EVENT"
       })),
-      pages: pageRows.map((row) => ({
-        name: row[0]!,
-        pcUrl: cleanCell(row[1]!)
-      }))
+      pages: []
     });
   }
-  return flows;
+  return flows.sort((left, right) => left.code.localeCompare(right.code));
 }
 
-function parseMarkdownTable(section: string, title: string): string[][] {
-  const heading = new RegExp(`^###\\s+${escapeRegExp(title)}\\s*$`, "m").exec(section);
-  if (!heading) {
-    return [];
+function discoverStartedEntities(sources: JavaSource[]): Set<string> {
+  const result = new Set<string>();
+  const pattern = /DefaultStartParam\s*\(\s*([\w.]+)\.class\.getName\s*\(\s*\)/g;
+  for (const source of sources) {
+    for (const match of source.source.matchAll(pattern)) {
+      result.add(resolveTypeName(source, match[1]!));
+    }
   }
-  const start = (heading.index ?? 0) + heading[0].length;
-  const remaining = section.slice(start);
-  const endMatch = /^###\s+|^---\s*$/m.exec(remaining);
-  const tableSection = remaining.slice(0, endMatch?.index ?? remaining.length);
-  return tableSection
-    .split(/\r?\n/)
-    .filter((line) => line.trim().startsWith("|"))
-    .map(splitTableRow)
-    .filter(
-      (row, index) =>
-        index >= 2 &&
-        row.length > 0 &&
-        row.some((cell) => cell.length > 0) &&
-        !row.every((cell) => /^-+$/.test(cell))
-    );
+  return result;
 }
 
-function splitTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map(cleanCell);
+function discoverCallbacks(source: string): string[] {
+  const methods: string[] = [];
+  const signature = /public\s+[\w<>, ?\[\].]+\s+(\w+)\s*\(([^)]*\bBpmInvokeParams\b[^)]*)\)\s*\{/g;
+  for (const match of source.matchAll(signature)) {
+    const openingBrace = (match.index ?? 0) + match[0].length - 1;
+    const body = readBraceBody(source, openingBrace);
+    if (body !== undefined && hasBusinessLogic(body)) {
+      methods.push(match[1]!);
+    }
+  }
+  return [...new Set(methods)];
 }
 
-function cleanCell(value: string): string {
-  return value
-    .trim()
-    .replace(/^`|`$/g, "")
-    .replace(/（[^）]*）\s*$/, "")
-    .trim();
+function hasBusinessLogic(body: string): boolean {
+  const normalized = body
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/\s+/g, " ");
+  const receivers = [...normalized.matchAll(/\b([A-Za-z_$][\w$]*)\s*\.\s*\w+\s*\(/g)]
+    .map((match) => match[1]!);
+  const nonBusinessReceivers = new Set([
+    "ResultData", "ResultDataUtil", "Objects", "StringUtils", "CollectionUtils",
+    "super", "params", "invokeParams", "flowInvokeParams", "bpmInvokeParams"
+  ]);
+  return receivers.some((receiver) => !nonBusinessReceivers.has(receiver));
+}
+
+function readBraceBody(source: string, openingBrace: number): string | undefined {
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === "{") {
+      depth += 1;
+    } else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openingBrace + 1, index);
+      }
+    }
+  }
+  return undefined;
+}
+
+function discoverServiceName(controller: JavaSource, types: Map<string, JavaSource>): string | undefined {
+  const mapping = controller.source.match(/@RequestMapping\s*\(\s*path\s*=\s*([^,\n)]+)/)?.[1]?.trim();
+  const direct = mapping?.match(/^"([^"]+)"$/)?.[1];
+  if (direct) {
+    return normalizeServiceName(direct);
+  }
+  const apiName = mapping?.match(/^(\w+)\.PATH$/)?.[1];
+  if (!apiName) {
+    return undefined;
+  }
+  const importedApi = controller.source.match(
+    new RegExp(`import\\s+([\\w.]+\\.${escapeRegExp(apiName)})\\s*;`)
+  )?.[1];
+  const api = (importedApi ? types.get(importedApi) : undefined) ?? types.get(apiName);
+  const path = api?.source.match(/\bPATH\s*=\s*"([^"]+)"/)?.[1];
+  return path ? normalizeServiceName(path) : undefined;
+}
+
+function normalizeServiceName(value: string): string {
+  return value.replace(/^\/+|\/+$/g, "");
+}
+
+function discoverBusinessName(source: string, fallback: string): string {
+  const description = source.match(/@Tag\s*\([^)]*description\s*=\s*"([^"]+)"/)?.[1]?.trim();
+  return description?.replace(/(?:服务|接口)$/u, "").trim() || fallback;
+}
+
+function resolveTypeName(source: JavaSource, typeName: string): string {
+  if (typeName.includes(".")) {
+    return typeName;
+  }
+  const imported = source.source.match(new RegExp(`import\\s+([\\w.]+\\.${escapeRegExp(typeName)})\\s*;`))?.[1];
+  return imported ?? `${source.packageName ?? ""}.${typeName}`.replace(/^\./, "");
+}
+
+function simpleName(value: string): string {
+  return value.slice(value.lastIndexOf(".") + 1);
+}
+
+async function readJavaSources(projectPath: string): Promise<JavaSource[]> {
+  const paths = await collectJavaFiles(projectPath);
+  return Promise.all(paths.map(async (path) => {
+    const source = await readFile(path, "utf8");
+    const packageName = source.match(/\bpackage\s+([\w.]+)\s*;/)?.[1];
+    const typeName = source.match(/\b(?:class|interface)\s+(\w+)/)?.[1];
+    return {
+      path,
+      source,
+      ...(packageName ? { packageName } : {}),
+      ...(typeName ? { typeName } : {})
+    };
+  }));
+}
+
+async function collectJavaFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const result: string[] = [];
+  for (const entry of entries) {
+    if ([".git", "build", "dist", "node_modules", "target"].includes(entry.name)) {
+      continue;
+    }
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      result.push(...await collectJavaFiles(path));
+    } else if (entry.isFile() && entry.name.endsWith(".java")) {
+      result.push(path);
+    }
+  }
+  return result;
 }
 
 async function discoverModuleCode(projectPath: string): Promise<string> {
@@ -175,9 +265,11 @@ async function discoverModuleCode(projectPath: string): Promise<string> {
 }
 
 async function discoverWebBaseAddress(projectPath: string): Promise<string | undefined> {
+  const siblingWeb = join(dirname(projectPath), `${basename(projectPath)}-web`, "package.json");
   const packageFile = await findReadableFile([
     join(projectPath, "frontend", "package.json"),
-    join(projectPath, "package.json")
+    join(projectPath, "package.json"),
+    siblingWeb
   ]);
   if (!packageFile) {
     return undefined;
@@ -190,14 +282,6 @@ async function discoverWebBaseAddress(projectPath: string): Promise<string | und
   }
 }
 
-function matchTableValue(markdown: string, key: string): string | undefined {
-  const pattern = new RegExp(
-    `^\\|\\s*${escapeRegExp(key)}\\s*\\|\\s*([^|]+?)\\s*\\|\\s*$`,
-    "m"
-  );
-  return pattern.exec(markdown)?.[1]?.trim();
-}
-
 async function findReadableFile(candidates: string[]): Promise<string | undefined> {
   for (const candidate of candidates) {
     try {
@@ -205,7 +289,7 @@ async function findReadableFile(candidates: string[]): Promise<string | undefine
         return candidate;
       }
     } catch {
-      // 继续检查下一个真实项目约定路径。
+      // 继续检查下一个项目约定路径。
     }
   }
   return undefined;

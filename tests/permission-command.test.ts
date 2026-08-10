@@ -26,7 +26,60 @@ afterEach(async () => {
   );
 });
 
-describe("permission 命令", () => {
+describe("统一权限命令", () => {
+  it("按功能代码反查拥有最终有效权限的用户", async () => {
+    const checkedUserIds: string[] = [];
+    const { store } = await createFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/feature/findByPage")) {
+        respond(response, {
+          rows: [{ id: "feature-1", code: "BASIC_VIEW", name: "查看" }]
+        });
+        return;
+      }
+      if (url.pathname.endsWith("/user/findByPage")) {
+        respond(response, {
+          rows: [
+            { id: "user-direct", account: "direct", userName: "直接用户" },
+            { id: "user-position", account: "position", userName: "岗位用户" },
+            { id: "user-none", account: "none", userName: "无权限用户" }
+          ]
+        });
+        return;
+      }
+      if (url.pathname.endsWith("/user/checkUserFeaturesAuthority")) {
+        const body = (await readBody(request)) as {
+          userId: string;
+          featureCodes: string[];
+        };
+        checkedUserIds.push(body.userId);
+        expect(body.featureCodes).toEqual(["BASIC_VIEW"]);
+        respond(response, {
+          BASIC_VIEW: body.userId !== "user-none"
+        });
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["inspect", "permission", "users", "--feature", "BASIC_VIEW"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.kind).toBe("eadp.permission.feature-users.inspect.v1");
+    expect(result.feature.code).toBe("BASIC_VIEW");
+    expect(result.users.map((user: Record<string, unknown>) => user.id)).toEqual([
+      "user-direct",
+      "user-position"
+    ]);
+    expect(result.inspectedUserCount).toBe(3);
+    expect(result.authorizedUserCount).toBe(2);
+    expect(checkedUserIds).toEqual(["user-direct", "user-position", "user-none"]);
+  });
+
   it("global 环境不能执行权限查询或配置", async () => {
     const { store } = await createFixtureServer((_request, response) =>
       respond(response, undefined, 404)
@@ -37,7 +90,7 @@ describe("permission 命令", () => {
 
     await expect(
       createProgram(store).parseAsync(
-        ["permission", "verify", "--user", "lin", "--json"],
+        ["verify", "--user", "lin"],
         { from: "user" }
       )
     ).rejects.toThrow("必须使用非 global 租户");
@@ -81,14 +134,13 @@ describe("permission 命令", () => {
 
     await createProgram(store).parseAsync(
       [
+        "inspect",
         "permission",
         "functional",
-        "inspect",
         "--app",
         "BASIC",
         "--role",
-        "ADMIN",
-        "--json"
+        "ADMIN"
       ],
       { from: "user" }
     );
@@ -131,7 +183,7 @@ describe("permission 命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["permission", "data", "inspect", "--role", "ORG_ADMIN", "--json"],
+      ["inspect", "permission", "data", "--role", "ORG_ADMIN"],
       { from: "user" }
     );
 
@@ -178,7 +230,6 @@ describe("permission 命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "permission",
         "verify",
         "--user",
         "lin",
@@ -191,8 +242,7 @@ describe("permission 命令", () => {
         "--entity-class",
         "com.example.Organization",
         "--data-feature",
-        "BASIC_VIEW",
-        "--json"
+        "BASIC_VIEW"
       ],
       { from: "user" }
     );
@@ -236,16 +286,14 @@ describe("permission 命令", () => {
 
     const previewOutput = captureOutput();
     const args = [
-      "permission",
-      "functional",
       "apply",
+      "functional-role",
       "--role-code",
       "BASIC_READER",
       "--role-name",
       "基础只读角色",
       "--group",
-      "BASIC_ROLE",
-      "--json"
+      "BASIC_ROLE"
     ];
     await createProgram(store).parseAsync(args, { from: "user" });
     expect(JSON.parse(previewOutput.text()).action).toBe("create");
@@ -308,17 +356,15 @@ describe("permission 命令", () => {
     });
     const output = captureOutput();
     const args = [
-      "permission",
-      "functional",
       "assign",
+      "feature",
       "--role",
       "ADMIN",
       "--feature",
       "BASIC_VIEW",
       "--feature",
       "BASIC_EDIT",
-      "--apply",
-      "--json"
+      "--apply"
     ];
 
     await createProgram(store).parseAsync(args, { from: "user" });
@@ -359,16 +405,14 @@ describe("permission 命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "permission",
-      "data",
       "apply",
+      "data-role",
       "--role-code",
       "ORG_READER",
       "--role-name",
       "组织只读角色",
       "--group",
-      "ORG_ROLE",
-      "--json"
+      "ORG_ROLE"
     ];
     const previewOutput = captureOutput();
     await createProgram(store).parseAsync(args, { from: "user" });
@@ -429,9 +473,8 @@ describe("permission 命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "permission",
-      "data",
       "assign",
+      "data",
       "--role",
       "ORG_READER",
       "--auth-type",
@@ -439,8 +482,7 @@ describe("permission 命令", () => {
       "--entity",
       "org-1",
       "--entity",
-      "org-2",
-      "--json"
+      "org-2"
     ];
     const previewOutput = captureOutput();
     await createProgram(store).parseAsync(args, { from: "user" });
@@ -504,9 +546,8 @@ describe("permission 命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "permission",
-      "principal",
       "assign",
+      "role",
       "--subject-type",
       "user",
       "--subject",
@@ -515,8 +556,7 @@ describe("permission 命令", () => {
       "functional",
       "--role",
       "BASIC_READER",
-      "--apply",
-      "--json"
+      "--apply"
     ];
     const output = captureOutput();
     await createProgram(store).parseAsync(args, { from: "user" });
@@ -556,7 +596,7 @@ describe("permission 命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["permission", "verify", "--employee-code", "E1001", "--json"],
+      ["verify", "--employee-code", "E1001"],
       { from: "user" }
     );
 
@@ -630,13 +670,11 @@ describe("permission 命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "permission",
         "verify",
         "--employee-code",
         "20017267",
         "--menu",
-        "租户管理",
-        "--json"
+        "租户管理"
       ],
       { from: "user" }
     );
@@ -695,9 +733,8 @@ describe("permission 命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "permission",
-      "principal",
       "revoke",
+      "role",
       "--subject-type",
       "user",
       "--employee-code",
@@ -705,8 +742,7 @@ describe("permission 命令", () => {
       "--role-type",
       "functional",
       "--role",
-      "BASIC_READER",
-      "--json"
+      "BASIC_READER"
     ];
 
     const previewOutput = captureOutput();

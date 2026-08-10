@@ -25,7 +25,7 @@ afterEach(async () => {
   );
 });
 
-describe("request 命令", () => {
+describe("call 原始请求", () => {
   it("--body 从文件读取并发送 JSON 请求体", async () => {
     let capturedBody = "";
     const server = createServer(async (request, response) => {
@@ -61,14 +61,14 @@ describe("request 命令", () => {
     });
 
     await createProgram(store).parseAsync(
-      ["request", "POST", "/api/save", "--body", bodyFile],
+      ["call", "POST", "/api/save", "--body", bodyFile],
       { from: "user" }
     );
 
     expect(JSON.parse(capturedBody)).toEqual({ name: "岗位类别" });
   });
 
-  it("非 global 环境不能通过通用 request 绕过功能项的 global 限制", async () => {
+  it("非 global 环境不能通过原始 call 绕过功能项的 global 限制", async () => {
     let requestCount = 0;
     const server = createServer((_request, response) => {
       requestCount += 1;
@@ -98,7 +98,7 @@ describe("request 命令", () => {
 
     await expect(
       createProgram(store).parseAsync(
-        ["request", "GET", "/api-gateway/sei-basic/feature/findByPage"],
+        ["call", "GET", "/api-gateway/sei-basic/feature/findByPage"],
         { from: "user" }
       )
     ).rejects.toThrow("必须使用 global 租户");

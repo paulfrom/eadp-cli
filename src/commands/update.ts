@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { CliError, errorMessage } from "../errors.js";
 import { printValue } from "../io.js";
+import { getRuntimeOptions } from "../runtime-options.js";
 
 const cliPackageName = "eadp-cli";
 const skillName = "eadp-operator";
@@ -22,12 +23,13 @@ export function registerUpdateCommand(program: Command): void {
     .command("update")
     .description("同时升级 eadp CLI 和 AI Skill")
     .action(async () => {
-      await updateCliAndSkill();
+      await updateCliAndSkill(runProcess, getRuntimeOptions(program).compact);
     });
 }
 
 export async function updateCliAndSkill(
-  run: CommandRunner = runProcess
+  run: CommandRunner = runProcess,
+  compact = false
 ): Promise<void> {
   const npm = npmInvocation();
   const npmOptions = { encoding: "utf8", shell: npm.shell } as const;
@@ -75,19 +77,22 @@ export async function updateCliAndSkill(
     throw new CliError(`eadp-cli 已升级，但 ${errorMessage(error)}`);
   }
 
-  printValue({
-    success: true,
-    cli: {
-      package: cliPackageName,
-      version: "latest",
-      operation: "upgrade"
+  printValue(
+    {
+      success: true,
+      cli: {
+        package: cliPackageName,
+        version: "latest",
+        operation: "upgrade"
+      },
+      skill: {
+        name: skillName,
+        operation: "install-or-upgrade"
+      },
+      executable
     },
-    skill: {
-      name: skillName,
-      operation: "install-or-upgrade"
-    },
-    executable
-  });
+    compact
+  );
 }
 
 function npmInvocation(): {

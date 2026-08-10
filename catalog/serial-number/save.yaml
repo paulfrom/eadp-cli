@@ -23,7 +23,6 @@ requestSchema:
     - cycleStrategy
     - activated
     - genFlag
-    - tenantCode
     - publicFlag
     - tenantIsolation
     - configItem
@@ -76,7 +75,7 @@ requestSchema:
       description: 是否允许生成
     tenantCode:
       type: string
-      description: 租户编码
+      description: 租户编码；CLI 始终使用 env add 校验并保存的 tenantCode 覆盖该值
     publicFlag:
       type: boolean
       description: 是否为公共配置

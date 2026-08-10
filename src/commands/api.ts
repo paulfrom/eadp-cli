@@ -1,135 +1,240 @@
 import { Ajv, type ErrorObject } from "ajv";
-import { Command } from "commander";
+import { Option, type Command } from "commander";
 import type { EndpointDefinition } from "../catalog/schema.js";
 import { CliError } from "../errors.js";
 import { findEndpoint, loadCatalog } from "../catalog/loader.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { sendRequest, buildUrl } from "../http/client.js";
-import { parsePairs, printValue, readJsonInput } from "../io.js";
+import { flattenPairs, parsePairs, printValue, readJsonInput } from "../io.js";
+import { getRuntimeOptions } from "../runtime-options.js";
 import { assertPathTenantScope } from "../tenant.js";
+import type { VerbCommands } from "./verbs.js";
 
-export function registerApiCommands(program: Command, store: ConfigStore): void {
-  const api = program.command("api").description("浏览和调用接口目录");
+interface InspectApiOptions {
+  domain?: string;
+  domains?: boolean;
+}
 
-  api
-    .command("domains")
-    .description("列出接口业务领域")
-    .action(async () => {
-      const endpoints = await loadCatalog();
-      const domains = [...new Set(endpoints.map((endpoint) => endpoint.domain))];
-      printValue(domains);
-    });
+interface CallOptions {
+  env?: string;
+  body?: string;
+  data?: string;
+  query: string[];
+  header: string[];
+  yes?: boolean;
+  dryRun?: boolean;
+}
 
-  api
-    .command("list")
+export function registerApiCommands(
+  commands: Pick<VerbCommands, "inspect" | "call">,
+  store: ConfigStore,
+  root: Command
+): void {
+  commands.inspect
+    .command("api")
+    .description("查看接口目录；指定 ID 时显示参数、风险和示例")
+    .argument("[id]", "接口 ID")
     .option("--domain <name>", "按业务领域筛选")
-    .description("列出接口")
-    .action(async (options: { domain?: string }) => {
+    .option("--domains", "仅列出业务领域")
+    .action(async (id: string | undefined, options: InspectApiOptions) => {
+      if (options.domains) {
+        if (id || options.domain) {
+          throw new CliError("--domains 不能与接口 ID 或 --domain 同时使用");
+        }
+        const endpoints = await loadCatalog();
+        printValue(
+          [...new Set(endpoints.map((endpoint) => endpoint.domain))],
+          getRuntimeOptions(root).compact
+        );
+        return;
+      }
+
+      if (id) {
+        printValue(await findEndpoint(id), getRuntimeOptions(root).compact);
+        return;
+      }
+
       const endpoints = await loadCatalog();
       printValue(
         endpoints
           .filter((endpoint) => !options.domain || endpoint.domain === options.domain)
-          .map(({ id, name, domain, title, description, method, path, permission, risk, callable, resourceExamples }) => ({
-            id,
-            name: name ?? title,
-            domain,
-            title,
-            description,
-            method,
-            path,
-            permission,
-            risk,
-            callable,
-            ...(resourceExamples.length === 0 ? {} : { resourceExamples })
-          }))
+          .map(toApiSummary),
+        getRuntimeOptions(root).compact
       );
     });
 
-  api
-    .command("describe")
-    .argument("<id>", "接口 ID")
-    .description("显示接口参数、风险和示例")
-    .action(async (id: string) => {
-      printValue(await findEndpoint(id));
-    });
-
-  api
-    .command("call")
-    .argument("<id>", "接口 ID")
-    .option("--env <name>", "环境名称")
+  commands.call
+    .argument("<id-or-method>", "接口 ID，或原始 HTTP 方法")
+    .argument("[path]", "原始请求的接口路径")
+    .option("--env <name>", "环境名称；默认使用当前环境")
     .option("--body <file>", "JSON 请求体文件")
     .option("--data <json>", "内联 JSON 请求体")
-    .option(
-      "-q, --query <name=value>",
-      "查询参数，可重复；例如 -q appModuleId=BASIC",
-      collectOption,
-      []
+    .addOption(
+      new Option("-q, --query <name=value>", "查询参数，可重复")
+        .default([])
+        .argParser(collectOption)
     )
-    .option("--timeout <ms>", "超时时间", "30000")
-    .option("--yes", "确认执行高风险接口")
+    .addOption(
+      new Option("-H, --header <name:value>", "额外请求头，仅原始请求可用")
+        .default([])
+        .argParser(collectOption)
+    )
+    .option("--yes", "确认执行已登记的高风险接口")
     .option("--dry-run", "校验并显示脱敏请求，不发送")
-    .description("按接口定义校验并发起请求")
-    .action(
-      async (
-        id: string,
-        options: {
-          env?: string;
-          body?: string;
-          data?: string;
-          query: string[];
-          timeout: string;
-          yes?: boolean;
-          dryRun?: boolean;
-        }
-      ) => {
-        const endpoint = await findEndpoint(id);
-        if (!endpoint.callable || endpoint.method === "ANY") {
-          throw new CliError(
-            `接口 ${id} 是动态请求模板，不能直接调用；请使用对应业务命令，或使用 request 命令填写完整路径`
-          );
-        }
-        const query = parsePairs(options.query, "=");
-        validateQuery(endpoint.queryParameters, query);
-        const body = await readJsonInput({ bodyFile: options.body, data: options.data });
-        validateBody(endpoint.requestSchema, body);
-
-        if (endpoint.risk === "high" && !options.yes && !options.dryRun) {
-          throw new CliError("该接口属于高风险操作，请先使用 --dry-run 检查，确认后添加 --yes");
-        }
-
-        const config = await store.load();
-        const environment = resolveEnvironment(config, options.env);
-        assertPathTenantScope(
-          environment.config.tenantCode,
-          endpoint.path,
-          environment.name
-        );
-
-        if (options.dryRun) {
-          printValue({
-            endpoint: endpoint.id,
-            method: endpoint.method,
-            url: buildUrl(environment.config.baseUrl, endpoint.path, query).toString(),
-            environment: environment.name,
-            headers: { "x-api-token": "***", "content-type": "application/json" },
-            body
-          });
-          return;
-        }
-
-        const result = await sendRequest({
-          baseUrl: environment.config.baseUrl,
-          path: endpoint.path,
-          method: endpoint.method,
-          token: environment.token,
-          query,
-          body,
-          timeoutMs: Number(options.timeout)
-        });
-        printValue(result.data);
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp call permission-role-menu-feature-tree --query featureRoleId=<角色 ID> --dry-run
+  eadp call POST /api-gateway/sei-basic/example/save --data '{"name":"示例"}' --dry-run`
+    )
+    .action(async (idOrMethod: string, path: string | undefined, options: CallOptions) => {
+      if (path) {
+        await callRaw(store, root, idOrMethod, path, options);
+        return;
       }
+      await callCatalog(store, root, idOrMethod, options);
+    });
+}
+
+async function callCatalog(
+  store: ConfigStore,
+  root: Command,
+  id: string,
+  options: CallOptions
+): Promise<void> {
+  if (options.header.length > 0) {
+    throw new CliError("已登记接口不支持 --header；如需原始请求请提供 HTTP 方法和路径");
+  }
+  const endpoint = await findEndpoint(id);
+  if (!endpoint.callable || endpoint.method === "ANY") {
+    throw new CliError(
+      `接口 ${id} 是动态请求模板，不能直接调用；请使用对应业务命令，或使用 call <方法> <路径>`
+    );
+  }
+  const query = parsePairs(options.query, "=");
+  validateQuery(endpoint.queryParameters, query);
+  const environment = resolveEnvironment(await store.load(), options.env);
+  assertPathTenantScope(environment.config.tenantCode, endpoint.path, environment.name);
+  const inputBody = await readJsonInput({ bodyFile: options.body, data: options.data });
+  const body = bindEnvironmentTenantCode(
+    endpoint.path,
+    inputBody,
+    environment.config.tenantCode
   );
+  validateBody(endpoint.requestSchema, body);
+
+  if (endpoint.risk === "high" && !options.yes && !options.dryRun) {
+    throw new CliError("该接口属于高风险操作，请先使用 --dry-run 检查，确认后添加 --yes");
+  }
+  const runtime = getRuntimeOptions(root);
+
+  if (options.dryRun) {
+    printValue(
+      {
+        endpoint: endpoint.id,
+        method: endpoint.method,
+        url: buildUrl(environment.config.baseUrl, endpoint.path, query).toString(),
+        environment: environment.name,
+        headers: { "x-api-token": "***", "content-type": "application/json" },
+        body
+      },
+      runtime.compact
+    );
+    return;
+  }
+
+  const result = await sendRequest({
+    baseUrl: environment.config.baseUrl,
+    path: endpoint.path,
+    method: endpoint.method,
+    token: environment.token,
+    query,
+    body,
+    timeoutMs: runtime.timeoutMs
+  });
+  printValue(result.data, runtime.compact);
+}
+
+async function callRaw(
+  store: ConfigStore,
+  root: Command,
+  method: string,
+  path: string,
+  options: CallOptions
+): Promise<void> {
+  const environment = resolveEnvironment(await store.load(), options.env);
+  assertPathTenantScope(environment.config.tenantCode, path, environment.name);
+  const inputBody = await readJsonInput({ bodyFile: options.body, data: options.data });
+  const body = bindEnvironmentTenantCode(
+    path,
+    inputBody,
+    environment.config.tenantCode
+  );
+  const query = parsePairs(options.query, "=");
+  const headers = flattenPairs(parsePairs(options.header, ":"));
+  const runtime = getRuntimeOptions(root);
+
+  if (options.dryRun) {
+    printValue(
+      {
+        method: method.toUpperCase(),
+        url: buildUrl(environment.config.baseUrl, path, query).toString(),
+        environment: environment.name,
+        headers: { ...headers, "x-api-token": "***" },
+        body
+      },
+      runtime.compact
+    );
+    return;
+  }
+
+  const result = await sendRequest({
+    baseUrl: environment.config.baseUrl,
+    path,
+    method,
+    token: environment.token,
+    headers,
+    query,
+    body,
+    timeoutMs: runtime.timeoutMs
+  });
+  printValue(result.data, runtime.compact);
+}
+
+function bindEnvironmentTenantCode(
+  path: string,
+  body: unknown,
+  tenantCode: string | undefined
+): unknown {
+  if (!/\/serialNumberConfig\/save$/i.test(path)) {
+    return body;
+  }
+  if (!tenantCode) {
+    throw new CliError("当前环境未记录 tenantCode，请重新执行 env add");
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new CliError("给号配置保存请求体必须是 JSON 对象");
+  }
+  return { ...(body as Record<string, unknown>), tenantCode };
+}
+
+function toApiSummary(endpoint: EndpointDefinition): Record<string, unknown> {
+  const { id, name, domain, title, description, method, path, permission, risk, callable, resourceExamples } = endpoint;
+  return {
+    id,
+    name: name ?? title,
+    domain,
+    title,
+    description,
+    method,
+    path,
+    permission,
+    risk,
+    callable,
+    ...(resourceExamples.length === 0 ? {} : { resourceExamples })
+  };
 }
 
 function collectOption(value: string, previous: string[]): string[] {

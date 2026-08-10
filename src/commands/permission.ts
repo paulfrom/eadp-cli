@@ -7,12 +7,12 @@ import {
   PermissionClient,
   type PermissionRecord
 } from "../permission/client.js";
+import { getRuntimeOptions } from "../runtime-options.js";
 import { assertTenantScope } from "../tenant.js";
+import type { VerbCommands } from "./verbs.js";
 
 interface CommonOptions {
   env?: string;
-  timeout: string;
-  json?: boolean;
   compact?: boolean;
 }
 
@@ -26,7 +26,6 @@ interface ApplyRoleOptions extends CommonOptions {
   roleName: string;
   group: string;
   roleType: string;
-  tenantCode?: string;
   ignoreParent?: boolean;
   apply?: boolean;
 }
@@ -41,7 +40,6 @@ interface ApplyDataRoleOptions extends CommonOptions {
   roleCode: string;
   roleName: string;
   group: string;
-  tenantCode?: string;
   ignoreParent?: boolean;
   apply?: boolean;
 }
@@ -76,43 +74,40 @@ interface VerifyOptions extends CommonOptions {
   parentEntityId?: string;
 }
 
-export function registerPermissionCommands(program: Command, store: ConfigStore): void {
-  const permission = program
-    .command("permission")
-    .description("检查 EADP 功能权限、数据权限及用户最终权限")
-    .addHelpText(
-      "after",
-      `
-全新上下文推荐流程：
-  1. eadp permission functional inspect --json
-  2. eadp permission data inspect --json
-  3. eadp permission verify --user <账号> --json
+interface FeatureUsersOptions extends CommonOptions {
+  feature: string;
+}
 
-inspect 只读取远端配置。数据权限检查不会调用带有失效关系自动清理副作用的接口。`
-    );
+export function registerPermissionCommands(
+  commands: Pick<
+    VerbCommands,
+    "inspect" | "apply" | "assign" | "revoke" | "verify"
+  >,
+  store: ConfigStore,
+  root: Command
+): void {
+  const permission = commands.inspect
+    .command("permission")
+    .description("查看功能权限、数据权限及用户最终权限");
 
   const functional = permission
     .command("functional")
     .description("功能项、菜单、功能角色与授权树");
 
   functional
-    .command("inspect")
     .description("汇总应用、功能项、菜单、角色组和功能角色")
     .option("--app <code-or-id>", "只读取指定应用的功能项")
     .option("--role <code-or-id>", "同时读取指定角色的授权菜单功能树")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission functional inspect --json
-  eadp permission functional inspect --app BASIC --role ADMIN --json`
+  eadp inspect permission functional
+  eadp inspect permission functional --app BASIC --role ADMIN`
     )
     .action(async (options: InspectOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [appModules, featureTypes, menus, roleGroups, roles] = await Promise.all([
         context.client.findAll("appModule"),
         context.client.getFeatureTypes(),
@@ -161,8 +156,55 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  functional
-    .command("apply")
+  permission
+    .command("users")
+    .description("按功能代码反查拥有最终有效权限的用户")
+    .requiredOption("--feature <code>", "功能项代码")
+    .option("--env <name>", "环境名称；默认使用当前环境")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp inspect permission users --feature BASIC_VIEW --env dev
+
+逐个用户调用服务端最终权限判定，结果包含直接角色、岗位和岗位类别继承权限。`
+    )
+    .action(async (options: FeatureUsersOptions) => {
+      const context = await createContext(store, options, root);
+      const feature = selectFeatureByCode(
+        await context.client.findByPage("feature"),
+        options.feature
+      );
+      const featureCode = stringField(feature, "code", "功能项缺少代码");
+      const allUsers = await context.client.findUsers();
+      const users: PermissionRecord[] = [];
+      const skippedUsers: PermissionRecord[] = [];
+      for (const user of allUsers) {
+        if (typeof user.id !== "string" || user.id === "") {
+          skippedUsers.push(user);
+          continue;
+        }
+        const checks = await context.client.checkUserFeatures(user.id, [featureCode]);
+        if (checks[featureCode] === true) {
+          users.push(user);
+        }
+      }
+      printValue(
+        {
+          kind: "eadp.permission.feature-users.inspect.v1",
+          environment: context.environment,
+          feature,
+          inspectedUserCount: allUsers.length - skippedUsers.length,
+          authorizedUserCount: users.length,
+          users,
+          skippedUsers
+        },
+        options.compact
+      );
+    });
+
+  commands.apply
+    .command("functional-role")
     .description("幂等创建或更新一个功能角色；默认只预览")
     .requiredOption("--role-code <code>", "功能角色代码")
     .requiredOption("--role-name <name>", "功能角色名称")
@@ -172,24 +214,20 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         .choices(["CanUse", "CanAssign"])
         .default("CanUse")
     )
-    .option("--tenant-code <code>", "租户代码；不提供时由服务端上下文确定")
     .option("--ignore-parent", "忽略上级公共角色")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行写入；不提供时仅输出差异预览")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission functional apply --role-code BASIC_READER \\
-    --role-name 基础只读角色 --group BASIC_ROLE --json
-  eadp permission functional apply --role-code BASIC_READER \\
-    --role-name 基础只读角色 --group BASIC_ROLE --apply --json`
+  eadp apply functional-role --role-code BASIC_READER \\
+    --role-name 基础只读角色 --group BASIC_ROLE
+  eadp apply functional-role --role-code BASIC_READER \\
+    --role-name 基础只读角色 --group BASIC_ROLE --apply`
     )
     .action(async (options: ApplyRoleOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [groups, roles] = await Promise.all([
         context.client.findAll("featureRoleGroup"),
         context.client.findByPage("featureRole")
@@ -203,9 +241,7 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         featureRoleGroupId: recordId(group, "功能角色组"),
         roleType: options.roleType,
         ignoreParent: options.ignoreParent ?? existing?.ignoreParent ?? false,
-        ...(options.tenantCode === undefined
-          ? {}
-          : { tenantCode: options.tenantCode })
+        tenantCode: context.tenantCode
       };
       const changedFields = changedRoleFields(existing, desired);
       const action =
@@ -258,8 +294,8 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  functional
-    .command("assign")
+  commands.assign
+    .command("feature")
     .description("幂等地给功能角色补充分配功能项；不会移除已有权限")
     .requiredOption("--role <code-or-id>", "功能角色代码、名称或 ID")
     .addOption(
@@ -269,23 +305,20 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         .argParser(collect)
     )
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行写入；不提供时仅输出差异预览")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission functional assign --role BASIC_READER \\
-    --feature BASIC_VIEW --feature BASIC_EXPORT --json
-  eadp permission functional assign --role BASIC_READER \\
-    --feature BASIC_VIEW --feature BASIC_EXPORT --apply --json
+  eadp assign feature --role BASIC_READER \\
+    --feature BASIC_VIEW --feature BASIC_EXPORT
+  eadp assign feature --role BASIC_READER \\
+    --feature BASIC_VIEW --feature BASIC_EXPORT --apply
 
 安全规则：只补充缺失功能项，不会移除角色已有权限。`
     )
     .action(async (options: AssignFeatureOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [roles, features] = await Promise.all([
         context.client.findByPage("featureRole"),
         context.client.findByPage("feature")
@@ -367,24 +400,20 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
     .description("权限对象、权限类型、数据角色与数据范围");
 
   data
-    .command("inspect")
     .description("汇总权限对象类型、数据权限类型和数据角色")
     .option("--role <code-or-id>", "同时读取指定数据角色包含的权限类型")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission data inspect --json
-  eadp permission data inspect --role ORG_ADMIN --json
+  eadp inspect permission data
+  eadp inspect permission data --role ORG_ADMIN
 
 安全说明：不读取角色已分配的数据值，因为对应查询会自动删除远端失效关系。`
     )
     .action(async (options: InspectOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [authorizeEntityTypes, dataAuthorizeTypes, roleGroups, roles] =
         await Promise.all([
           context.client.findAll("authorizeEntityType"),
@@ -417,30 +446,26 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  data
-    .command("apply")
+  commands.apply
+    .command("data-role")
     .description("幂等创建或更新一个数据角色；默认只预览")
     .requiredOption("--role-code <code>", "数据角色代码")
     .requiredOption("--role-name <name>", "数据角色名称")
     .requiredOption("--group <code-or-id>", "数据角色组代码、名称或 ID")
-    .option("--tenant-code <code>", "租户代码；不提供时由服务端上下文确定")
     .option("--ignore-parent", "忽略上级公共角色")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行写入；不提供时仅输出差异预览")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission data apply --role-code ORG_READER \\
-    --role-name 组织只读角色 --group ORG_ROLE --json
-  eadp permission data apply --role-code ORG_READER \\
-    --role-name 组织只读角色 --group ORG_ROLE --apply --json`
+  eadp apply data-role --role-code ORG_READER \\
+    --role-name 组织只读角色 --group ORG_ROLE
+  eadp apply data-role --role-code ORG_READER \\
+    --role-name 组织只读角色 --group ORG_ROLE --apply`
     )
     .action(async (options: ApplyDataRoleOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [groups, roles] = await Promise.all([
         context.client.findAll("dataRoleGroup"),
         context.client.findByPage("dataRole")
@@ -453,9 +478,7 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         name: options.roleName,
         dataRoleGroupId: recordId(group, "数据角色组"),
         ignoreParent: options.ignoreParent ?? existing?.ignoreParent ?? false,
-        ...(options.tenantCode === undefined
-          ? {}
-          : { tenantCode: options.tenantCode })
+        tenantCode: context.tenantCode
       };
       const changedFields = changedDataRoleFields(existing, desired);
       const action =
@@ -511,8 +534,8 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  data
-    .command("assign")
+  commands.assign
+    .command("data")
     .description("幂等地给数据角色补充授权数据值；默认只预览")
     .requiredOption("--role <code-or-id>", "数据角色代码、名称或 ID")
     .requiredOption("--auth-type <code-or-id>", "数据权限类型代码、名称或 ID")
@@ -524,24 +547,21 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
     )
     .option("--parent-entity-id <id>", "级联权限的父级业务数据 ID")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行写入并回查；回查可能清理远端失效关系")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission data assign --role ORG_READER --auth-type ORG \\
-    --entity <组织ID> --json
-  eadp permission data assign --role ORG_READER --auth-type ORG \\
-    --entity <组织ID> --apply --json
+  eadp assign data --role ORG_READER --auth-type ORG \\
+    --entity <组织ID>
+  eadp assign data --role ORG_READER --auth-type ORG \\
+    --entity <组织ID> --apply
 
 预览模式不会读取已分配值。正式执行会先后回查授权值，这些服务端查询可能自动清理
 已经不存在的授权关系。insertRelations 本身会去重，重复执行不会产生重复关系。`
     )
     .action(async (options: AssignDataOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const [roles, authorizeTypes] = await Promise.all([
         context.client.findByPage("dataRole"),
         context.client.findAll("dataAuthorizeType")
@@ -644,12 +664,8 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  const principal = permission
-    .command("principal")
-    .description("把功能角色或数据角色分配给用户、岗位或岗位类别");
-
-  principal
-    .command("assign")
+  commands.assign
+    .command("role")
     .description("幂等补充主体角色；不会移除已有角色")
     .addOption(
       new Option("--subject-type <type>", "授权主体类型")
@@ -674,18 +690,15 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         .argParser(collect)
     )
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行写入；不提供时仅输出差异预览")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission principal assign --subject-type user --subject lin \\
-    --role-type functional --role BASIC_READER --json
-  eadp permission principal assign --subject-type position --subject FIN_MANAGER \\
-    --role-type data --role ORG_READER --apply --json
+  eadp assign role --subject-type user --subject lin \\
+    --role-type functional --role BASIC_READER
+  eadp assign role --subject-type position --subject FIN_MANAGER \\
+    --role-type data --role ORG_READER --apply
 
 用户可按 account、员工号或员工姓名匹配；岗位和岗位类别可按 code 匹配。
 --subject、--employee-code、--employee-name 三选一。岗位类别只支持功能角色。`
@@ -694,7 +707,7 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       if (options.subjectType === "position-category" && options.roleType === "data") {
         throw new CliError("岗位类别不支持直接分配数据角色");
       }
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const subjectResource =
         options.subjectType === "user"
           ? "user"
@@ -783,8 +796,8 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  principal
-    .command("revoke")
+  commands.revoke
+    .command("role")
     .description("幂等移除主体的指定角色；默认只预览")
     .addOption(
       new Option("--subject-type <type>", "授权主体类型")
@@ -809,18 +822,15 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
         .argParser(collect)
     )
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
     .option("--apply", "执行移除；不提供时仅输出差异预览")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission principal revoke --subject-type user --employee-code E1001 \\
-    --role-type functional --role BASIC_READER --json
-  eadp permission principal revoke --subject-type user --subject lin \\
-    --role-type data --role ORG_READER --apply --json
+  eadp revoke role --subject-type user --employee-code E1001 \\
+    --role-type functional --role BASIC_READER
+  eadp revoke role --subject-type user --subject lin \\
+    --role-type data --role ORG_READER --apply
 
 安全规则：默认只预览；只移除明确列出的角色，不影响主体的其他角色。`
     )
@@ -828,7 +838,7 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       if (options.subjectType === "position-category" && options.roleType === "data") {
         throw new CliError("岗位类别不支持直接分配数据角色");
       }
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const subjectResource =
         options.subjectType === "user"
           ? "user"
@@ -917,8 +927,7 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
       );
     });
 
-  permission
-    .command("verify")
+  commands.verify
     .description("按账号、员工号或员工姓名回查角色及有效权限")
     .option("--user <account>", "用户账号")
     .option("--employee-code <code>", "员工号")
@@ -938,23 +947,20 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
     .option("--data-feature <code>", "数据权限对应的功能项代码", "")
     .option("--parent-entity-id <id>", "级联数据权限的父实体 ID", "none")
     .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--timeout <ms>", "单次请求超时", "30000")
-    .option("--json", "输出稳定的 JSON 数据结构")
-    .option("--compact", "输出单行 JSON")
     .addHelpText(
       "after",
       `
 示例：
-  eadp permission verify --user lin --json
-  eadp permission verify --employee-code E1001 --json
-  eadp permission verify --employee-name 张三 --json
-  eadp permission verify --employee-code E1001 --menu 租户管理 --json
-  eadp permission verify --user lin --user-id <用户ID> --feature BASIC_VIEW --json
-  eadp permission verify --user lin --user-id <用户ID> \\
-    --entity-class com.example.Organization --data-feature BASIC_VIEW --json`
+  eadp verify --user lin
+  eadp verify --employee-code E1001
+  eadp verify --employee-name 张三
+  eadp verify --employee-code E1001 --menu 租户管理
+  eadp verify --user lin --user-id <用户ID> --feature BASIC_VIEW
+  eadp verify --user lin --user-id <用户ID> \\
+    --entity-class com.example.Organization --data-feature BASIC_VIEW`
     )
     .action(async (options: VerifyOptions) => {
-      const context = await createContext(store, options);
+      const context = await createContext(store, options, root);
       const resolvedUser = await resolveVerifyUser(context.client, options);
       validateVerifyOptions(options, resolvedUser.userId);
       const [featureRoles, dataRoles] = await Promise.all([
@@ -1007,20 +1013,47 @@ inspect 只读取远端配置。数据权限检查不会调用带有失效关系
     });
 }
 
-async function createContext(store: ConfigStore, options: CommonOptions): Promise<{
+async function createContext(
+  store: ConfigStore,
+  options: CommonOptions,
+  root: Command
+): Promise<{
   environment: string;
+  tenantCode: string;
   client: PermissionClient;
 }> {
+  const runtime = getRuntimeOptions(root);
+  options.compact = runtime.compact;
   const resolved = resolveEnvironment(await store.load(), options.env);
   assertTenantScope(resolved.config.tenantCode, "non-global", resolved.name);
   return {
     environment: resolved.name,
+    tenantCode: resolved.config.tenantCode!,
     client: new PermissionClient({
       baseUrl: resolved.config.baseUrl,
       token: resolved.token,
-      timeoutMs: parseTimeout(options.timeout)
+      timeoutMs: runtime.timeoutMs
     })
   };
+}
+
+function selectFeatureByCode(
+  features: PermissionRecord[],
+  code: string
+): PermissionRecord {
+  const normalized = code.trim().toLocaleLowerCase();
+  const matches = features.filter(
+    (feature) =>
+      typeof feature.code === "string" &&
+      feature.code.trim().toLocaleLowerCase() === normalized
+  );
+  if (matches.length === 0) {
+    throw new CliError(`功能项代码不存在：${code}`);
+  }
+  if (matches.length > 1) {
+    throw new CliError(`功能项代码不唯一：${code}`);
+  }
+  return matches[0]!;
 }
 
 function selectRecord(
@@ -1407,14 +1440,6 @@ function validateVerifyOptions(
   if (options.parentEntityId && options.parentEntityId !== "none" && !options.entityClass) {
     throw new CliError("--parent-entity-id 必须与 --entity-class 一起使用");
   }
-}
-
-function parseTimeout(source: string): number {
-  const timeoutMs = Number(source);
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new CliError(`超时时间无效：${source}`);
-  }
-  return timeoutMs;
 }
 
 function collect(value: string, previous: string[]): string[] {

@@ -1,6 +1,6 @@
 {
   "name": "eadp-cli",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "description": "面向 EADP 多环境与业务接口编排的命令行工具",
   "type": "module",
   "bin": {

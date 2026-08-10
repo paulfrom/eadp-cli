@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { CliError } from "../errors.js";
 import { ConfigStore } from "../config/store.js";
 import { printValue } from "../io.js";
+import { getRuntimeOptions } from "../runtime-options.js";
 import { fetchTenantCode } from "../tenant.js";
 
 export function registerEnvironmentCommands(program: Command, store: ConfigStore): void {
@@ -37,7 +38,12 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
             : "Token 不能为空"
         );
       }
-      const tenantCode = await fetchTenantCode({ baseUrl, token });
+      const runtime = getRuntimeOptions(program);
+      const tenantCode = await fetchTenantCode({
+        baseUrl,
+        token,
+        timeoutMs: runtime.timeoutMs
+      });
       await store.update((config) => {
         config.environments[name] = {
           baseUrl,
@@ -48,7 +54,10 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
           config.currentEnvironment = name;
         }
       });
-      printValue({ success: true, environment: name, baseUrl, tenantCode });
+      printValue(
+        { success: true, environment: name, baseUrl, tenantCode },
+        runtime.compact
+      );
     });
 
   env
@@ -63,7 +72,8 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
           tenantCode: item.tenantCode ?? null,
           default: config.currentEnvironment === name,
           tokenSource: item.tokenEnv ? `env:${item.tokenEnv}` : "config:***"
-        }))
+        })),
+        getRuntimeOptions(program).compact
       );
     });
 
@@ -78,6 +88,33 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
         }
         config.currentEnvironment = name;
       });
-      printValue({ success: true, defaultEnvironment: name });
+      printValue(
+        { success: true, defaultEnvironment: name },
+        getRuntimeOptions(program).compact
+      );
+    });
+
+  env
+    .command("remove")
+    .argument("<name>", "环境名称")
+    .description("移除环境及其本地 URL 和 Token 配置")
+    .action(async (name: string) => {
+      const config = await store.update((current) => {
+        if (!current.environments[name]) {
+          throw new CliError(`环境不存在：${name}`);
+        }
+        delete current.environments[name];
+        if (current.currentEnvironment === name) {
+          delete current.currentEnvironment;
+        }
+      });
+      printValue(
+        {
+          success: true,
+          removedEnvironment: name,
+          defaultEnvironment: config.currentEnvironment ?? null
+        },
+        getRuntimeOptions(program).compact
+      );
     });
 }

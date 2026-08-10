@@ -10,17 +10,17 @@ EADP grants permissions through functional or data roles. Resolve the requested 
 
 ## Resolve the requested permission
 
-1. Run `eadp permission --help`.
+1. Run `eadp inspect permission --help`.
 2. Inspect functional roles with:
 
 ```text
-eadp permission functional inspect --env A --json
+eadp inspect permission functional --env A
 ```
 
 3. Inspect data roles with:
 
 ```text
-eadp permission data inspect --env A --json
+eadp inspect permission data --env A
 ```
 
 4. If the user names a feature rather than a role, identify a role containing that feature. If no unique role is suitable, report the ambiguity instead of creating a broad role automatically.
@@ -40,13 +40,13 @@ Employee name duplicates must stop the workflow. Position categories do not supp
 Preview:
 
 ```text
-eadp permission principal assign --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --json
+eadp assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
 ```
 
 After authorization:
 
 ```text
-eadp permission principal assign --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply --json
+eadp assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
 ```
 
 `assign` only adds missing requested roles.
@@ -56,13 +56,13 @@ eadp permission principal assign --env A --subject-type user --employee-code E10
 Preview:
 
 ```text
-eadp permission principal revoke --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --json
+eadp revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
 ```
 
 After authorization:
 
 ```text
-eadp permission principal revoke --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply --json
+eadp revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
 ```
 
 `revoke` only removes the explicitly requested roles. Before applying, explain that permissions inherited from positions, position categories, projects, or other roles may remain effective.
@@ -72,7 +72,7 @@ eadp permission principal revoke --env A --subject-type user --employee-code E10
 After either change:
 
 ```text
-eadp permission verify --env A --employee-code E1001 --json
+eadp verify --env A --employee-code E1001
 ```
 
 Require the mutation result to report `verified: true`, then use `verify` to show the employee’s resulting effective roles. For a named feature, add `--feature FEATURE_CODE`.

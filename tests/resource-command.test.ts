@@ -26,7 +26,86 @@ afterEach(async () => {
   );
 });
 
-describe("resource commands", () => {
+describe("query 和 sync 命令", () => {
+  it("query 给号配置时默认限定 CODE_TYPE，并按 entityClassName 校验唯一性", async () => {
+    let requestBody: unknown;
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        requestBody = await readBody(request);
+        respond(response, {
+          rows: [
+            {
+              id: "serial-1",
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE"
+            }
+          ],
+          total: 1
+        });
+      }
+    });
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "global";
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "query",
+        "serialNumberConfig",
+        "--env",
+        "source",
+        "--entity-class",
+        "com.example.Order"
+      ],
+      { from: "user" }
+    );
+
+    expect(requestBody).toMatchObject({
+      filters: [
+        { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
+        { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
+      ]
+    });
+    const result = JSON.parse(output.text());
+    expect(result.identity).toEqual({
+      field: "entityClassName",
+      value: "com.example.Order",
+      exists: true,
+      unique: true
+    });
+  });
+
+  it("query 给号配置发现重复 entityClassName 时终止", async () => {
+    const { store } = await createFixtureServer({
+      source: (_request, response) =>
+        respond(response, {
+          rows: [
+            { id: "serial-1", entityClassName: "com.example.Order", configType: "CODE_TYPE" },
+            { id: "serial-2", entityClassName: "com.example.Order", configType: "CODE_TYPE" }
+          ],
+          total: 2
+        })
+    });
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "global";
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "query",
+          "serialNumberConfig",
+          "--env",
+          "source",
+          "--entity-class",
+          "com.example.Order"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("entityClassName 不唯一");
+  });
+
   it("query 自动读取全部分页结果", async () => {
     const requestedPages: number[] = [];
     const { store } = await createFixtureServer({
@@ -49,7 +128,7 @@ describe("resource commands", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["resource", "query", "feature", "--env", "source", "--json"],
+      ["query", "feature", "--env", "source"],
       { from: "user" }
     );
 
@@ -73,14 +152,12 @@ describe("resource commands", () => {
 
     await createProgram(store).parseAsync(
       [
-        "resource",
         "query",
         "feature",
         "--env",
         "source",
         "--created-in",
         "2026-07",
-        "--json"
       ],
       { from: "user" }
     );
@@ -152,7 +229,6 @@ describe("resource commands", () => {
 
     await createProgram(store).parseAsync(
       [
-        "resource",
         "sync",
         "feature",
         "--source",
@@ -161,7 +237,6 @@ describe("resource commands", () => {
         "target",
         "--created-in",
         "2026-07",
-        "--json"
       ],
       { from: "user" }
     );
@@ -233,15 +308,13 @@ describe("resource commands", () => {
 
     await createProgram(store).parseAsync(
       [
-        "resource",
         "sync",
         "feature",
         "--source",
         "source",
         "--target",
         "target",
-        "--apply",
-        "--json"
+        "--apply"
       ],
       { from: "user" }
     );
@@ -276,14 +349,12 @@ describe("resource commands", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "resource",
           "sync",
           "feature",
           "--source",
           "source",
           "--target",
-          "target",
-          "--json"
+          "target"
         ],
         { from: "user" }
       )
@@ -301,14 +372,12 @@ describe("resource commands", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "resource",
-          "diff",
+          "sync",
           "feature",
           "--source",
           "source",
           "--target",
-          "target",
-          "--json"
+          "target"
         ],
         { from: "user" }
       )

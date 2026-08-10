@@ -12,13 +12,15 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 1. Run `eadp --help`.
 2. Run `eadp env list` and use only environment names configured there.
 3. Run the relevant subcommand help before constructing a command.
-4. Add `--json` to commands whose output will be interpreted.
+4. All commands output JSON by default. Use root-level `--compact` only when a single-line result is needed:
+   `eadp --compact <verb> ...`.
 5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
 
 `env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
 re-run `eadp env add` for that environment; do not infer it or edit the config directly.
 
-Do not use raw `eadp request` when a dedicated `resource` or `permission` command covers the operation.
+Do not use raw `eadp call <METHOD> <PATH>` when a dedicated `query`, `sync`, `inspect`,
+`apply`, `assign`, `revoke`, or `verify` command covers the operation.
 
 ## Resolve parameters before asking the user or acting
 
@@ -31,9 +33,9 @@ feature group, employee, role, source/target environment, date range, and depend
    Never infer a URL, Token, ID, code, environment, or source/target direction from history or examples.
 3. Query before asking for clarification whenever the current values can discover candidates. Use:
    - `eadp env list` for configured environments;
-   - `eadp resource query ... --json` for registered resources and feature/configuration items;
-   - `eadp resource diff ... --json` for read-only target/dependency comparison;
-   - `eadp permission functional inspect ... --json` and `eadp permission verify ... --json`
+   - `eadp query ...` for resources and feature/configuration items;
+   - `eadp sync ...` without `--apply` for read-only target/dependency comparison;
+   - `eadp inspect permission functional ...` and `eadp verify ...`
      for roles, menus, features, employees, and effective permissions.
 4. If exactly one candidate is returned, show the resolved value and use it in the planned command.
 5. If multiple candidates are returned, show stable distinguishing fields such as environment name,
@@ -71,16 +73,18 @@ Load only the selected workflow unless the request combines workflows.
 - For cross-environment operations, preserve source/target direction exactly as requested.
 - Use a `global` environment only for feature, menu, and serial-number configuration queries or writes.
   Use a non-`global` environment for permission and position configuration/assignment, user queries,
-  BPM configuration, and all other operations. The generic `request` and `api call` commands enforce
+  BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.
 - When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and
   records the returned `tenantCode`. If validation fails, the new Token is not saved; stop and report
   the failure without retrying.
+- Use only the `tenantCode` recorded by `env add`. Never accept, infer, or override it in a later
+  query or write command.
 - Preview every write first. Show the planned create, update, grant, or revoke set.
 - Execute only after the user has authorized the write or explicitly requested completion.
 - Never pass `--apply` during exploration or when identity/dependency resolution is ambiguous.
 - If any CLI or EADP API call fails, stop the workflow immediately and report the failure truthfully. Include the environment name, redacted command, HTTP status or EADP message when available, and whether any earlier write may already have succeeded.
-- Do not retry a failed call automatically. Do not retry with changed parameters, another endpoint, another environment or Token, a raw `eadp request`, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
+- Do not retry a failed call automatically. Do not retry with changed parameters, another endpoint, another environment or Token, a raw `eadp call`, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
 - After applying, require the CLI result to report successful verification. If it does not, stop and report the partial result.
 - Never copy source database IDs into another environment. Use CLI-registered dependency mappings.
 - Never display Token values. Redact them if an external command exposes them unexpectedly.

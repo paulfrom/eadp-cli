@@ -4,14 +4,14 @@ import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8"));
-const packagePath = resolve(
-  process.argv[2] ?? `eadp-cli-${packageJson.version}.tgz`
-);
 const installationDirectory = await mkdtemp(join(tmpdir(), "eadp-cli-package-"));
 const npmCliPath = process.env.npm_execpath;
 if (!npmCliPath) {
   throw new Error("无法定位 npm CLI 入口");
 }
+const packagePath = process.argv[2]
+  ? resolve(process.argv[2])
+  : createCurrentPackage(npmCliPath);
 
 try {
   const installation = spawnSync(
@@ -39,6 +39,9 @@ try {
   await access(executable);
   const executableDirectory = join(installationDirectory, "node_modules", ".bin");
   const codexHome = join(installationDirectory, "codex-home");
+  const workbuddyHome = join(installationDirectory, "workbuddy-home");
+  const claudeHome = join(installationDirectory, "claude-home");
+  const qoderHome = join(installationDirectory, "qoder-home");
   await access(
     join(
       installationDirectory,
@@ -50,27 +53,74 @@ try {
     )
   );
   const helpCases = [
-    { args: ["--help"], expected: ["EADP 多环境 API 命令行工具", "resource", "bpm", "permission", "update"] },
-    { args: ["env", "--help"], expected: ["管理 EADP 环境", "add", "list"] },
     {
-      args: ["permission", "functional", "--help"],
-      expected: ["功能项、菜单、功能角色与授权树", "inspect", "apply", "assign"]
+      args: ["--help"],
+      expected: [
+        "EADP 多环境 API 命令行工具",
+        "inspect",
+        "query",
+        "call",
+        "apply",
+        "assign",
+        "revoke",
+        "sync",
+        "verify",
+        "--timeout <ms>",
+        "--compact",
+        "update"
+      ]
     },
     {
-      args: ["permission", "verify", "--help"],
+      args: ["env", "--help"],
+      expected: ["管理 EADP 环境", "add", "list", "remove"]
+    },
+    {
+      args: ["inspect", "api", "--help"],
+      expected: ["查看接口目录", "--domain", "--domains"]
+    },
+    {
+      args: ["call", "--help"],
+      expected: ["<id-or-method>", "[path]", "--dry-run"]
+    },
+    {
+      args: ["inspect", "bpm", "--help"],
+      expected: ["从真实项目代码发现有业务实现的 BPM 流程", "无需 YAML 或 BPM 登记册"]
+    },
+    {
+      args: ["inspect", "permission", "functional", "--help"],
+      expected: ["汇总应用、功能项、菜单、角色组和功能角色"]
+    },
+    {
+      args: ["inspect", "permission", "users", "--help"],
+      expected: ["最终有效权限", "--feature <code>"]
+    },
+    {
+      args: ["query", "--help"],
+      expected: ["--entity-class <name>", "CODE_TYPE"]
+    },
+    {
+      args: ["apply", "functional-role", "--help"],
+      expected: ["功能角色代码", "--apply"]
+    },
+    {
+      args: ["assign", "role", "--help"],
+      expected: ["授权主体类型", "--role-type"]
+    },
+    {
+      args: ["revoke", "role", "--help"],
+      expected: ["授权主体类型", "--role-type"]
+    },
+    {
+      args: ["verify", "--help"],
       expected: ["按账号、员工号或员工姓名回查角色", "--employee-code", "--menu"]
     },
     {
-      args: ["resource", "--help"],
-      expected: ["查询资源", "query", "diff", "sync"]
-    },
-    {
-      args: ["permission", "principal", "--help"],
-      expected: ["分配给用户", "assign", "revoke"]
+      args: ["sync", "--help"],
+      expected: ["注册资源名", "--source", "--target", "--apply"]
     },
     {
       args: ["skill", "--help"],
-      expected: ["安装或升级 EADP AI Skill", "install", "upgrade"]
+      expected: ["Codex、WorkBuddy、Claude 和 Qoder", "install", "upgrade"]
     }
   ];
   for (const helpCase of helpCases) {
@@ -95,7 +145,13 @@ try {
     }
   }
 
-  const skillEnvironment = { ...process.env, CODEX_HOME: codexHome };
+  const skillEnvironment = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    WORKBUDDY_HOME: workbuddyHome,
+    CLAUDE_HOME: claudeHome,
+    QODER_HOME: qoderHome
+  };
   for (const args of [["skill", "install"], ["skill", "upgrade"]]) {
     const skill = spawnSync(
       process.platform === "win32" ? "eadp.cmd" : executable,
@@ -107,7 +163,14 @@ try {
         shell: process.platform === "win32"
       }
     );
-    if (skill.status !== 0 || !skill.stdout.includes('"success": true')) {
+    if (
+      skill.status !== 0 ||
+      !skill.stdout.includes('"success": true') ||
+      !skill.stdout.includes('"host": "codex"') ||
+      !skill.stdout.includes('"host": "workbuddy"') ||
+      !skill.stdout.includes('"host": "claude"') ||
+      !skill.stdout.includes('"host": "qoder"')
+    ) {
       throw new Error(
         `npm 包 Skill 命令验证失败：eadp ${args.join(" ")}\n${
           skill.stderr || skill.stdout
@@ -116,6 +179,9 @@ try {
     }
   }
   await access(join(codexHome, "skills", "eadp-operator", "SKILL.md"));
+  await access(join(workbuddyHome, "skills", "eadp-operator", "SKILL.md"));
+  await access(join(claudeHome, "skills", "eadp-operator", "SKILL.md"));
+  await access(join(qoderHome, "skills", "eadp-operator", "SKILL.md"));
 
   process.stdout.write(
     `${JSON.stringify(
@@ -131,4 +197,18 @@ try {
   );
 } finally {
   await rm(installationDirectory, { recursive: true, force: true });
+}
+
+function createCurrentPackage(npmCliPath) {
+  const packed = spawnSync(process.execPath, [npmCliPath, "pack", "--silent"], {
+    encoding: "utf8"
+  });
+  if (packed.status !== 0) {
+    throw new Error(`生成 npm 包失败：${packed.stderr || packed.stdout}`);
+  }
+  const archive = packed.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  if (!archive) {
+    throw new Error("npm pack 未返回包文件名");
+  }
+  return resolve(archive);
 }

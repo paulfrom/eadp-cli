@@ -29,21 +29,30 @@ await access(executable);
 const checks = [
   { args: ["--version"], expected: packageJson.version },
   { args: ["env", "--help"], expected: "管理 EADP 环境" },
+  { args: ["env", "remove", "--help"], expected: "移除环境" },
   {
-    args: ["permission", "functional", "--help"],
-    expected: "功能项、菜单、功能角色与授权树"
+    args: ["inspect", "api", "--help"],
+    expected: "查看接口目录"
   },
   {
-    args: ["permission", "verify", "--help"],
+    args: ["verify", "--help"],
     expected: "--menu"
   },
   {
-    args: ["resource", "--help"],
-    expected: "按时间和过滤条件查询资源"
+    args: ["query", "--help"],
+    expected: "--entity-class"
   },
   {
-    args: ["permission", "principal", "--help"],
-    expected: "把功能角色或数据角色分配给用户"
+    args: ["inspect", "permission", "users", "--help"],
+    expected: "最终有效权限"
+  },
+  {
+    args: ["assign", "role", "--help"],
+    expected: "授权主体类型"
+  },
+  {
+    args: ["sync", "--help"],
+    expected: "注册资源名"
   },
   {
     args: ["update", "--help"],

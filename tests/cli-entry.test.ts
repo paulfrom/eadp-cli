@@ -23,8 +23,9 @@ describe("CLI 入口", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("EADP 多环境 API 命令行工具");
     expect(result.stdout).not.toContain("account");
-    expect(result.stdout).toContain("request");
-    expect(result.stdout).toContain("bpm");
+    expect(result.stdout).toContain("inspect");
+    expect(result.stdout).toContain("call");
+    expect(result.stdout).not.toMatch(/^\s+(request|resource|api|bpm|permission)\b/m);
   });
 
   it("通过 npm link 风格的目录链接执行时显示帮助", async () => {

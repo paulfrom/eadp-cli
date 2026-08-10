@@ -256,6 +256,10 @@ export class PermissionClient {
     );
   }
 
+  async findUsers(): Promise<PermissionRecord[]> {
+    return this.findByPage("user");
+  }
+
   async getAuthorizedEntityIds(options: {
     userId: string;
     entityClassName: string;
