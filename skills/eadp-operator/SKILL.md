@@ -1,6 +1,6 @@
 ---
 name: eadp-operator
-description: Safely operate EADP through the eadp CLI. Use when a user asks to query EADP resources or permissions, inspect resources created or changed during a time range, compare or synchronize configuration between named environments, grant roles to a user/position, revoke roles, or modify a feature/configuration item. Includes read-only resolution of missing or ambiguous parameters, preview, ambiguity protection, dependency mapping, post-write verification, and structured JSON output.
+description: Safely operate EADP through the eadp CLI. Use when a user asks to query EADP resources or permissions, inspect or configure BPM, migrate BPM or serial-number configuration between environments, inspect resources created or changed during a time range, compare or synchronize configuration between named environments, grant or revoke roles, or modify a feature/configuration item. Includes read-only resolution, preview, ambiguity protection, dependency mapping, post-write verification, and structured JSON output.
 ---
 
 # EADP Operator
@@ -61,6 +61,8 @@ user to select one.
 - For resource/time queries or permission inspection, read [references/query-audit.md](references/query-audit.md).
 - For A-to-B comparisons or synchronization, read [references/resource-sync.md](references/resource-sync.md).
 - For granting or revoking user, position, or position-category roles, read [references/permission-management.md](references/permission-management.md).
+- For BPM discovery or configuration, read [references/bpm-configuration.md](references/bpm-configuration.md).
+- For serial-number configuration synchronization, read [references/serial-number-sync.md](references/serial-number-sync.md).
 
 Load only the selected workflow unless the request combines workflows.
 

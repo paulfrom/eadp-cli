@@ -15,7 +15,7 @@ export interface BpmBusinessEntityDefinition {
 export interface BpmInterfaceDefinition {
   name: string;
   url: string;
-  interfaceType: "EVENT";
+  interfaceType: "EVENT" | "CUSTOM_PERSON";
 }
 
 export interface BpmPageDefinition {

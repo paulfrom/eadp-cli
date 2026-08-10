@@ -15,6 +15,52 @@ afterEach(async () => {
 });
 
 describe("skill 命令", () => {
+  it("Skill 明确 BPM 配置名称必须从注释总结且不超过十五字", async () => {
+    const skill = await readFile(
+      join(process.cwd(), "skills", "eadp-operator", "SKILL.md"),
+      "utf8"
+    );
+    const workflow = await readFile(
+      join(process.cwd(), "skills", "eadp-operator", "references", "bpm-configuration.md"),
+      "utf8"
+    );
+
+    expect(skill).toContain("references/bpm-configuration.md");
+    expect(workflow).toContain("代码注释");
+    expect(workflow).toContain("不超过 15 个字");
+    expect(workflow).toContain("XXX流程结束后");
+    expect(workflow).toContain("XXX选人");
+    expect(workflow).toContain("XXX流程提交前");
+    expect(workflow).toContain("CUSTOM_PERSON");
+    expect(workflow).toContain("EVENT");
+    expect(workflow).toContain("Java return contract");
+    expect(workflow).toContain("Explicit BPM intent takes precedence");
+    expect(workflow).toContain("Never map a BPM flow name to `feature`");
+    expect(workflow).toContain("eadp sync bpm --source");
+    expect(workflow).toContain("--flow");
+    expect(workflow).toContain("`auditTypeId` and `auditTypeName` to null");
+    expect(workflow).not.toContain("dedicated BPM migration command is unavailable");
+    expect(skill).toContain("references/serial-number-sync.md");
+    const serialWorkflow = await readFile(
+      join(process.cwd(), "skills", "eadp-operator", "references", "serial-number-sync.md"),
+      "utf8"
+    );
+    expect(serialWorkflow).toContain("eadp sync serial-number");
+    expect(serialWorkflow).toContain("CODE_TYPE");
+    expect(serialWorkflow).toContain("entityClassName");
+    expect(serialWorkflow).toContain("tenantCode");
+    expect(serialWorkflow).toContain("--created-in 2026-08");
+    const syncWorkflow = await readFile(
+      join(process.cwd(), "skills", "eadp-operator", "references", "resource-sync.md"),
+      "utf8"
+    );
+    expect(syncWorkflow).toContain("--from \"2026-08-01 00:00:00\"");
+    expect(syncWorkflow).toContain("--to \"2026-09-01 00:00:00\"");
+    expect(syncWorkflow).toContain("create / update / unchanged");
+    expect(syncWorkflow).toContain("Existing and different");
+    expect(workflow).toContain("does not accept time filters");
+  });
+
   it("安装内置 eadp-operator Skill 到 Codex、WorkBuddy、Claude 和 Qoder", async () => {
     const codexHome = await mkdtemp(join(tmpdir(), "eadp-skill-install-"));
     const workbuddyHome = await mkdtemp(join(tmpdir(), "eadp-workbuddy-install-"));

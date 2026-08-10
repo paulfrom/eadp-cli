@@ -354,9 +354,31 @@ eadp sync feature \
 ```
 
 同步按功能项 `code` 匹配目标记录，并使用应用模块代码、功能项组代码重新解析目标环境
-ID；不会复制源环境数据库 ID。同步默认只预览，当前完整注册的同步资源为 `feature`。
+ID；不会复制源环境数据库 ID。同步默认只预览，当前支持 `feature`、`bpm` 和
+`serial-number`。
 执行 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
 不会读取迁移数据，也不会写入目标环境。
+
+按流程代码、名称或 Entity 代码同步 BPM 基础配置：
+
+```bash
+eadp sync bpm --source dev --target ead --flow 采购申请
+eadp sync bpm --source dev --target ead --flow 采购申请 --apply
+```
+
+按实体完整类名同步给号配置，`configType` 默认使用 `CODE_TYPE`：
+
+```bash
+eadp sync serial-number \
+  --source global-dev \
+  --target global-ead \
+  --entity-class com.example.Order \
+  --apply
+```
+
+BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 ID；给号同步会清除源配置和
+`configItem` ID，并使用目标环境由 `env add` 获取的 `tenantCode`。两者重复执行均只处理差异。
+BPM 业务实体的 `auditTypeId`、`auditTypeName` 不随源环境迁移，目标环境始终置空。
 
 ## 给用户或岗位分配和移除角色
 

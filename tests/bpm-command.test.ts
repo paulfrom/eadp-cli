@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/cli.js";
 import { ConfigStore } from "../src/config/store.js";
 
@@ -26,6 +26,107 @@ afterEach(async () => {
 });
 
 describe("apply bpm", () => {
+  it("sync bpm 按流程代码迁移完整基础配置并映射目标关系 ID", async () => {
+    const sourceState = createBpmServerState();
+    sourceState.modules[0] = {
+      id: "source-module",
+      code: "purchase",
+      name: "采购",
+      serviceName: "purchase-service",
+      webBaseAddress: "purchase-web"
+    };
+    sourceState.entities.push({
+      id: "source-entity",
+      name: "采购申请",
+      code: "com.example.PurchaseRequest",
+      businessModuleId: "source-module",
+      serviceName: "/purchaseRequest",
+      auditTypeId: "source-audit-type",
+      auditTypeName: "采购审计"
+    });
+    sourceState.pages.push({
+      id: "source-page",
+      name: "采购申请处理",
+      pcUrl: "/purchase/request",
+      businessModuleId: "source-module"
+    });
+    sourceState.interfaces.push({
+      id: "source-interface",
+      name: "采购流程结束后",
+      url: "/purchaseRequest/afterEndFlow",
+      interfaceType: "EVENT",
+      businessModuleId: "source-module"
+    });
+    sourceState.flowTypes.push({
+      id: "source-flow",
+      name: "采购申请",
+      code: "PURCHASE_REQUEST",
+      businessEntityId: "source-entity",
+      realtimeNodeStatus: false
+    });
+    sourceState.pageRelations.set("source-entity", ["source-page"]);
+    sourceState.interfaceRelations.set("source-entity", ["source-interface"]);
+
+    const targetState = createBpmServerState();
+    targetState.modules[0] = {
+      id: "target-module",
+      code: "purchase",
+      name: "采购",
+      serviceName: "purchase-service",
+      webBaseAddress: "purchase-web"
+    };
+    targetState.entities.push({
+      id: "target-entity",
+      name: "采购申请",
+      code: "com.example.PurchaseRequest",
+      businessModuleId: "target-module",
+      serviceName: "/purchaseRequest",
+      auditTypeId: "target-old-audit",
+      auditTypeName: "旧审计对象"
+    });
+    const urls = await startBpmServers({ source: sourceState, target: targetState });
+    const directory = await mkdtemp(join(tmpdir(), "eadp-bpm-sync-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "source",
+      environments: {
+        source: { baseUrl: urls.source, token: "source-secret", tenantCode: "tenant-a" },
+        target: { baseUrl: urls.target, token: "target-secret", tenantCode: "tenant-b" }
+      }
+    });
+    const output = captureOutput();
+    const args = [
+      "--compact", "sync", "bpm", "--source", "source", "--target", "target",
+      "--flow", "采购申请", "--apply"
+    ];
+
+    await createProgram(store).parseAsync(args, { from: "user" });
+    await createProgram(store).parseAsync(args, { from: "user" });
+
+    expect(targetState.modules).toHaveLength(1);
+    expect(targetState.entities).toHaveLength(1);
+    expect(targetState.entities[0]).toMatchObject({
+      auditTypeId: null,
+      auditTypeName: null
+    });
+    expect(targetState.pages).toHaveLength(1);
+    expect(targetState.interfaces).toHaveLength(1);
+    expect(targetState.flowTypes).toHaveLength(1);
+    expect(targetState.flowTypes[0]!.businessEntityId).toBe(targetState.entities[0]!.id);
+    expect(targetState.flowTypes[0]!.businessEntityId).not.toBe("source-entity");
+    expect(targetState.pageRelations.get(targetState.entities[0]!.id)).toEqual([
+      targetState.pages[0]!.id
+    ]);
+    expect(targetState.interfaceRelations.get(targetState.entities[0]!.id)).toEqual([
+      targetState.interfaces[0]!.id
+    ]);
+    const results = output.text().trim().split("\n").map((line) => JSON.parse(line));
+    expect(results[0].kind).toBe("eadp.bpm.sync.v1");
+    expect(results[0].verified).toBe(true);
+    expect(results[1].summary.unchanged).toBeGreaterThan(0);
+  });
+
   it("在全新上下文中从项目代码完成幂等基础配置", async () => {
     const project = await createProjectFixture();
     const state = createBpmServerState();
@@ -177,7 +278,16 @@ async function handleBpmRequest(
     return;
   }
   if (resource && path.endsWith("/save")) {
-    const item = { ...(body as Record<string, unknown>), id: `${resource}-${state.sequence++}` };
+    const input = body as Record<string, unknown>;
+    const existing = typeof input.id === "string"
+      ? collections[resource]!.find((item) => item.id === input.id)
+      : undefined;
+    if (existing) {
+      Object.assign(existing, input);
+      respond(response, { success: true, data: existing });
+      return;
+    }
+    const item = { ...input, id: `${resource}-${state.sequence++}` };
     if (resource === "conBusinessEntity") {
       item.id = "entity-1";
     }
@@ -220,6 +330,30 @@ async function handleBpmRequest(
     return;
   }
   respond(response, { success: false, message: `未模拟接口：${path}` }, 404);
+}
+
+async function startBpmServers(states: Record<"source" | "target", BpmServerState>): Promise<Record<"source" | "target", string>> {
+  const urls = {} as Record<"source" | "target", string>;
+  for (const name of ["source", "target"] as const) {
+    const server = createServer((request, response) =>
+      handleBpmRequest(request, response, states[name])
+    );
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    urls[name] = `http://127.0.0.1:${address.port}`;
+  }
+  return urls;
+}
+
+function captureOutput(): { text: () => string } {
+  let value = "";
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    value += String(chunk);
+    return true;
+  });
+  return { text: () => value };
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {

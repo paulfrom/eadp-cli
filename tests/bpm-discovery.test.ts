@@ -46,6 +46,9 @@ public class ProjectController extends BaseFlowController<Project, ProjectDto> {
     service.createProject(params.getBusinessId());
     return ResultData.success();
   }
+  public ResultData<List<Executor>> getProjectLeaders(BpmInvokeParams params) {
+    return service.getProjectLeaders(params.getBusinessId());
+  }
 }
 `);
     await writeJava(project, "com/sdh/tbs/project/service/ProjectService.java", `
@@ -94,6 +97,11 @@ public class EmptyFlowController extends BaseFlowController<EmptyFlow, EmptyFlow
           name: "项目申请-流程结束后事件",
           url: "project/afterEndFlow",
           interfaceType: "EVENT"
+        },
+        {
+          name: "项目申请-getProjectLeaders",
+          url: "project/getProjectLeaders",
+          interfaceType: "CUSTOM_PERSON"
         }
       ],
       pages: []

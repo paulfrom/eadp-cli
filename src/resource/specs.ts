@@ -9,8 +9,10 @@ export interface ResourceSpec {
   writableFields: string[];
   toDesired(
     source: ResourceRecord,
-    targetClient: ResourceClient
+    targetClient: ResourceClient,
+    context: { targetTenantCode: string }
   ): Promise<ResourceRecord>;
+  compareValue?(record: ResourceRecord, field: string): unknown;
 }
 
 const featureWritableFields = [
@@ -78,7 +80,53 @@ const featureSpec: ResourceSpec = {
   }
 };
 
-const specs = new Map<string, ResourceSpec>([[featureSpec.name, featureSpec]]);
+const serialNumberWritableFields = [
+  "appModuleCode",
+  "appModuleName",
+  "entityClassName",
+  "configType",
+  "name",
+  "expressionConfig",
+  "minNumber",
+  "maxNumber",
+  "useDeleted",
+  "cycleStrategy",
+  "returnStrategy",
+  "activated",
+  "genFlag",
+  "tenantCode",
+  "publicFlag",
+  "tenantIsolation",
+  "isolationExpression",
+  "configItem"
+];
+
+const serialNumberSpec: ResourceSpec = {
+  name: "serial-number",
+  service: "sei-basic",
+  endpoint: "serialNumberConfig",
+  identityField: "entityClassName",
+  writableFields: serialNumberWritableFields,
+  async toDesired(source, _targetClient, context) {
+    const desired: ResourceRecord = {};
+    for (const field of serialNumberWritableFields) {
+      if (field in source) desired[field] = source[field];
+    }
+    desired.configType = typeof source.configType === "string" ? source.configType : "CODE_TYPE";
+    desired.tenantCode = context.targetTenantCode;
+    desired.configItem = normalizeConfigItems(source.configItem);
+    return desired;
+  },
+  compareValue(record, field) {
+    return field === "configItem" ? normalizeConfigItems(record.configItem) : record[field];
+  }
+};
+
+const specs = new Map<string, ResourceSpec>([
+  [featureSpec.name, featureSpec],
+  [serialNumberSpec.name, serialNumberSpec],
+  ["serialNumberConfig", serialNumberSpec]
+]);
 
 export function getResourceSpec(name: string): ResourceSpec {
   const spec = specs.get(name);
@@ -91,7 +139,32 @@ export function getResourceSpec(name: string): ResourceSpec {
 }
 
 export function listResourceSpecs(): string[] {
-  return [...specs.keys()];
+  return [featureSpec.name, serialNumberSpec.name];
+}
+
+function normalizeConfigItems(value: unknown): ResourceRecord[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new CliError("给号配置缺少 configItem");
+  }
+  const fields = [
+    "elementName",
+    "elementCode",
+    "elementValue",
+    "isolation",
+    "linkCharacter",
+    "sort"
+  ];
+  return value.map((item, index) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new CliError(`给号配置 configItem[${index}] 格式无效`);
+    }
+    const source = item as ResourceRecord;
+    const normalized: ResourceRecord = {};
+    for (const field of fields) {
+      if (field in source) normalized[field] = source[field];
+    }
+    return normalized;
+  });
 }
 
 function selectByCode(

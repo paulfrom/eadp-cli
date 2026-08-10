@@ -15,6 +15,32 @@ Use this workflow for requests such as:
    scope. Stop immediately if either tenant is invalid; do not read migration data or write the target.
 6. Never use arbitrary API calls to imitate synchronization for an unregistered resource.
 
+## Understand differential synchronization
+
+Treat the preview as create / update / unchanged, not as create-only synchronization:
+
+- Missing in target → `create`.
+- Existing and different in writable fields → `update`.
+- Existing and equal in writable fields → `unchanged`; do not write.
+
+Time options filter source records only. After filtering, always compare every selected source record
+with the target by its registered business identity.
+
+Preview source records created in one month:
+
+```text
+eadp sync feature --source A --target B --created-in 2026-08
+```
+
+Preview an explicit left-closed, right-open source time range:
+
+```text
+eadp sync feature --source A --target B --from "2026-08-01 00:00:00" --to "2026-09-01 00:00:00"
+```
+
+Use `--time-field updatedDate` only when the user explicitly requests update-time filtering and the
+resource actually exposes that field. Never reinterpret “新增” as update time.
+
 ## Compare and preview first
 
 Run:

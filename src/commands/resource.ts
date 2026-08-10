@@ -1,4 +1,6 @@
 import { Option, type Command } from "commander";
+import { BpmClient } from "../bpm/client.js";
+import { syncBpmFlow } from "../bpm/sync.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError } from "../errors.js";
@@ -33,6 +35,9 @@ interface SyncOptions {
   from?: string;
   to?: string;
   timeField: string;
+  entityClass?: string;
+  configType?: string;
+  flow?: string;
   apply?: boolean;
 }
 
@@ -152,6 +157,9 @@ export function registerResourceCommands(
     .option("--from <datetime>", "源资源起始时间，包含")
     .option("--to <datetime>", "源资源结束时间，不包含")
     .option("--time-field <name>", "时间字段", "createdDate")
+    .option("--entity-class <name>", "给号配置实体完整类名；仅用于 serial-number")
+    .option("--config-type <type>", "给号配置类型；serial-number 默认为 CODE_TYPE")
+    .option("--flow <code-or-name>", "BPM 流程代码、名称或实体代码；仅用于 bpm")
     .option("--apply", "执行目标环境写入；默认只预览")
     .addHelpText(
       "after",
@@ -159,6 +167,8 @@ export function registerResourceCommands(
 示例：
   eadp sync feature --source dev --target test --created-in 2026-07
   eadp sync feature --source dev --target test --created-in 2026-07 --apply
+  eadp sync bpm --source dev --target test --flow 采购申请
+  eadp sync serial-number --source global-dev --target global-test --entity-class com.example.Order
 
 执行前会校验源、目标环境的租户条件；任一环境不满足时不会读取迁移数据。`
     )
@@ -176,10 +186,37 @@ async function executeSync(
   if (options.source === options.target) {
     throw new CliError("源环境和目标环境不能相同");
   }
-  const spec = getResourceSpec(resourceName);
   const config = await store.load();
   const source = resolveEnvironment(config, options.source);
   const target = resolveEnvironment(config, options.target);
+  if (resourceName.trim().toLocaleLowerCase() === "bpm") {
+    if (!options.flow) throw new CliError("sync bpm 必须提供 --flow <code-or-name>");
+    if (options.entityClass || options.configType || options.createdIn || options.from || options.to) {
+      throw new CliError("sync bpm 仅接受 --source、--target、--flow 和 --apply");
+    }
+    assertPathTenantScope(source.config.tenantCode, "/api-gateway/sei-bpm/conFlowType", source.name);
+    assertPathTenantScope(target.config.tenantCode, "/api-gateway/sei-bpm/conFlowType", target.name);
+    const result = await syncBpmFlow({
+      sourceClient: new BpmClient({
+        baseUrl: source.config.baseUrl,
+        token: source.token,
+        timeoutMs: runtime.timeoutMs
+      }),
+      targetClient: new BpmClient({
+        baseUrl: target.config.baseUrl,
+        token: target.token,
+        timeoutMs: runtime.timeoutMs
+      }),
+      sourceEnvironment: source.name,
+      targetEnvironment: target.name,
+      selector: options.flow,
+      apply: options.apply === true
+    });
+    printValue(result, runtime.compact);
+    return;
+  }
+  if (options.flow) throw new CliError("--flow 仅适用于 bpm");
+  const spec = getResourceSpec(resourceName);
   assertMigrationTenantScope(source, target, spec);
   const sourceClient = createClient(source, spec.service, runtime.timeoutMs);
   const targetClient = createClient(target, spec.service, runtime.timeoutMs);
@@ -190,19 +227,41 @@ async function executeSync(
     timeField: options.timeField,
     filter: []
   });
+  const serialSync = spec.name === "serial-number";
+  if (!serialSync && (options.entityClass || options.configType)) {
+    throw new CliError("--entity-class 和 --config-type 仅适用于 serial-number");
+  }
+  if (serialSync) {
+    if (options.entityClass) {
+      filters.push({
+        fieldName: "entityClassName",
+        operator: "EQ",
+        value: options.entityClass
+      });
+    }
+    filters.push({
+      fieldName: "configType",
+      operator: "EQ",
+      value: options.configType ?? "CODE_TYPE"
+    });
+  }
   const [sourcePage, targetPage] = await Promise.all([
     sourceClient.findByPage(spec.endpoint, { filters }),
     targetClient.findByPage(spec.endpoint)
   ]);
   const changes = [];
+  assertUniqueIdentities(sourcePage.rows, spec, "源环境");
+  assertUniqueIdentities(targetPage.rows, spec, "目标环境");
   for (const sourceRecord of sourcePage.rows) {
-    const desired = await spec.toDesired(sourceRecord, targetClient);
+    const desired = await spec.toDesired(sourceRecord, targetClient, {
+      targetTenantCode: target.config.tenantCode!
+    });
     const key = identityValue(sourceRecord, spec);
     const targetRecord = findByIdentity(targetPage.rows, spec, key);
     if (targetRecord && typeof targetRecord.id === "string") {
       desired.id = targetRecord.id;
     }
-    const changedFields = diffFields(targetRecord, desired, spec.writableFields);
+    const changedFields = diffFields(targetRecord, desired, spec);
     changes.push({
       key,
       action:
@@ -231,7 +290,7 @@ async function executeSync(
       const targetRecord = findByIdentity(after.rows, spec, change.key);
       return (
         targetRecord !== undefined &&
-        diffFields(targetRecord, change.desired, spec.writableFields).length === 0
+        diffFields(targetRecord, change.desired, spec).length === 0
       );
     });
     if (!verified) {
@@ -405,14 +464,36 @@ function findByIdentity(
 function diffFields(
   before: ResourceRecord | undefined,
   desired: ResourceRecord,
-  fields: string[]
+  spec: ResourceSpec
 ): string[] {
   if (!before) {
-    return fields.filter((field) => field in desired);
+    return spec.writableFields.filter((field) => field in desired);
   }
-  return fields.filter(
-    (field) => JSON.stringify(before[field]) !== JSON.stringify(desired[field])
+  return spec.writableFields.filter(
+    (field) =>
+      JSON.stringify(spec.compareValue?.(before, field) ?? before[field]) !==
+      JSON.stringify(spec.compareValue?.(desired, field) ?? desired[field])
   );
+}
+
+function assertUniqueIdentities(
+  records: ResourceRecord[],
+  spec: ResourceSpec,
+  label: string
+): void {
+  const counts = new Map<string, { value: string; count: number }>();
+  for (const record of records) {
+    const value = identityValue(record, spec);
+    const key = value.trim().toLocaleLowerCase();
+    const current = counts.get(key);
+    counts.set(key, { value, count: (current?.count ?? 0) + 1 });
+  }
+  const duplicate = [...counts.values()].find((item) => item.count > 1);
+  if (duplicate) {
+    throw new CliError(
+      `${label}业务唯一键重复：${spec.identityField}=${duplicate.value}（匹配 ${duplicate.count} 条）`
+    );
+  }
 }
 
 function collect(value: string, previous: string[]): string[] {

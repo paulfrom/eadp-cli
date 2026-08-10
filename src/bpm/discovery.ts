@@ -4,6 +4,7 @@ import { CliError } from "../errors.js";
 import type {
   BpmBusinessModuleDefinition,
   BpmFlowDefinition,
+  BpmInterfaceDefinition,
   BpmProjectDefinition
 } from "./schema.js";
 
@@ -12,6 +13,11 @@ interface JavaSource {
   source: string;
   packageName?: string;
   typeName?: string;
+}
+
+interface DiscoveredCallback {
+  methodName: string;
+  interfaceType: BpmInterfaceDefinition["interfaceType"];
 }
 
 const EVENT_NAMES: Record<string, string> = {
@@ -113,10 +119,10 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
       name,
       code: entityCode,
       entity: { name, code: entityCode, serviceName },
-      interfaces: callbacks.map((methodName) => ({
-        name: `${name}-${EVENT_NAMES[methodName] ?? methodName}`,
-        url: `${serviceName}/${methodName}`,
-        interfaceType: "EVENT"
+      interfaces: callbacks.map((callback) => ({
+        name: `${name}-${EVENT_NAMES[callback.methodName] ?? callback.methodName}`,
+        url: `${serviceName}/${callback.methodName}`,
+        interfaceType: callback.interfaceType
       })),
       pages: []
     });
@@ -135,17 +141,22 @@ function discoverStartedEntities(sources: JavaSource[]): Set<string> {
   return result;
 }
 
-function discoverCallbacks(source: string): string[] {
-  const methods: string[] = [];
-  const signature = /public\s+[\w<>, ?\[\].]+\s+(\w+)\s*\(([^)]*\bBpmInvokeParams\b[^)]*)\)\s*\{/g;
+function discoverCallbacks(source: string): DiscoveredCallback[] {
+  const methods = new Map<string, DiscoveredCallback>();
+  const signature = /public\s+([\w<>, ?\[\].]+?)\s+(\w+)\s*\(([^)]*\bBpmInvokeParams\b[^)]*)\)\s*\{/g;
   for (const match of source.matchAll(signature)) {
     const openingBrace = (match.index ?? 0) + match[0].length - 1;
     const body = readBraceBody(source, openingBrace);
     if (body !== undefined && hasBusinessLogic(body)) {
-      methods.push(match[1]!);
+      const returnType = match[1]!;
+      const methodName = match[2]!;
+      methods.set(methodName, {
+        methodName,
+        interfaceType: /\bExecutor\b/.test(returnType) ? "CUSTOM_PERSON" : "EVENT"
+      });
     }
   }
-  return [...new Set(methods)];
+  return [...methods.values()];
 }
 
 function hasBusinessLogic(body: string): boolean {

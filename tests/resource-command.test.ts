@@ -27,6 +27,93 @@ afterEach(async () => {
 });
 
 describe("query 和 sync 命令", () => {
+  it("sync serial-number 按 entityClassName 幂等同步给号配置且不复制源 ID", async () => {
+    const targetConfigs: Array<Record<string, unknown>> = [];
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        const body = (await readBody(request)) as { filters?: unknown[] };
+        expect(body.filters).toEqual([
+          { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
+          { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
+        ]);
+        respond(response, {
+          rows: [{
+            id: "source-config-id",
+            appModuleCode: "ORDER",
+            appModuleName: "订单",
+            entityClassName: "com.example.Order",
+            configType: "CODE_TYPE",
+            name: "订单编号",
+            expressionConfig: "#{00000}",
+            minNumber: 1,
+            maxNumber: 0,
+            useDeleted: false,
+            cycleStrategy: "MAX_CYCLE",
+            returnStrategy: null,
+            activated: true,
+            genFlag: true,
+            tenantCode: "source-tenant",
+            publicFlag: true,
+            tenantIsolation: true,
+            isolationExpression: "",
+            configItem: [{
+              id: "source-item-id",
+              configId: "source-config-id",
+              elementName: "流水号编码",
+              elementCode: "SERIAL_CODE",
+              elementValue: "5",
+              isolation: false,
+              linkCharacter: "EMPTY",
+              sort: 0
+            }]
+          }],
+          total: 1
+        });
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/serialNumberConfig/findByPage")) {
+          respond(response, { rows: targetConfigs, total: targetConfigs.length });
+          return;
+        }
+        if (path.endsWith("/serialNumberConfig/save")) {
+          const body = (await readBody(request)) as Record<string, unknown>;
+          savedBodies.push(body);
+          const saved = { ...body, id: "target-config-id" };
+          targetConfigs.splice(0, targetConfigs.length, saved);
+          respond(response, saved);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+    const args = [
+      "--compact", "sync", "serial-number",
+      "--source", "source", "--target", "target",
+      "--entity-class", "com.example.Order", "--apply"
+    ];
+
+    await createProgram(store).parseAsync(args, { from: "user" });
+    await createProgram(store).parseAsync(args, { from: "user" });
+
+    expect(savedBodies).toHaveLength(1);
+    expect(savedBodies[0]).toMatchObject({
+      entityClassName: "com.example.Order",
+      configType: "CODE_TYPE",
+      tenantCode: "global"
+    });
+    expect(savedBodies[0]).not.toHaveProperty("id");
+    expect(savedBodies[0]!.configItem).toEqual([
+      expect.not.objectContaining({ id: expect.anything(), configId: expect.anything() })
+    ]);
+    const results = output.text().trim().split("\n").map((line) => JSON.parse(line));
+    expect(results[0].kind).toBe("eadp.resource.sync.v1");
+    expect(results[0].summary.create).toBe(1);
+    expect(results[1].summary.unchanged).toBe(1);
+  });
+
   it("query 给号配置时默认限定 CODE_TYPE，并按 entityClassName 校验唯一性", async () => {
     let requestBody: unknown;
     const { store } = await createFixtureServer({
