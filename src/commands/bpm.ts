@@ -10,6 +10,8 @@ import { assertTenantScope } from "../tenant.js";
 import type { ConfigStore } from "../config/store.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { printValue } from "../io.js";
+import { OperationRecorder } from "../operations/recorder.js";
+import { OperationLogStore } from "../operations/store.js";
 import { getRuntimeOptions } from "../runtime-options.js";
 import type { VerbCommands } from "./verbs.js";
 
@@ -86,13 +88,22 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       const requestedEntityCode = resolveBpmEntityCode(options.flow, remote);
       const definition = await discoverBpmProject(options.project, requestedEntityCode);
       const flow = selectBpmFlow(definition, options.flow, remote);
+      const recorder = options.apply
+        ? new OperationRecorder(
+            new OperationLogStore(store.directory),
+            "eadp apply bpm",
+            resolved.name
+          )
+        : undefined;
       const result = await configureBpmProject({
         client,
         definition,
         flows: [flow],
         environment: resolved.name,
-        apply: options.apply === true
+        apply: options.apply === true,
+        ...(recorder ? { recorder } : {})
       });
-      printValue(result, runtime.compact);
+      const operationId = await recorder?.complete();
+      printValue(operationId ? { ...result, operationId } : result, runtime.compact);
     });
 }

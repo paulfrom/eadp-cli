@@ -67,6 +67,21 @@ export async function updateCliAndSkill(
     process.platform === "win32"
       ? join(globalPrefix, "eadp.cmd")
       : join(globalPrefix, "bin", "eadp");
+  let currentVersion: string;
+  try {
+    const versionResult = run(executable, ["--version"], {
+      encoding: "utf8",
+      shell: process.platform === "win32"
+    });
+    assertSucceeded(versionResult, "读取升级后的 eadp-cli 版本失败");
+    currentVersion = versionResult.stdout.trim();
+    if (!currentVersion) {
+      throw new CliError("读取升级后的 eadp-cli 版本失败：命令未返回版本号");
+    }
+  } catch (error) {
+    throw new CliError(`eadp-cli 可能已升级，但 ${errorMessage(error)}`);
+  }
+
   const skillUpgrade = run(executable, ["skill", "install"], {
     encoding: "utf8",
     shell: process.platform === "win32"
@@ -82,7 +97,7 @@ export async function updateCliAndSkill(
       success: true,
       cli: {
         package: cliPackageName,
-        version: "latest",
+        version: currentVersion,
         operation: "upgrade"
       },
       skill: {

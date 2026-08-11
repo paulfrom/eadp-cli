@@ -1,16 +1,26 @@
 import { CliError } from "../errors.js";
+import type { OperationRecorder } from "../operations/recorder.js";
 import { BpmClient, stringField } from "./client.js";
 
 type RecordValue = Record<string, unknown>;
-type SyncAction = "create" | "update" | "unchanged";
+type SyncAction = "create" | "update" | "unchanged" | "blocked";
+
+interface BpmBlockingIssue {
+  resource: string;
+  identityField: string;
+  value: string | null;
+  reason: "invalid" | "ambiguous";
+  message: string;
+}
 
 interface PlannedRecord {
   resource: string;
   key: string;
   action: SyncAction;
   changedFields: string[];
-  desired: RecordValue;
-  id: string;
+  desired: RecordValue | null;
+  id: string | null;
+  blockingIssues?: BpmBlockingIssue[];
 }
 
 const moduleFields = [
@@ -39,7 +49,15 @@ export interface BpmSyncResult {
   targetEnvironment: string;
   flow: { code: string; name: string; entityCode: string };
   applied: boolean;
-  summary: { create: number; update: number; unchanged: number; relationsAdded: number };
+  skippedBlocked: number;
+  summary: {
+    create: number;
+    update: number;
+    unchanged: number;
+    blocked: number;
+    relationsAdded: number;
+  };
+  blockingIssues: BpmBlockingIssue[];
   changes: PlannedRecord[];
   verified: boolean;
 }
@@ -51,6 +69,7 @@ export async function syncBpmFlow(options: {
   targetEnvironment: string;
   selector: string;
   apply: boolean;
+  recorder?: OperationRecorder;
 }): Promise<BpmSyncResult> {
   const sourceFlowTypes = await options.sourceClient.findByPage("conFlowType");
   const sourceEntities = await options.sourceClient.findByPage("conBusinessEntity");
@@ -81,8 +100,10 @@ export async function syncBpmFlow(options: {
   const changes: PlannedRecord[] = [];
 
   const moduleCode = requiredString(sourceModule.code, "源 BPM 业务模块缺少代码");
-  const module = await upsert({
-    client: options.targetClient,
+  const entityCode = requiredString(sourceEntity.code, "源 BPM 业务实体缺少代码");
+  const flowCode = requiredString(sourceFlow.code, "源 BPM 流程类型缺少代码");
+  const flowName = requiredString(sourceFlow.name, "源 BPM 流程类型缺少名称");
+  const module = planRecord({
     resource: "conBusinessModule",
     key: moduleCode,
     source: sourceModule,
@@ -91,14 +112,11 @@ export async function syncBpmFlow(options: {
       targetModules,
       (item) => sameText(item.code, moduleCode),
       `目标 BPM 业务模块代码 ${moduleCode}`
-    ),
-    apply: options.apply
+    )
   });
   changes.push(module);
 
-  const entityCode = requiredString(sourceEntity.code, "源 BPM 业务实体缺少代码");
-  const entity = await upsert({
-    client: options.targetClient,
+  const entity = planRecord({
     resource: "conBusinessEntity",
     key: entityCode,
     source: sourceEntity,
@@ -118,62 +136,111 @@ export async function syncBpmFlow(options: {
       targetEntities,
       (item) => sameText(item.code, entityCode),
       `目标 BPM 业务实体代码 ${entityCode}`
-    ),
-    apply: options.apply
+    )
   });
   changes.push(entity);
 
   const pages: PlannedRecord[] = [];
-  for (const sourcePage of sourcePages) {
-    const pcUrl = requiredString(sourcePage.pcUrl, "源 BPM 页面缺少 pcUrl");
-    const page = await upsert({
-      client: options.targetClient,
+  for (const [index, sourcePage] of sourcePages.entries()) {
+    const pcUrl = optionalRequiredString(sourcePage.pcUrl);
+    if (!pcUrl) {
+      const issue = bpmBlockingIssue(
+        "conPage",
+        "pcUrl",
+        stringField(sourcePage, "id") ?? null,
+        "invalid",
+        "源 BPM 页面缺少 pcUrl"
+      );
+      const blocked = blockedRecord("conPage", `page[${index}]`, issue);
+      pages.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const pageMatch = childMatch(
+      targetPages,
+      (item) => sameText(item.pcUrl, pcUrl),
+      "conPage",
+      "pcUrl",
+      pcUrl,
+      `目标 BPM 页面 ${pcUrl}`
+    );
+    if (pageMatch.issue) {
+      const blocked = blockedRecord("conPage", pcUrl, pageMatch.issue);
+      pages.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const page = planRecord({
       resource: "conPage",
       key: pcUrl,
       source: sourcePage,
       fields: pageFields,
       extra: { businessModuleId: module.id },
       compareFields: [...pageFields, "businessModuleId"],
-      existing: uniqueMatch(
-        targetPages,
-        (item) => sameText(item.pcUrl, pcUrl),
-        `目标 BPM 页面 ${pcUrl}`
-      ),
-      apply: options.apply
+      existing: pageMatch.record
     });
     pages.push(page);
     changes.push(page);
   }
 
   const interfaces: PlannedRecord[] = [];
-  for (const sourceInterface of sourceInterfaces) {
-    const url = requiredString(sourceInterface.url, "源 BPM 接口缺少 url");
-    const interfaceType = requiredString(
-      sourceInterface.interfaceType,
-      `源 BPM 接口 ${url} 缺少 interfaceType`
+  for (const [index, sourceInterface] of sourceInterfaces.entries()) {
+    const url = optionalRequiredString(sourceInterface.url);
+    if (!url) {
+      const issue = bpmBlockingIssue(
+        "conInterface",
+        "url",
+        stringField(sourceInterface, "id") ?? null,
+        "invalid",
+        "源 BPM 接口缺少 url"
+      );
+      const blocked = blockedRecord("conInterface", `interface[${index}]`, issue);
+      interfaces.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const interfaceType = optionalRequiredString(sourceInterface.interfaceType);
+    if (!interfaceType) {
+      const issue = bpmBlockingIssue(
+        "conInterface",
+        "interfaceType",
+        url,
+        "invalid",
+        `源 BPM 接口 ${url} 缺少 interfaceType`
+      );
+      const blocked = blockedRecord("conInterface", url, issue);
+      interfaces.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const interfaceMatch = childMatch(
+      targetInterfaces,
+      (target) => sameText(target.url, url),
+      "conInterface",
+      "url",
+      url,
+      `目标 BPM 接口 ${url}`
     );
-    const item = await upsert({
-      client: options.targetClient,
+    if (interfaceMatch.issue) {
+      const blocked = blockedRecord("conInterface", `${interfaceType}:${url}`, interfaceMatch.issue);
+      interfaces.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const item = planRecord({
       resource: "conInterface",
       key: `${interfaceType}:${url}`,
       source: sourceInterface,
       fields: interfaceFields,
       extra: { businessModuleId: module.id },
       compareFields: [...interfaceFields, "businessModuleId"],
-      existing: uniqueMatch(
-        targetInterfaces,
-        (target) => sameText(target.url, url),
-        `目标 BPM 接口 ${url}`
-      ),
-      apply: options.apply
+      existing: interfaceMatch.record
     });
     interfaces.push(item);
     changes.push(item);
   }
 
-  const flowCode = requiredString(sourceFlow.code, "源 BPM 流程类型缺少代码");
-  const flow = await upsert({
-    client: options.targetClient,
+  const flow = planRecord({
     resource: "conFlowType",
     key: flowCode,
     source: sourceFlow,
@@ -184,38 +251,57 @@ export async function syncBpmFlow(options: {
       targetFlows,
       (item) => sameText(item.code, flowCode),
       `目标 BPM 流程代码 ${flowCode}`
-    ),
-    apply: options.apply
+    )
   });
   changes.push(flow);
+
+  const safePages = pages.filter(isWritablePlan);
+  const safeInterfaces = interfaces.filter(isWritablePlan);
+  if (options.apply) {
+    await applyPlanned(options.targetClient, module, options.recorder);
+    setDesiredField(entity, "businessModuleId", requiredPlanId(module));
+    await applyPlanned(options.targetClient, entity, options.recorder);
+    for (const page of safePages) {
+      setDesiredField(page, "businessModuleId", requiredPlanId(module));
+      await applyPlanned(options.targetClient, page, options.recorder);
+    }
+    for (const item of safeInterfaces) {
+      setDesiredField(item, "businessModuleId", requiredPlanId(module));
+      await applyPlanned(options.targetClient, item, options.recorder);
+    }
+    setDesiredField(flow, "businessEntityId", requiredPlanId(entity));
+    await applyPlanned(options.targetClient, flow, options.recorder);
+  }
 
   let relationsAdded = 0;
   if (options.apply) {
     relationsAdded += await addMissingRelations(
       options.targetClient,
       "conEntityPage",
-      entity.id,
-      pages.map((item) => item.id)
+      requiredPlanId(entity),
+      safePages.map(requiredPlanId),
+      options.recorder
     );
     relationsAdded += await addMissingRelations(
       options.targetClient,
       "conEntityInterface",
-      entity.id,
-      interfaces.map((item) => item.id)
+      requiredPlanId(entity),
+      safeInterfaces.map(requiredPlanId),
+      options.recorder
     );
   } else {
     relationsAdded += await countMissingRelations(
       options.targetClient,
       "conEntityPage",
-      entity.id,
-      pages.map((item) => item.id),
+      requiredPlanId(entity),
+      safePages.map(requiredPlanId),
       entity.action === "create"
     );
     relationsAdded += await countMissingRelations(
       options.targetClient,
       "conEntityInterface",
-      entity.id,
-      interfaces.map((item) => item.id),
+      requiredPlanId(entity),
+      safeInterfaces.map(requiredPlanId),
       entity.action === "create"
     );
   }
@@ -223,9 +309,9 @@ export async function syncBpmFlow(options: {
   const verified = options.apply
     ? await verifyTarget(
         options.targetClient,
-        entity.id,
-        pages,
-        interfaces,
+        requiredPlanId(entity),
+        safePages,
+        safeInterfaces,
         flowCode,
         changes
       )
@@ -238,25 +324,30 @@ export async function syncBpmFlow(options: {
     targetEnvironment: options.targetEnvironment,
     flow: {
       code: flowCode,
-      name: requiredString(sourceFlow.name, "源 BPM 流程类型缺少名称"),
+      name: flowName,
       entityCode
     },
     applied:
       options.apply &&
-      (changes.some((item) => item.action !== "unchanged") || relationsAdded > 0),
+      (changes.some((item) => item.action === "create" || item.action === "update") ||
+        relationsAdded > 0),
     summary: {
       create: changes.filter((item) => item.action === "create").length,
       update: changes.filter((item) => item.action === "update").length,
       unchanged: changes.filter((item) => item.action === "unchanged").length,
+      blocked: changes.filter((item) => item.action === "blocked").length,
       relationsAdded
     },
+    skippedBlocked: options.apply
+      ? changes.filter((item) => item.action === "blocked").length
+      : 0,
+    blockingIssues: uniqueBpmBlockingIssues(changes),
     changes,
     verified
   };
 }
 
-async function upsert(options: {
-  client: BpmClient;
+function planRecord(options: {
   resource: string;
   key: string;
   source: RecordValue;
@@ -264,8 +355,7 @@ async function upsert(options: {
   compareFields?: string[];
   extra?: RecordValue;
   existing?: RecordValue | undefined;
-  apply: boolean;
-}): Promise<PlannedRecord> {
+}): PlannedRecord {
   const desired = copyFields(options.source, options.fields);
   Object.assign(desired, options.extra ?? {});
   const compareFields = options.compareFields ?? options.fields;
@@ -279,14 +369,117 @@ async function upsert(options: {
     : "create";
   const existingId = options.existing ? requiredString(options.existing.id, `${options.resource} 缺少 ID`) : undefined;
   let id = existingId ?? `<${options.resource}:${options.key}>`;
-  if (options.apply && action !== "unchanged") {
-    const saved = await options.client.save(
-      options.resource,
-      existingId ? { ...desired, id: existingId } : desired
-    );
-    id = requiredString(saved.id, `${options.resource}/save 未返回 ID`);
-  }
   return { resource: options.resource, key: options.key, action, changedFields, desired, id };
+}
+
+async function applyPlanned(
+  client: BpmClient,
+  plan: PlannedRecord,
+  recorder?: OperationRecorder
+): Promise<void> {
+  if (plan.action === "blocked" || plan.action === "unchanged") return;
+  if (!plan.desired) throw new CliError(`${plan.resource} 缺少待写入数据`);
+  const saved = await client.save(
+    plan.resource,
+    plan.action === "update" ? { ...plan.desired, id: requiredPlanId(plan) } : plan.desired
+  );
+  plan.id = requiredString(saved.id, `${plan.resource}/save 未返回 ID`);
+  if (plan.action === "create" && recorder) {
+    await recorder.recordAction({
+      type: "create-entity",
+      service: "sei-bpm",
+      resource: plan.resource,
+      entityId: plan.id,
+      expected: plan.desired,
+      deleteMethod: "DELETE"
+    });
+  }
+}
+
+type SafePlannedRecord = PlannedRecord & {
+  action: Exclude<SyncAction, "blocked">;
+  desired: RecordValue;
+  id: string;
+};
+
+function isWritablePlan(plan: PlannedRecord): plan is SafePlannedRecord {
+  return plan.action !== "blocked" && plan.desired !== null && plan.id !== null;
+}
+
+function requiredPlanId(plan: PlannedRecord): string {
+  if (plan.id === null) throw new CliError(`${plan.resource} 缺少目标 ID`);
+  return plan.id;
+}
+
+function setDesiredField(plan: PlannedRecord, field: string, value: unknown): void {
+  if (!plan.desired) throw new CliError(`${plan.resource} 缺少待写入数据`);
+  plan.desired[field] = value;
+}
+
+function blockedRecord(
+  resource: string,
+  key: string,
+  issue: BpmBlockingIssue
+): PlannedRecord {
+  return {
+    resource,
+    key,
+    action: "blocked",
+    changedFields: [],
+    desired: null,
+    id: null,
+    blockingIssues: [issue]
+  };
+}
+
+function bpmBlockingIssue(
+  resource: string,
+  identityField: string,
+  value: string | null,
+  reason: BpmBlockingIssue["reason"],
+  message: string
+): BpmBlockingIssue {
+  return { resource, identityField, value, reason, message };
+}
+
+function childMatch(
+  records: RecordValue[],
+  predicate: (record: RecordValue) => boolean,
+  resource: string,
+  identityField: string,
+  value: string,
+  label: string
+): { record?: RecordValue; issue?: BpmBlockingIssue } {
+  const matches = records.filter(predicate);
+  if (matches.length > 1) {
+    return {
+      issue: bpmBlockingIssue(
+        resource,
+        identityField,
+        value,
+        "ambiguous",
+        `${label}不唯一（匹配 ${matches.length} 条）`
+      )
+    };
+  }
+  return matches[0] ? { record: matches[0] } : {};
+}
+
+function uniqueBpmBlockingIssues(changes: PlannedRecord[]): BpmBlockingIssue[] {
+  const issues = new Map<string, BpmBlockingIssue>();
+  for (const change of changes) {
+    for (const issue of change.blockingIssues ?? []) {
+      const key = [
+        issue.resource,
+        issue.identityField,
+        issue.value ?? "",
+        issue.reason,
+        issue.message
+      ].join(":");
+      issues.set(key, issue);
+    }
+  }
+  return [...issues.values()];
 }
 
 function selectFlow(
@@ -325,7 +518,8 @@ async function addMissingRelations(
   client: BpmClient,
   resource: "conEntityPage" | "conEntityInterface",
   parentId: string,
-  childIds: string[]
+  childIds: string[],
+  recorder?: OperationRecorder
 ): Promise<number> {
   const existing = new Set(
     (await client.getChildren(resource, parentId))
@@ -334,6 +528,15 @@ async function addMissingRelations(
   );
   const missing = childIds.filter((id) => !existing.has(id));
   await client.insertRelations(resource, parentId, missing);
+  if (missing.length > 0 && recorder) {
+    await recorder.recordAction({
+      type: "assign-relations",
+      service: "sei-bpm",
+      resource,
+      parentId,
+      childIds: missing
+    });
+  }
   return missing.length;
 }
 
@@ -366,10 +569,11 @@ async function verifyTarget(
     (await client.getChildren("conEntityInterface", entityId)).map((item) => item.id)
   );
   const resources = new Map<string, RecordValue[]>();
-  for (const resource of new Set(changes.map((item) => item.resource))) {
+  const safeChanges = changes.filter(isWritablePlan);
+  for (const resource of new Set(safeChanges.map((item) => item.resource))) {
     resources.set(resource, await client.findByPage(resource));
   }
-  const recordsMatch = changes.every((change) => {
+  const recordsMatch = safeChanges.every((change) => {
     const actual = resources.get(change.resource)?.find((item) => item.id === change.id);
     return actual !== undefined && Object.entries(change.desired).every(
       ([field, value]) => JSON.stringify(actual[field]) === JSON.stringify(value)
@@ -397,4 +601,8 @@ function sameText(value: unknown, expected: string): boolean {
 function requiredString(value: unknown, message: string): string {
   if (typeof value !== "string" || value.trim() === "") throw new CliError(message);
   return value;
+}
+
+function optionalRequiredString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }

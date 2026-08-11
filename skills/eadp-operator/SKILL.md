@@ -1,6 +1,6 @@
 ---
 name: eadp-operator
-description: Safely operate EADP through the eadp CLI. Use when a user asks to query EADP resources or permissions, inspect or configure BPM, migrate BPM or serial-number configuration between environments, inspect resources created or changed during a time range, compare or synchronize configuration between named environments, grant or revoke roles, or modify a feature/configuration item. Includes read-only resolution, preview, ambiguity protection, dependency mapping, post-write verification, and structured JSON output.
+description: Safely operate EADP through the eadp CLI. Use when a user asks to query EADP resources or permissions, query/create/synchronize menus, inspect or configure BPM, migrate BPM or serial-number configuration between environments, inspect resources created or changed during a time range, compare or synchronize configuration between named environments, grant or revoke roles, or modify a feature/configuration item. Includes read-only resolution, preview, ambiguity protection, dependency mapping, post-write verification, and structured JSON output.
 ---
 
 # EADP Operator
@@ -64,6 +64,7 @@ user to select one.
 - For granting or revoking user, position, or position-category roles, read [references/permission-management.md](references/permission-management.md).
 - For BPM discovery or configuration, read [references/bpm-configuration.md](references/bpm-configuration.md).
 - For serial-number configuration synchronization, read [references/serial-number-sync.md](references/serial-number-sync.md).
+- For rolling back a prior CLI create or assignment, read [references/rollback.md](references/rollback.md).
 
 Load only the selected workflow unless the request combines workflows.
 
@@ -74,7 +75,7 @@ Load only the selected workflow unless the request combines workflows.
 - Resolve every missing or ambiguous parameter through the read-only procedure above before requesting user input.
 - For a person, prefer employee number. Permit exact employee name only when it resolves to one employee; never choose among duplicates.
 - For cross-environment operations, preserve source/target direction exactly as requested.
-- Use a `global` environment only for feature, menu, and serial-number configuration queries or writes.
+- Use a `global` environment only for feature, feature-group, menu, and serial-number configuration queries or writes.
   Use a non-`global` environment for permission and position configuration/assignment, user queries,
   BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.
@@ -89,8 +90,14 @@ Load only the selected workflow unless the request combines workflows.
 - If any CLI or EADP API call fails, stop the workflow immediately and report the failure truthfully. Include the environment name, redacted command, HTTP status or EADP message when available, and whether any earlier write may already have succeeded.
 - Do not retry a failed call automatically. Do not retry with changed parameters, another endpoint, another environment or Token, a raw `eadp call`, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
 - After applying, require the CLI result to report successful verification. If it does not, stop and report the partial result.
+- For BPM and serial-number synchronization, distinguish record-level `blocked` results from CLI or
+  EADP request failures. Apply only safe planned records, report every `blockingIssues` entry, and
+  never retry a failed request.
 - Never copy source database IDs into another environment. Use CLI-registered dependency mappings.
 - Never display Token values. Redact them if an external command exposes them unexpectedly.
+- Successful creates and assignments return an `operationId` and keep a local operation log for 30 days.
+  Run `eadp rollback <operation-id>` only when the user explicitly requests that rollback. It executes
+  directly without `--apply`; never invent an operation ID or substitute raw delete/remove calls.
 
 ## Report results
 
@@ -98,8 +105,8 @@ State:
 
 1. Source and target environment names, if applicable.
 2. Exact selector and time range used.
-3. Counts of queried, created, updated, unchanged, granted, or revoked records.
+3. Counts of queried, created, updated, unchanged, blocked, granted, or revoked records.
 4. Whether the operation was preview-only or applied.
-5. Verification status and any skipped or ambiguous records.
+5. Verification status, `skippedBlocked`, and every missing or ambiguous dependency reported by the CLI.
 
 For a failed call, report the failure instead of converting it into a partial success. State clearly that no retry was attempted.

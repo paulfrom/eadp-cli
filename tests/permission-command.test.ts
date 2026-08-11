@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/cli.js";
 import { ConfigStore } from "../src/config/store.js";
+import { OperationLogStore } from "../src/operations/store.js";
 
 const temporaryDirectories: string[] = [];
 const servers: ReturnType<typeof createServer>[] = [];
@@ -302,7 +303,18 @@ describe("统一权限命令", () => {
 
     const applyOutput = captureOutput();
     await createProgram(store).parseAsync([...args, "--apply"], { from: "user" });
-    expect(JSON.parse(applyOutput.text()).verified).toBe(true);
+    const applied = JSON.parse(applyOutput.text());
+    expect(applied.verified).toBe(true);
+    expect(applied.operationId).toEqual(expect.any(String));
+    await expect(new OperationLogStore(store.directory).load(applied.operationId)).resolves.toMatchObject({
+      environment: "dev",
+      status: "completed",
+      actions: [expect.objectContaining({
+        type: "create-entity",
+        resource: "featureRole",
+        entityId: "role-1"
+      })]
+    });
     expect(saveCount).toBe(1);
     vi.restoreAllMocks();
 

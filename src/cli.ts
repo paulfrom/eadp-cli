@@ -8,6 +8,7 @@ import { registerBpmCommands } from "./commands/bpm.js";
 import { registerEnvironmentCommands } from "./commands/env.js";
 import { registerPermissionCommands } from "./commands/permission.js";
 import { registerResourceCommands } from "./commands/resource.js";
+import { registerRollbackCommand } from "./commands/rollback.js";
 import { registerSkillCommands } from "./commands/skill.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerVerbCommands } from "./commands/verbs.js";
@@ -31,6 +32,7 @@ export function createProgram(store = new ConfigStore()): Command {
   registerApiCommands(commands, store, program);
   registerBpmCommands(commands, store, program);
   registerPermissionCommands(commands, store, program);
+  registerRollbackCommand(program, store);
   registerSkillCommands(program);
   registerUpdateCommand(program);
   return program;

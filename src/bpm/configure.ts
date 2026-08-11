@@ -1,4 +1,5 @@
 import { CliError } from "../errors.js";
+import type { OperationRecorder } from "../operations/recorder.js";
 import { BpmClient, stringField } from "./client.js";
 import type {
   BpmConfigureResult,
@@ -14,6 +15,7 @@ export async function configureBpmProject(options: {
   flows: BpmFlowDefinition[];
   environment: string;
   apply: boolean;
+  recorder?: OperationRecorder;
 }): Promise<BpmConfigureResult> {
   if (!options.apply) {
     return createPreview(options);
@@ -35,13 +37,14 @@ export async function configureBpmProject(options: {
       frozen: false,
       rank: 0
     },
-    options.definition.businessModule.name
+    options.definition.businessModule.name,
+    options.recorder
   );
 
   const flowResults: BpmFlowResult[] = [];
   for (const flow of options.flows) {
     flowResults.push(
-      await configureFlow(options.client, module.id, flow)
+      await configureFlow(options.client, module.id, flow, options.recorder)
     );
   }
 
@@ -58,7 +61,8 @@ export async function configureBpmProject(options: {
 async function configureFlow(
   client: BpmClient,
   moduleId: string,
-  flow: BpmFlowDefinition
+  flow: BpmFlowDefinition,
+  recorder?: OperationRecorder
 ): Promise<BpmFlowResult> {
   const entity = await ensureResource(
     client,
@@ -78,7 +82,8 @@ async function configureFlow(
       rank: 0,
       frozen: false
     },
-    flow.entity.name
+    flow.entity.name,
+    recorder
   );
 
   const pages: ResourceResult[] = [];
@@ -99,7 +104,8 @@ async function configureFlow(
           rank: index,
           businessModuleId: moduleId
         },
-        page.name
+        page.name,
+        recorder
       )
     );
   }
@@ -122,7 +128,8 @@ async function configureFlow(
           businessModuleId: moduleId,
           param: null
         },
-        item.name
+        item.name,
+        recorder
       )
     );
   }
@@ -131,13 +138,15 @@ async function configureFlow(
     client,
     "conEntityPage",
     entity.id,
-    pages.map((item) => item.id)
+    pages.map((item) => item.id),
+    recorder
   );
   const interfaceRelationsAdded = await ensureRelations(
     client,
     "conEntityInterface",
     entity.id,
-    interfaces.map((item) => item.id)
+    interfaces.map((item) => item.id),
+    recorder
   );
 
   const flowType = await ensureResource(
@@ -155,7 +164,8 @@ async function configureFlow(
       frozen: false,
       realtimeNodeStatus: false
     },
-    flow.name
+    flow.name,
+    recorder
   );
 
   const verified = await verifyFlow(
@@ -186,7 +196,8 @@ async function ensureResource(
   resource: string,
   matches: (item: Record<string, unknown>) => boolean,
   payload: Record<string, unknown>,
-  name: string
+  name: string,
+  recorder?: OperationRecorder
 ): Promise<ResourceResult> {
   const matching = (await client.findByPage(resource)).filter(matches);
   if (matching.length > 1) {
@@ -201,9 +212,20 @@ async function ensureResource(
     return { action: "reused", id, name };
   }
   const created = await client.save(resource, payload);
+  const id = stringField(created, "id")!;
+  if (recorder) {
+    await recorder.recordAction({
+      type: "create-entity",
+      service: "sei-bpm",
+      resource,
+      entityId: id,
+      expected: payload,
+      deleteMethod: "DELETE"
+    });
+  }
   return {
     action: "created",
-    id: stringField(created, "id")!,
+    id,
     name: stringField(created, "name") ?? name
   };
 }
@@ -212,7 +234,8 @@ async function ensureRelations(
   client: BpmClient,
   resource: "conEntityPage" | "conEntityInterface",
   parentId: string,
-  desiredIds: string[]
+  desiredIds: string[],
+  recorder?: OperationRecorder
 ): Promise<number> {
   const existingIds = new Set(
     (await client.getChildren(resource, parentId))
@@ -221,6 +244,15 @@ async function ensureRelations(
   );
   const missing = desiredIds.filter((id) => !existingIds.has(id));
   await client.insertRelations(resource, parentId, missing);
+  if (missing.length > 0 && recorder) {
+    await recorder.recordAction({
+      type: "assign-relations",
+      service: "sei-bpm",
+      resource,
+      parentId,
+      childIds: missing
+    });
+  }
   return missing.length;
 }
 

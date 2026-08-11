@@ -5,7 +5,19 @@ Use this workflow for migrating 给号配置 between named environments.
 1. Run `eadp sync --help` and resolve both environments with `eadp env list`.
 2. Require both environments to have `tenantCode: global` before any remote read.
 3. Resolve the entity's fully qualified `entityClassName`; do not use a short class name.
-4. Preview with `configType` defaulting to `CODE_TYPE`:
+4. Select enum names only from the complete server-defined sets below. Infer from business meaning,
+   but never invent a value:
+   - `ConfigType`: `CODE_TYPE` (主数据编号), `BAR_TYPE` (条码).
+   - `CycleStrategy`: `MAX_CYCLE` (达到最大号后循环), `DAY_CYCLE` (按日循环),
+     `MONTH_CYCLE` (按月循环), `YEAR_CYCLE` (按年循环).
+   - `ReturnStrategy`: `NEW` (每次新给号), `REPEAT` (同一关联对象优先复用已有条码),
+     `PATCH` (补号；仅在业务明确需要补号策略时选择).
+   - `LinkCharacter`: `EMPTY` (空字符串), `DASH` (`-`), `DOT` (`.`), `PIPE` (`|`),
+     `COLON` (`:`).
+   - Built-in `DefaultElement`: `FIXED_CODE` (固定编码), `DATE_CODE` (日期编码),
+     `SERIAL_CODE` (流水号编码). `elementCode` may also use a custom element code already
+     registered in the target service; resolve it read-only instead of guessing.
+5. Preview with `configType` defaulting to `CODE_TYPE`:
 
 ```text
 eadp sync serial-number --source A --target B --entity-class com.example.Order
@@ -20,14 +32,19 @@ eadp sync serial-number --source A --target B --created-in 2026-08
 Combine `--created-in` with `--entity-class` when both time and entity scope are required. Do not
 combine `--created-in` with `--from` or `--to`.
 
-5. Stop if `entityClassName` is duplicated in either environment. Review create/update/unchanged and
-   every changed field before adding `--apply`.
-6. Apply only after authorization and require `verified: true`:
+6. Stop if `entityClassName` is duplicated in either environment. A single source or target record
+   with a missing or invalid `configItem` is instead reported as `blocked`; continue comparing and
+   applying safe records. Review create/update/unchanged/blocked, every changed field, and every
+   `blockingIssues` entry before adding `--apply`.
+7. Apply only after authorization and require `verified: true`:
 
 ```text
 eadp sync serial-number --source A --target B --entity-class com.example.Order --apply
 ```
 
 The CLI replaces source record and `configItem` IDs with target IDs, sets `tenantCode` from the target
-environment recorded by `env add`, preserves the configuration values, and performs an idempotent
-post-write query. Never provide or override `tenantCode` manually.
+environment recorded by `env add`, and performs an idempotent post-write query. When creating a target
+configuration, a missing, null, or blank `returnStrategy` defaults to `NEW`; an update preserves the
+existing target value when the source value is missing. During `--apply`, require `skippedBlocked` to
+match the blocked count and report the skipped entity class names. Never provide or override
+`tenantCode` manually.

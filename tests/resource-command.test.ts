@@ -102,6 +102,7 @@ describe("query 和 sync 命令", () => {
     expect(savedBodies[0]).toMatchObject({
       entityClassName: "com.example.Order",
       configType: "CODE_TYPE",
+      returnStrategy: "NEW",
       tenantCode: "global"
     });
     expect(savedBodies[0]).not.toHaveProperty("id");
@@ -112,6 +113,178 @@ describe("query 和 sync 命令", () => {
     expect(results[0].kind).toBe("eadp.resource.sync.v1");
     expect(results[0].summary.create).toBe(1);
     expect(results[1].summary.unchanged).toBe(1);
+  });
+
+  it("sync serial-number 预览时按实体过滤目标环境，避免无关非法枚举记录导致查询失败", async () => {
+    const expectedFilters = [
+      { fieldName: "entityClassName", operator: "EQ", value: "com.test.cli.demo" },
+      { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
+    ];
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        const body = (await readBody(request)) as { filters?: unknown[] };
+        expect(body.filters).toEqual(expectedFilters);
+        respond(response, {
+          rows: [{
+            id: "source-config-id",
+            entityClassName: "com.test.cli.demo",
+            configType: "CODE_TYPE",
+            name: "CLI 测试编号",
+            returnStrategy: "NEW",
+            configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+          }],
+          total: 1
+        });
+      },
+      target: async (request, response) => {
+        const body = (await readBody(request)) as { filters?: unknown[] };
+        if (!body.filters || body.filters.length === 0) {
+          respond(
+            response,
+            "IllegalArgumentException: No enum constant com.changhong.sei.serial.entity.enumclass.ReturnStrategy.",
+            500
+          );
+          return;
+        }
+        expect(body.filters).toEqual(expectedFilters);
+        respond(response, { rows: [], total: 0 });
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "--compact", "sync", "serial-number",
+        "--source", "source", "--target", "target",
+        "--entity-class", "com.test.cli.demo"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.applied).toBe(false);
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
+  });
+
+  it("sync serial-number 新增时将缺失、null 和空白 returnStrategy 默认成 NEW", async () => {
+    const { store } = await createFixtureServer({
+      source: (_request, response) => {
+        respond(response, {
+          rows: [
+            {
+              entityClassName: "com.example.MissingStrategy",
+              configType: "CODE_TYPE",
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            },
+            {
+              entityClassName: "com.example.NullStrategy",
+              configType: "CODE_TYPE",
+              returnStrategy: null,
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            },
+            {
+              entityClassName: "com.example.BlankStrategy",
+              configType: "CODE_TYPE",
+              returnStrategy: "  ",
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            }
+          ],
+          total: 3
+        });
+      },
+      target: (_request, response) => respond(response, { rows: [], total: 0 })
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["--compact", "sync", "serial-number", "--source", "source", "--target", "target"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.changes).toHaveLength(3);
+    expect(result.changes.every(
+      (change: { desired: { returnStrategy?: unknown } }) =>
+        change.desired.returnStrategy === "NEW"
+    )).toBe(true);
+  });
+
+  it("sync serial-number 将单条非法 configItem 标记为 blocked 并应用安全记录", async () => {
+    const targetConfigs: Array<Record<string, unknown>> = [];
+    const savedEntities: string[] = [];
+    const { store } = await createFixtureServer({
+      source: (_request, response) => {
+        respond(response, {
+          rows: [
+            {
+              id: "source-valid",
+              entityClassName: "com.example.ValidOrder",
+              configType: "CODE_TYPE",
+              name: "有效编号",
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            },
+            {
+              id: "source-invalid",
+              entityClassName: "com.example.InvalidOrder",
+              configType: "CODE_TYPE",
+              name: "无效编号",
+              configItem: null
+            }
+          ],
+          total: 2
+        });
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/serialNumberConfig/findByPage")) {
+          respond(response, { rows: targetConfigs, total: targetConfigs.length });
+          return;
+        }
+        if (path.endsWith("/serialNumberConfig/save")) {
+          const body = (await readBody(request)) as Record<string, unknown>;
+          savedEntities.push(String(body.entityClassName));
+          const saved = { ...body, id: "target-valid" };
+          targetConfigs.push(saved);
+          respond(response, saved);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "--compact", "sync", "serial-number",
+        "--source", "source", "--target", "target", "--apply"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(result.skippedBlocked).toBe(1);
+    expect(result.verified).toBe(true);
+    expect(savedEntities).toEqual(["com.example.ValidOrder"]);
+    expect(result.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "com.example.InvalidOrder",
+        action: "blocked",
+        desired: null,
+        blockingIssues: [expect.objectContaining({
+          resource: "serial-number",
+          field: "configItem",
+          reason: "invalid"
+        })]
+      })
+    ]));
+    expect(result.blockingIssues).toEqual([
+      expect.objectContaining({
+        resource: "serial-number",
+        field: "configItem",
+        reason: "invalid"
+      })
+    ]);
   });
 
   it("query 给号配置时默认限定 CODE_TYPE，并按 entityClassName 校验唯一性", async () => {
@@ -382,7 +555,7 @@ describe("query 和 sync 命令", () => {
     const result = JSON.parse(output.text());
     expect(result.kind).toBe("eadp.resource.sync.v1");
     expect(result.applied).toBe(false);
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0 });
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
     expect(result.changes[0].desired).toMatchObject({
       code: "NEW_FEATURE",
       appModuleId: "target-app-id",
@@ -449,9 +622,175 @@ describe("query 和 sync 命令", () => {
     );
 
     const result = JSON.parse(output.text());
-    expect(result.summary).toEqual({ create: 0, update: 1, unchanged: 0 });
+    expect(result.summary).toEqual({ create: 0, update: 1, unchanged: 0, blocked: 0 });
     expect(result.changes[0].changedFields).not.toContain("specialProjectId");
     expect(result.changes[0].desired.specialProjectId).toBe("target-project-id");
+  });
+
+  it("sync 功能项时完整报告缺失依赖并仅应用安全记录", async () => {
+    const targetFeatures: Array<Record<string, unknown>> = [];
+    const savedCodes: string[] = [];
+    const { store } = await createFixtureServer({
+      source: (request, response) => {
+        if (requestPath(request).endsWith("/feature/findByPage")) {
+          respond(response, {
+            rows: [
+              {
+                id: "source-blocked",
+                code: "ISRM-BLOCKED",
+                name: "依赖缺失功能",
+                featureType: "Operate",
+                canMenu: false,
+                tenantCanUse: true,
+                mobileUse: false,
+                appModuleCode: "ISRM",
+                featureGroupCode: "ISRM-PA-OLD-2"
+              },
+              {
+                id: "source-safe",
+                code: "ISRM-SAFE",
+                name: "安全功能",
+                featureType: "Operate",
+                canMenu: false,
+                tenantCanUse: true,
+                mobileUse: false,
+                appModuleCode: "ISRM"
+              }
+            ],
+            total: 2
+          });
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) {
+          respond(response, { rows: targetFeatures, total: targetFeatures.length });
+          return;
+        }
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "target-app-id", code: "ISRM" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, []);
+          return;
+        }
+        if (path.endsWith("/feature/save")) {
+          const body = (await readBody(request)) as Record<string, unknown>;
+          savedCodes.push(String(body.code));
+          targetFeatures.push({ ...body, id: "target-safe-id" });
+          respond(response, targetFeatures[0]);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["sync", "feature", "--source", "source", "--target", "target", "--apply"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(result.applied).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(result.skippedBlocked).toBe(1);
+    expect(savedCodes).toEqual(["ISRM-SAFE"]);
+    expect(result.changes).toHaveLength(2);
+    expect(result.changes[0]).toMatchObject({
+      key: "ISRM-BLOCKED",
+      action: "blocked",
+      missingDependencies: [{
+        resource: "feature-group",
+        identityField: "code",
+        value: "ISRM-PA-OLD-2",
+        reason: "missing"
+      }]
+    });
+    expect(result.missingDependencies).toEqual([{
+      resource: "feature-group",
+      identityField: "code",
+      value: "ISRM-PA-OLD-2",
+      reason: "missing"
+    }]);
+  });
+
+  it("sync feature-group 按代码映射应用模块并创建后回查", async () => {
+    const targetGroups: Array<Record<string, unknown>> = [];
+    let sourceRequestBody: unknown;
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        if (requestPath(request).endsWith("/featureGroup/findByPage")) {
+          sourceRequestBody = await readBody(request);
+          respond(response, {
+            rows: [{
+              id: "source-group-id",
+              code: "ISRM-PA-OLD-2",
+              name: "旧采购功能组",
+              appModuleId: "source-app-id",
+              appModuleCode: "ISRM"
+            }],
+            total: 1
+          });
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/featureGroup/findByPage")) {
+          respond(response, { rows: targetGroups, total: targetGroups.length });
+          return;
+        }
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "target-app-id", code: "ISRM" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/save")) {
+          const body = (await readBody(request)) as Record<string, unknown>;
+          const saved = {
+            ...body,
+            id: "target-group-id",
+            appModuleCode: "ISRM"
+          };
+          targetGroups.push(saved);
+          respond(response, saved);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "sync", "feature-group",
+        "--source", "source",
+        "--target", "target",
+        "--code", "ISRM-PA-OLD-2",
+        "--apply"
+      ],
+      { from: "user" }
+    );
+
+    expect(sourceRequestBody).toMatchObject({
+      filters: [{ fieldName: "code", operator: "EQ", value: "ISRM-PA-OLD-2" }]
+    });
+    const result = JSON.parse(output.text());
+    expect(result.resource).toBe("feature-group");
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
+    expect(result.applied).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(targetGroups[0]).toMatchObject({
+      code: "ISRM-PA-OLD-2",
+      name: "旧采购功能组",
+      appModuleId: "target-app-id"
+    });
+    expect(targetGroups[0]?.appModuleId).not.toBe("source-app-id");
   });
 
   it("sync --apply 写入后重新查询验证", async () => {

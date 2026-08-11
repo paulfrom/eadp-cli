@@ -65,6 +65,7 @@ try {
         "revoke",
         "sync",
         "verify",
+        "rollback",
         "--timeout <ms>",
         "--compact",
         "update"
@@ -96,7 +97,11 @@ try {
     },
     {
       args: ["query", "--help"],
-      expected: ["--entity-class <name>", "CODE_TYPE"]
+      expected: ["--entity-class <name>", "CODE_TYPE", "query menu"]
+    },
+    {
+      args: ["apply", "menu", "--help"],
+      expected: ["--parent-code <code>", "--feature-code <code>", "--apply", "operationId"]
     },
     {
       args: ["apply", "functional-role", "--help"],
@@ -116,7 +121,28 @@ try {
     },
     {
       args: ["sync", "--help"],
-      expected: ["注册资源名", "--source", "--target", "--apply"]
+      expected: [
+        "注册资源名",
+        "feature-group",
+        "sync menu",
+        "--source",
+        "--target",
+        "--code <code>",
+        "--apply",
+        "ConfigType: CODE_TYPE, BAR_TYPE",
+        "CycleStrategy: MAX_CYCLE, DAY_CYCLE, MONTH_CYCLE, YEAR_CYCLE",
+        "ReturnStrategy: NEW, REPEAT, PATCH",
+        "LinkCharacter: EMPTY, DASH, DOT, PIPE, COLON",
+        "DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE"
+      ]
+    },
+    {
+      args: ["rollback", "--help"],
+      expected: ["<operation-id>", "日志保留30天", "不要求 --apply"]
+    },
+    {
+      args: ["inspect", "resource", "feature-group"],
+      expected: ["eadp.resource.catalog.v1", "feature-group", "featureGroup", "code", "appModuleId"]
     },
     {
       args: ["skill", "--help"],

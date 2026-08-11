@@ -142,6 +142,77 @@ describe("apply bpm", () => {
     expect(results[1].summary.unchanged).toBeGreaterThan(0);
   });
 
+  it("sync bpm 在主干规划失败前不写入任何目标资源", async () => {
+    const sourceState = createPurchaseBpmSourceState();
+    delete sourceState.flowTypes[0]!.name;
+    const targetState = createBpmServerState();
+    const before = snapshotBpmCounts(targetState);
+    const urls = await startBpmServers({ source: sourceState, target: targetState });
+    const store = await createBpmSyncStore(urls);
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "sync", "bpm", "--source", "source", "--target", "target",
+          "--flow", "PURCHASE_REQUEST", "--apply"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("源 BPM 流程类型缺少名称");
+
+    expect(snapshotBpmCounts(targetState)).toEqual(before);
+  });
+
+  it("sync bpm 将目标重复页面标记为 blocked 并应用其余安全资源", async () => {
+    const sourceState = createPurchaseBpmSourceState();
+    const targetState = createBpmServerState();
+    targetState.pages.push(
+      { id: "duplicate-page-1", name: "重复页面一", pcUrl: "/purchase/request" },
+      { id: "duplicate-page-2", name: "重复页面二", pcUrl: "/purchase/request" }
+    );
+    const urls = await startBpmServers({ source: sourceState, target: targetState });
+    const store = await createBpmSyncStore(urls);
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "--compact", "sync", "bpm", "--source", "source", "--target", "target",
+        "--flow", "PURCHASE_REQUEST", "--apply"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toMatchObject({ create: 4, blocked: 1, relationsAdded: 1 });
+    expect(result.skippedBlocked).toBe(1);
+    expect(result.verified).toBe(true);
+    expect(result.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        resource: "conPage",
+        key: "/purchase/request",
+        action: "blocked",
+        desired: null,
+        blockingIssues: [expect.objectContaining({
+          resource: "conPage",
+          identityField: "pcUrl",
+          value: "/purchase/request",
+          reason: "ambiguous"
+        })]
+      })
+    ]));
+    expect(result.blockingIssues).toEqual([
+      expect.objectContaining({
+        resource: "conPage",
+        identityField: "pcUrl",
+        value: "/purchase/request",
+        reason: "ambiguous"
+      })
+    ]);
+    expect(targetState.pages).toHaveLength(2);
+    expect(targetState.interfaces).toHaveLength(1);
+    expect(targetState.flowTypes).toHaveLength(1);
+  });
+
   it("在全新上下文中从项目代码完成幂等基础配置", async () => {
     const project = await createProjectFixture();
     const state = createBpmServerState();
@@ -378,6 +449,74 @@ function createBpmServerState(): BpmServerState {
     interfaceRelations: new Map(),
     sequence: 1
   };
+}
+
+function createPurchaseBpmSourceState(): BpmServerState {
+  const state = createBpmServerState();
+  state.modules = [{
+    id: "source-module",
+    code: "purchase",
+    name: "采购",
+    serviceName: "purchase-service",
+    webBaseAddress: "purchase-web"
+  }];
+  state.entities.push({
+    id: "source-entity",
+    name: "采购申请",
+    code: "com.example.PurchaseRequest",
+    businessModuleId: "source-module",
+    serviceName: "/purchaseRequest"
+  });
+  state.pages.push({
+    id: "source-page",
+    name: "采购申请处理",
+    pcUrl: "/purchase/request",
+    businessModuleId: "source-module"
+  });
+  state.interfaces.push({
+    id: "source-interface",
+    name: "采购流程结束后",
+    url: "/purchaseRequest/afterEndFlow",
+    interfaceType: "EVENT",
+    businessModuleId: "source-module"
+  });
+  state.flowTypes.push({
+    id: "source-flow",
+    name: "采购申请",
+    code: "PURCHASE_REQUEST",
+    businessEntityId: "source-entity"
+  });
+  state.pageRelations.set("source-entity", ["source-page"]);
+  state.interfaceRelations.set("source-entity", ["source-interface"]);
+  return state;
+}
+
+function snapshotBpmCounts(state: BpmServerState): Record<string, number> {
+  return {
+    modules: state.modules.length,
+    entities: state.entities.length,
+    pages: state.pages.length,
+    interfaces: state.interfaces.length,
+    flowTypes: state.flowTypes.length,
+    pageRelations: state.pageRelations.size,
+    interfaceRelations: state.interfaceRelations.size
+  };
+}
+
+async function createBpmSyncStore(
+  urls: Record<"source" | "target", string>
+): Promise<ConfigStore> {
+  const directory = await mkdtemp(join(tmpdir(), "eadp-bpm-sync-"));
+  temporaryDirectories.push(directory);
+  const store = new ConfigStore(directory);
+  await store.save({
+    currentEnvironment: "source",
+    environments: {
+      source: { baseUrl: urls.source, token: "source-secret", tenantCode: "tenant-a" },
+      target: { baseUrl: urls.target, token: "target-secret", tenantCode: "tenant-b" }
+    }
+  });
+  return store;
 }
 
 async function handleBpmRequest(

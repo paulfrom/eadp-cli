@@ -13,7 +13,8 @@ describe("统一命令面", () => {
       "assign",
       "revoke",
       "sync",
-      "verify"
+      "verify",
+      "rollback"
     ]) {
       expect(help).toContain(command);
     }
@@ -31,6 +32,18 @@ describe("统一命令面", () => {
     }
   });
 
+  it("rollback 帮助明确直接执行且不暴露 --apply", () => {
+    const rollback = createProgram().commands.find((command) => command.name() === "rollback");
+    let help = "";
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    rollback?.outputHelp();
+    expect(help).toContain("不要求 --apply");
+    expect(help).not.toMatch(/^\s+--apply\b/m);
+  });
+
   it("拒绝无效的全局超时时间", async () => {
     const program = createProgram().exitOverride();
     await expect(
@@ -39,6 +52,22 @@ describe("统一命令面", () => {
         { from: "user" }
       )
     ).rejects.toThrow("超时时间无效：invalid");
+  });
+
+  it("sync 帮助完整列出给号配置枚举，供 AI 选择", () => {
+    const sync = createProgram().commands.find((command) => command.name() === "sync");
+    let help = "";
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    sync?.outputHelp();
+
+    expect(help).toContain("ConfigType: CODE_TYPE, BAR_TYPE");
+    expect(help).toContain("CycleStrategy: MAX_CYCLE, DAY_CYCLE, MONTH_CYCLE, YEAR_CYCLE");
+    expect(help).toContain("ReturnStrategy: NEW, REPEAT, PATCH");
+    expect(help).toContain("LinkCharacter: EMPTY, DASH, DOT, PIPE, COLON");
+    expect(help).toContain("DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE");
   });
 
   it("在业务命令前后都接受 --compact 并压缩只读输出", async () => {

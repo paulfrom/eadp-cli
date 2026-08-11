@@ -5,6 +5,7 @@ export type TenantScope = "global" | "non-global";
 
 const GLOBAL_RESOURCE_SEGMENTS = new Set([
   "feature",
+  "featuregroup",
   "menu",
   "serialnumberconfig"
 ]);

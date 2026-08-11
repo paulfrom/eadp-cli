@@ -3,6 +3,8 @@ import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError } from "../errors.js";
 import { printValue } from "../io.js";
+import { OperationRecorder } from "../operations/recorder.js";
+import { OperationLogStore, type OperationAction } from "../operations/store.js";
 import {
   PermissionClient,
   type PermissionRecord
@@ -10,6 +12,12 @@ import {
 import { getRuntimeOptions } from "../runtime-options.js";
 import { assertTenantScope } from "../tenant.js";
 import type { VerbCommands } from "./verbs.js";
+
+type NewOperationAction = OperationAction extends infer Action
+  ? Action extends OperationAction
+    ? Omit<Action, "id" | "status">
+    : never
+  : never;
 
 interface CommonOptions {
   env?: string;
@@ -270,6 +278,16 @@ export function registerPermissionCommands(
       }
 
       const saved = await context.client.save("featureRole", desired);
+      const operationId = action === "create"
+        ? await recordOperation(store, context.environment, "eadp apply functional-role", {
+            type: "create-entity",
+            service: "sei-basic",
+            resource: "featureRole",
+            entityId: recordId(saved, "功能角色"),
+            expected: desired,
+            deleteMethod: "DELETE"
+          })
+        : undefined;
       const verifiedRole = await context.client.findFeatureRoleByCode(options.roleCode);
       const verified =
         verifiedRole !== null &&
@@ -287,6 +305,7 @@ export function registerPermissionCommands(
           group,
           before: existing ?? null,
           saved,
+          ...(operationId ? { operationId } : {}),
           verified,
           verifiedRole
         },
@@ -346,12 +365,20 @@ export function registerPermissionCommands(
         recordId(feature, "功能项")
       );
 
+      let operationId: string | undefined;
       if (options.apply && addedFeatureIds.length > 0) {
         await context.client.insertRelations(
           "featureRoleFeature",
           roleId,
           addedFeatureIds
         );
+        operationId = await recordOperation(store, context.environment, "eadp assign feature", {
+          type: "assign-relations",
+          service: "sei-basic",
+          resource: "featureRoleFeature",
+          parentId: roleId,
+          childIds: addedFeatureIds
+        });
       }
       const assignedAfter = options.apply
         ? await context.client.getChildren("featureRoleFeature", roleId)
@@ -389,6 +416,7 @@ export function registerPermissionCommands(
             .map((feature) => recordId(feature, "功能项"))
             .filter((id) => assignedIds.has(id)),
           addedFeatureIds,
+          ...(operationId ? { operationId } : {}),
           verified: options.apply ? verified : addedFeatureIds.length === 0
         },
         options.compact
@@ -507,6 +535,16 @@ export function registerPermissionCommands(
       }
 
       const saved = await context.client.save("dataRole", desired);
+      const operationId = action === "create"
+        ? await recordOperation(store, context.environment, "eadp apply data-role", {
+            type: "create-entity",
+            service: "sei-basic",
+            resource: "dataRole",
+            entityId: recordId(saved, "数据角色"),
+            expected: desired,
+            deleteMethod: "DELETE"
+          })
+        : undefined;
       const verifiedRole = findRecordByCode(
         await context.client.findByPage("dataRole"),
         options.roleCode
@@ -527,6 +565,7 @@ export function registerPermissionCommands(
           group,
           before: existing ?? null,
           saved,
+          ...(operationId ? { operationId } : {}),
           verified,
           verifiedRole
         },
@@ -620,6 +659,19 @@ export function registerPermissionCommands(
           ? {}
           : { parentEntityId: options.parentEntityId })
       });
+      const operationId = addedEntityIds.length > 0
+        ? await recordOperation(store, context.environment, "eadp assign data", {
+            type: "assign-data-values",
+            service: "sei-basic",
+            resource: "dataRoleAuthTypeValue",
+            dataRoleId: roleId,
+            dataAuthorizeTypeId: authorizeTypeId,
+            entityIds: addedEntityIds,
+            ...(options.parentEntityId === undefined
+              ? {}
+              : { parentEntityId: options.parentEntityId })
+          })
+        : undefined;
       const assignedAfter = await context.client.getAssignedDataValues({
         dataRoleId: roleId,
         dataAuthorizeTypeId: authorizeTypeId,
@@ -656,6 +708,7 @@ export function registerPermissionCommands(
             assignedIds.has(id)
           ),
           addedEntityIds,
+          ...(operationId ? { operationId } : {}),
           cleanupMayOccur: true,
           verificationMode: includesChildren ? "server-normalized-tree" : "exact",
           verified
@@ -745,12 +798,20 @@ export function registerPermissionCommands(
       );
       const addedRoleIds = missingRoles.map((role) => recordId(role, "角色"));
 
+      let operationId: string | undefined;
       if (options.apply && addedRoleIds.length > 0) {
         await context.client.insertRelations(
           relationResource,
           subjectId,
           addedRoleIds
         );
+        operationId = await recordOperation(store, context.environment, "eadp assign role", {
+          type: "assign-relations",
+          service: "sei-basic",
+          resource: relationResource,
+          parentId: subjectId,
+          childIds: addedRoleIds
+        });
       }
       const assignedAfter = options.apply
         ? await context.client.getChildren(relationResource, subjectId)
@@ -790,6 +851,7 @@ export function registerPermissionCommands(
             .map((role) => recordId(role, "角色"))
             .filter((id) => assignedIds.has(id)),
           addedRoleIds,
+          ...(operationId ? { operationId } : {}),
           verified: options.apply ? verified : addedRoleIds.length === 0
         },
         options.compact
@@ -1444,4 +1506,19 @@ function validateVerifyOptions(
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+async function recordOperation(
+  store: ConfigStore,
+  environment: string,
+  command: string,
+  action: NewOperationAction
+): Promise<string> {
+  const recorder = new OperationRecorder(
+    new OperationLogStore(store.directory),
+    command,
+    environment
+  );
+  await recorder.recordAction(action);
+  return (await recorder.complete())!;
 }

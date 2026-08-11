@@ -26,6 +26,9 @@ describe("update 命令", () => {
         if (calls.length === 2) {
           return spawnResult("C:\\Users\\tester\\AppData\\Roaming\\npm");
         }
+        if (args.at(-1) === "--version") {
+          return spawnResult("0.9.7\n");
+        }
         return spawnResult('{"success":true}');
       });
 
@@ -39,8 +42,37 @@ describe("update 命令", () => {
     expect(calls[1]?.args.slice(-2)).toEqual(["prefix", "--global"]);
     expect(calls[2]).toMatchObject({
       command: "C:\\Users\\tester\\AppData\\Roaming\\npm\\eadp.cmd",
+      args: ["--version"]
+    });
+    expect(calls[3]).toMatchObject({
+      command: "C:\\Users\\tester\\AppData\\Roaming\\npm\\eadp.cmd",
       args: ["skill", "install"]
     });
+  });
+
+  it("升级成功后返回升级后的当前 CLI 版本号", async () => {
+    const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const runner = vi
+      .fn<
+        (
+          command: string,
+          args: string[],
+          options?: SpawnSyncOptions
+        ) => SpawnSyncReturns<string>
+      >()
+      .mockReturnValueOnce(spawnResult(""))
+      .mockReturnValueOnce(
+        spawnResult("C:\\Users\\tester\\AppData\\Roaming\\npm")
+      )
+      .mockReturnValueOnce(spawnResult("0.9.7\n"))
+      .mockReturnValueOnce(spawnResult('{"success":true}'));
+
+    await updateCliAndSkill(runner);
+
+    expect(output).toHaveBeenCalledWith(
+      expect.stringContaining('"version": "0.9.7"')
+    );
+    output.mockRestore();
   });
 
   it("npm CLI 升级失败时立即停止，不执行 Skill 操作", async () => {
@@ -73,12 +105,13 @@ describe("update 命令", () => {
       .mockReturnValueOnce(
         spawnResult("C:\\Users\\tester\\AppData\\Roaming\\npm")
       )
+      .mockReturnValueOnce(spawnResult("0.9.7\n"))
       .mockReturnValueOnce(spawnResult("", 1, "skill permission denied"));
 
     await expect(updateCliAndSkill(runner)).rejects.toThrow(
       "eadp-cli 已升级，但 升级 eadp-operator Skill 失败：skill permission denied"
     );
-    expect(runner).toHaveBeenCalledTimes(3);
+    expect(runner).toHaveBeenCalledTimes(4);
   });
 });
 

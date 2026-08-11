@@ -41,7 +41,8 @@ requestSchema:
       description: 使用给号规则的实体完整类名
     configType:
       type: string
-      description: 配置类型，例如 CODE_TYPE
+      enum: [CODE_TYPE, BAR_TYPE]
+      description: 配置类型；CODE_TYPE 为主数据编号，BAR_TYPE 为条码
     name:
       type: string
       description: 给号规则名称
@@ -61,12 +62,14 @@ requestSchema:
       description: 是否复用已删除记录的号码
     cycleStrategy:
       type: string
-      description: 循环策略，例如 MAX_CYCLE
+      enum: [MAX_CYCLE, DAY_CYCLE, MONTH_CYCLE, YEAR_CYCLE]
+      description: 循环策略；分别为达到最大号循环、按日循环、按月循环、按年循环
     returnStrategy:
       type:
         - string
         - "null"
-      description: 号码归还策略
+      enum: [NEW, REPEAT, PATCH, null]
+      description: 返回策略；NEW 每次新给号，REPEAT 对同一关联对象优先返回已有条码，PATCH 为补号策略；新增时缺失、null 或空白默认 NEW
     activated:
       type: boolean
       description: 是否启用
@@ -111,7 +114,7 @@ requestSchema:
             description: 元素名称
           elementCode:
             type: string
-            description: 元素编码
+            description: 元素编码；内置 DefaultElement 完整取值为 FIXED_CODE（固定编码）、DATE_CODE（日期编码）、SERIAL_CODE（流水号编码），也可使用目标服务已登记的自定义元素代码
           elementValue:
             type: string
             description: 元素值
@@ -120,7 +123,8 @@ requestSchema:
             description: 是否作为隔离条件
           linkCharacter:
             type: string
-            description: 连接字符
+            enum: [EMPTY, DASH, DOT, PIPE, COLON]
+            description: 连接字符；EMPTY 为空、DASH 为短横线、DOT 为点、PIPE 为竖线、COLON 为冒号
           sort:
             type: integer
             description: 排序号

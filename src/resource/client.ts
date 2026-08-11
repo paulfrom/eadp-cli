@@ -90,6 +90,22 @@ export class ResourceClient {
     return data;
   }
 
+  async getTree(resource: string): Promise<ResourceRecord[]> {
+    const data = await this.call(`${resource}/getMenuTree`, "GET");
+    if (!Array.isArray(data) || !data.every(isRecord)) {
+      throw new CliError(`${resource}/getMenuTree 返回格式无效`);
+    }
+    return data;
+  }
+
+  async move(resource: string, nodeId: string, targetId: string): Promise<void> {
+    await this.call(`${resource}/move`, "POST", {
+      nodeId,
+      targetId,
+      moveType: "ACROSS_LEVEL"
+    });
+  }
+
   private async call(path: string, method: string, body?: unknown): Promise<unknown> {
     const result = await sendRequest({
       baseUrl: this.options.baseUrl,

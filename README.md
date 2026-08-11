@@ -65,6 +65,21 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 `eadp --timeout 60000 --compact inspect resource`。所有命令默认输出 JSON；
 `--compact` 将普通 JSON 压缩为单行。`query` 始终输出 NDJSON，每行都是独立 JSON。
 
+## 回滚新增与分配
+
+成功产生新增记录或新增分配关系的高层写命令会返回 `operationId`，并在配置目录的
+`operations` 子目录保存本地 JSON 操作日志。日志不包含 URL 或 Token，保留 30 天；到期后在
+后续记录或回滚操作时自动清理。
+
+```powershell
+eadp rollback <operation-id>
+```
+
+`rollback` 由用户事后显式执行，直接实施回滚，不要求 `--apply`。CLI 按原操作的相反顺序撤销：
+先移除本次新增的分配关系，再删除本次新增的实体。删除前会回查记录并比对原写入字段；记录已被
+后续修改、存在服务端依赖、环境不一致或任一接口失败时立即停止，不自动重试。更新已有记录不在
+本回滚范围内；预览和幂等未变更操作不会生成 `operationId`。
+
 租户隔离规则：
 
 - 功能项、菜单、给号配置的增删改查只能使用 `tenantCode: global` 的环境；
@@ -315,6 +330,35 @@ eadp assign data \
 
 ## 查询和同步环境资源
 
+查询完整菜单树时，CLI 调用菜单专用的 `getMenuTree` 接口，并将树扁平化为 NDJSON；每条
+记录额外包含 `parentCode`，可使用 `--quick` 或 `--filter` 在本地筛选：
+
+```bash
+eadp query menu --env global-dev --quick 采购
+```
+
+新增菜单默认只预览。父菜单和功能项均按代码唯一解析，正式新增后返回可供事后回滚的
+`operationId`：
+
+```bash
+eadp apply menu \
+  --env global-dev \
+  --name 采购申请 \
+  --code PURCHASE_APPLY \
+  --parent-code PURCHASE \
+  --feature-code PURCHASE_APPLY
+
+eadp apply menu \
+  --env global-dev \
+  --name 采购申请 \
+  --code PURCHASE_APPLY \
+  --parent-code PURCHASE \
+  --feature-code PURCHASE_APPLY \
+  --apply
+```
+
+省略 `--code` 时由服务端给号；CLI 会从保存结果读取实际代码并回查验证。
+
 查询 A 环境在 2026 年 7 月创建的功能项：
 
 ```bash
@@ -363,8 +407,39 @@ eadp sync feature \
 ```
 
 同步按功能项 `code` 匹配目标记录，并使用应用模块代码、功能项组代码重新解析目标环境
-ID；不会复制源环境数据库 ID。同步默认只预览，当前支持 `feature`、`bpm` 和
-`serial-number`。
+ID；不会复制源环境数据库 ID。若个别功能项的目标依赖缺失或不唯一，该记录会标记为
+`blocked` 并列入 `missingDependencies`，不会中断其余记录的完整差异比较。正式同步只写入
+安全的 `create`、`update` 记录，跳过 `blocked` 记录并报告 `skippedBlocked`。
+
+功能项组按 `code` 精确选择和匹配，应用模块也按代码映射到目标环境：
+
+```bash
+eadp sync feature-group \
+  --source A \
+  --target B \
+  --code ISRM-PA-OLD-2
+
+eadp sync feature-group \
+  --source A \
+  --target B \
+  --code ISRM-PA-OLD-2 \
+  --apply
+```
+
+菜单按 `code` 匹配。`--code` 选择该菜单及其全部后代；不提供时比较完整菜单树。同步按
+父菜单优先的顺序执行，并通过源记录的 `parentCode`、`featureCode` 在目标环境重新解析
+`parentId`、`featureId`：
+
+```bash
+eadp sync menu --source global-dev --target global-test --code PURCHASE
+eadp sync menu --source global-dev --target global-test --code PURCHASE --apply
+```
+
+目标父菜单或功能项缺失/不唯一时，相关菜单标记为 `blocked`，其余菜单继续完成差异预览；
+正式同步跳过 `blocked`。已有菜单需要变更父节点（包括移动到根节点）时，CLI 使用服务端
+`menu/move` 的 `TreeNodeMoveParam` 契约，不会尝试通过普通 `save` 改父节点。
+
+同步默认只预览，当前支持 `feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
 执行 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
 不会读取迁移数据，也不会写入目标环境。
 
@@ -388,6 +463,14 @@ eadp sync serial-number \
 BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 ID；给号同步会清除源配置和
 `configItem` ID，并使用目标环境由 `env add` 获取的 `tenantCode`。两者重复执行均只处理差异。
 BPM 业务实体的 `auditTypeId`、`auditTypeName` 不随源环境迁移，目标环境始终置空。
+
+BPM 同步会先完成整个流程的只读规划，再开始目标写入。源流程、业务实体或业务模块等
+主干无法唯一确定时会在零写入状态下终止；单个页面或接口缺少业务 URL、或者目标 URL
+不唯一时，该记录标记为 `blocked`，其余安全资源继续同步。结果通过 `blockingIssues`、
+`summary.blocked` 和 `skippedBlocked` 报告跳过项。
+
+批量给号同步中，单条配置缺少或包含非法 `configItem` 时同样标记为 `blocked`，不会阻断
+其他安全配置；源或目标的 `entityClassName` 重复仍属于全局唯一性错误并立即终止。
 
 ## 给用户或岗位分配和移除角色
 

@@ -26,3 +26,8 @@
 - 真实 BPM 回调不是流程成立或可发现的必要条件；回调仅用于发现需要登记的集成接口，不得以缺少回调为由排除已有流程业务骨架。`startDefaultFlow` 是免人工选择流程与下一节点办理人的默认启动能力，也不得被误解为所有 BPM 流程必须具备的成立条件。
 - `apply bpm --flow` 仅按 Entity 全限定名或流程代码匹配；基础流程配置不得受完整流程发现清单限制，只要 Entity 全限定名唯一且不冲突即可新增。流程集成接口和流程页面必须分别以 URL 作为发现、查重和关联边界。
 - 处理分页响应时必须依据真实接口契约或真实响应验证 `total` 的语义（总记录数或总页数）；不得仅凭字段名推断，也不得在未验证已请求全部页时宣称结果已完整聚合。
+- 环境差异预览不得因个别记录缺少目标依赖而中止；必须完成全量差异并将相关记录标记为 `blocked`、列出 `missingDependencies`。正式同步时仅应用安全记录并跳过 `blocked` 记录。可独立迁移的依赖资源必须提供专用同步能力，不得要求用户绕过 CLI 手工对比或写入。
+- 新增给号配置时，若 `returnStrategy` 缺失、为 `null` 或空白，必须明确使用服务端枚举默认值 `NEW`；不得以该新增默认规则覆盖已有目标配置。
+- 给号配置涉及的枚举必须在 CLI 帮助、接口目录和 `eadp-operator` Skill 中完整列出合法值及业务含义，供 AI 选择；不得只展示示例值或依靠猜测。
+- 实现或维护回滚能力时，权限接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller`，给号接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\serial\controller\SerialNumberConfigController.java`，BPM 接口固定参考 `D:\project\ead\sei-bpm\sei-bpm-service\src\main\java\com\changhong\sei\bpm\controller`；这些路径已由用户确认，无需再次询问。
+- 菜单接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller\MenuController.java`；菜单查询使用 `getMenuTree`，跨环境同步以 `code` 为业务唯一键，按父先子后处理，并依据 `parentCode`、`featureCode` 在目标环境重新映射 ID，禁止复制源 `parentId`、`featureId`。
