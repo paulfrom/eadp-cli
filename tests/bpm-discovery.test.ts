@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverBpmProject } from "../src/bpm/discovery.js";
+import { discoverBpmProject, selectBpmFlow } from "../src/bpm/discovery.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -15,6 +15,71 @@ afterEach(async () => {
 });
 
 describe("BPM 项目发现", () => {
+  it("明确选择唯一 Entity 全限定名时不受流程候选清单限制", async () => {
+    const project = await mkdtemp(join(tmpdir(), "eadp-bpm-entity-only-"));
+    temporaryDirectories.push(project);
+    await writeJava(project, "com/sdh/tbs/qualification/entity/QualificationFileApply.java", `
+package com.sdh.tbs.qualification.entity;
+public class QualificationFileApply extends BaseFlowEntity { }
+`);
+
+    const definition = await discoverBpmProject(
+      project,
+      "com.sdh.tbs.qualification.entity.QualificationFileApply"
+    );
+
+    expect(definition.flows).toEqual([{
+      name: "QualificationFileApply",
+      code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
+      entity: {
+        name: "QualificationFileApply",
+        code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
+        serviceName: "qualificationFileApply"
+      },
+      interfaces: [],
+      pages: []
+    }]);
+  });
+
+  it("没有 BPM 回调和 startDefaultFlow 时仍从流程骨架发现流程", async () => {
+    const project = await mkdtemp(join(tmpdir(), "eadp-bpm-skeleton-"));
+    temporaryDirectories.push(project);
+    await writeJava(project, "com/sdh/tbs/qualification/api/QualificationFileApplyApi.java", `
+package com.sdh.tbs.qualification.api;
+public interface QualificationFileApplyApi { String PATH = "/qualificationFileApply"; }
+`);
+    await writeJava(project, "com/sdh/tbs/qualification/entity/QualificationFileApply.java", `
+package com.sdh.tbs.qualification.entity;
+public class QualificationFileApply extends BaseFlowEntity { }
+`);
+    await writeJava(project, "com/sdh/tbs/qualification/controller/QualificationFileApplyController.java", `
+package com.sdh.tbs.qualification.controller;
+import com.sdh.tbs.qualification.api.QualificationFileApplyApi;
+import com.sdh.tbs.qualification.entity.QualificationFileApply;
+@Tag(name = "QualificationFileApplyApi", description = "资质文件申请服务")
+@RequestMapping(path = QualificationFileApplyApi.PATH)
+public class QualificationFileApplyController extends BaseFlowController<QualificationFileApply, QualificationFileApplyDto> {
+}
+`);
+
+    const definition = await discoverBpmProject(project);
+
+    expect(definition.flows).toEqual([
+      {
+        name: "资质文件申请",
+        code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
+        entity: {
+          name: "资质文件申请",
+          code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
+          serviceName: "qualificationFileApply"
+        },
+        interfaces: [],
+        pages: []
+      }
+    ]);
+    expect(() => selectBpmFlow(definition, "资质文件申请")).toThrow("未找到流程");
+  });
+
   it("不依赖登记册，仅从真实 BPM 代码发现可配置流程", async () => {
     const project = await mkdtemp(join(tmpdir(), "eadp-bpm-project-"));
     temporaryDirectories.push(project);
@@ -59,17 +124,6 @@ public class ProjectService {
   }
 }
 `);
-    await writeJava(project, "com/sdh/tbs/demo/controller/EmptyFlowController.java", `
-package com.sdh.tbs.demo.controller;
-import com.sdh.tbs.demo.entity.EmptyFlow;
-@RequestMapping(path = "/empty")
-public class EmptyFlowController extends BaseFlowController<EmptyFlow, EmptyFlowDto> {
-  public ResultData<Void> afterEndFlow(BpmInvokeParams params) {
-    return ResultData.success();
-  }
-}
-`);
-
     const definition = await discoverBpmProject(project);
 
     expect(definition.businessModule).toEqual({

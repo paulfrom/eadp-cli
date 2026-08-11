@@ -87,9 +87,7 @@ async function configureFlow(
       await ensureResource(
         client,
         "conPage",
-        (item) =>
-          stringField(item, "businessModuleId") === moduleId &&
-          stringField(item, "pcUrl") === page.pcUrl,
+        (item) => stringField(item, "pcUrl") === page.pcUrl,
         {
           name: page.name,
           pcUrl: page.pcUrl,
@@ -112,10 +110,7 @@ async function configureFlow(
       await ensureResource(
         client,
         "conInterface",
-        (existing) =>
-          stringField(existing, "businessModuleId") === moduleId &&
-          stringField(existing, "url") === item.url &&
-          stringField(existing, "interfaceType") === item.interfaceType,
+        (existing) => stringField(existing, "url") === item.url,
         {
           name: item.name,
           url: item.url,
@@ -193,7 +188,11 @@ async function ensureResource(
   payload: Record<string, unknown>,
   name: string
 ): Promise<ResourceResult> {
-  const existing = (await client.findByPage(resource)).find(matches);
+  const matching = (await client.findByPage(resource)).filter(matches);
+  if (matching.length > 1) {
+    throw new CliError(`${resource} 匹配不唯一：${name}`);
+  }
+  const existing = matching[0];
   if (existing) {
     const id = stringField(existing, "id");
     if (!id) {

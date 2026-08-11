@@ -1,5 +1,6 @@
 import { CliError } from "../errors.js";
 import { sendRequest } from "../http/client.js";
+import { readAllPages } from "../http/pagination.js";
 
 export interface BpmClientOptions {
   baseUrl: string;
@@ -11,30 +12,16 @@ export class BpmClient {
   constructor(private readonly options: BpmClientOptions) {}
 
   async findByPage(resource: string): Promise<Record<string, unknown>[]> {
-    const rows: Record<string, unknown>[] = [];
-    const pageSize = 500;
-    let page = 1;
-    while (true) {
-      const data = await this.call(`${resource}/findByPage`, "POST", {
-        pageInfo: { page, rows: pageSize },
+    const endpoint = `${resource}/findByPage`;
+    return readAllPages({
+      endpoint,
+      isItem: isRecord,
+      fetchPage: (pageInfo) => this.call(endpoint, "POST", {
+        pageInfo,
         filters: [],
         sortOrders: []
-      });
-      if (!isRecord(data) || !Array.isArray(data.rows)) {
-        throw new CliError(`${resource}/findByPage 返回格式无效`);
-      }
-      const pageRows = data.rows.filter(isRecord);
-      rows.push(...pageRows);
-      const total = typeof data.records === "number"
-        ? data.records
-        : typeof data.total === "number"
-          ? data.total
-          : rows.length;
-      if (rows.length >= total || pageRows.length < pageSize) break;
-      page += 1;
-      if (page > 10_000) throw new CliError(`${resource}/findByPage 分页数量异常`);
-    }
-    return rows;
+      })
+    });
   }
 
   async save(

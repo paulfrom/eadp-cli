@@ -13,7 +13,7 @@ Use this workflow for requests such as:
 3. For “某月新增”, use an explicit `YYYY-MM` with `--created-in`.
 4. For a custom time range, use `--from`, `--to`, and the correct `--time-field`.
 5. Add exact filters with `--filter field:operator:value`.
-6. Run the query; JSON is the default output format.
+6. Run the query and consume its NDJSON output line by line. Do not buffer the complete output.
 
 Examples:
 
@@ -63,7 +63,11 @@ menu name matches multiple nodes, stop and request an exact menu code or path.
 
 ## Output interpretation
 
-- `items`: queried resource records.
+- `eadp.resource.query.meta.v1`: environment, service, resource, and filters used.
+- `eadp.resource.query.item.v1`: one queried resource record in `item`, with a one-based `index`.
+- `eadp.resource.query.summary.v1`: completion marker and actual streamed `total`; for serial-number
+  queries it also contains `identity` when an entity class was selected.
+- Treat a stream without a final `summary` as incomplete or failed; never report it as a complete query.
 - `featureRoles` and `dataRoles`: effective role results returned for the account.
 - `featureChecks`: explicit feature-code decisions.
 - `menuChecks`: resolved menu nodes, related feature codes, individual decisions, and final visibility.

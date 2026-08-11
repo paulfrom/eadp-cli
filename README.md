@@ -62,8 +62,8 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 请求时通过 `--env dev2` 显式选择环境；省略 `--env` 时使用 `--default` 指定的默认环境。
 
 `--timeout <ms>` 和 `--compact` 是全局运行参数，可放在业务命令之前或之后。例如：
-`eadp --timeout 60000 --compact query feature --env dev`。所有命令默认输出 JSON；
-`--compact` 仅将 JSON 压缩为单行。
+`eadp --timeout 60000 --compact inspect resource`。所有命令默认输出 JSON；
+`--compact` 将普通 JSON 压缩为单行。`query` 始终输出 NDJSON，每行都是独立 JSON。
 
 租户隔离规则：
 
@@ -117,7 +117,7 @@ eadp call serial-number-config-save \
 ## 在全新上下文中配置 BPM
 
 CLI 不依赖历史对话，也不要求项目额外准备 YAML 或 BPM 流程配置登记册。它直接从
-Controller、Entity、API `PATH`、真实 BPM 回调、`startDefaultFlow` 调用和项目元数据中发现：
+`BaseFlowController`、Entity、API `PATH` 和项目元数据中发现流程骨架，并从真实 BPM 回调中发现可选集成接口：
 
 - 业务模块
 - 业务实体
@@ -126,7 +126,7 @@ Controller、Entity、API `PATH`、真实 BPM 回调、`startDefaultFlow` 调用
 - 实体关联关系
 - 流程类型
 
-只有代码能够证明存在 BPM 业务实现时才会产生候选流程。仅返回成功的空回调会被忽略；
+只要代码中存在可解析的 BPM 流程骨架就会产生候选流程；BPM 回调和 `startDefaultFlow` 均不是必要条件。仅返回成功的空回调不会生成集成接口；
 没有前端路由代码证据时不会臆造工作页面配置。
 
 AI 在全新上下文中只需从帮助开始：
@@ -163,6 +163,12 @@ eadp apply bpm \
 `apply bpm` 是幂等操作：按模块代码、Entity 全限定名、页面 URL、接口 URL 和流程代码
 查重；只创建缺失项，只补充缺失关系，完成后回查验证。它只完成 BPM 基础配置，不创建
 流程图、审批节点或组织执行人。
+
+`apply bpm --flow` 只接受 Entity 全限定名或目标环境中已有的 BPM 流程类型 `code`，不按
+流程名称匹配。Entity 全限定名唯一且不冲突时可以新增基础流程配置；页面和集成接口分别
+只以 `pcUrl` 和 `url` 作为唯一定位、查重及关联边界。明确选择的 Entity 即使不在常规
+流程候选清单中也可以建立基础定义；缺少可解析 API PATH 时，服务名默认采用 Entity 简单
+类名的 lowerCamel 形式。
 
 ## 检查功能权限和数据权限
 
@@ -318,7 +324,10 @@ eadp query feature \
 ```
 
 查询命令适用于具有 `findByPage` 接口的资源，也可通过
-`--filter field:operator:value` 增加过滤条件。
+`--filter field:operator:value` 增加过滤条件。查询结果以 NDJSON 流式输出：第一行是
+`eadp.resource.query.meta.v1`，随后每条记录对应一个
+`eadp.resource.query.item.v1`，最后一行是包含实际记录总数的
+`eadp.resource.query.summary.v1`。可以逐行消费，不需要将全部结果保存在内存中。
 
 查询给号配置时，`configType` 默认是 `CODE_TYPE`，CLI 会检查返回结果中的
 `entityClassName` 是否唯一：

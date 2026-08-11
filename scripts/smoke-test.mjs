@@ -108,7 +108,7 @@ try {
     throw new Error("统一命令树帮助烟雾测试失败");
   }
   if (
-    !bpmHelp.includes("从真实项目代码发现有业务实现的 BPM 流程") ||
+    !bpmHelp.includes("从真实项目代码发现 BPM 流程骨架及可选集成回调") ||
     !bpmHelp.includes("项目无需 YAML")
   ) {
     throw new Error("BPM 自发现帮助烟雾测试失败");

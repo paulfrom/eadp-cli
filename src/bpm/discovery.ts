@@ -27,17 +27,27 @@ const EVENT_NAMES: Record<string, string> = {
   afterEndFlow: "流程结束后事件"
 };
 
-export async function discoverBpmProject(projectInput: string): Promise<BpmProjectDefinition> {
+export async function discoverBpmProject(
+  projectInput: string,
+  requestedEntityCode?: string
+): Promise<BpmProjectDefinition> {
   const projectPath = resolve(projectInput);
   await ensureDirectory(projectPath);
   const javaSources = await readJavaSources(projectPath);
   const flows = discoverFlows(javaSources);
+  if (
+    requestedEntityCode &&
+    !flows.some((flow) => sameText(flow.entity.code, requestedEntityCode))
+  ) {
+    const selected = discoverSelectedEntity(javaSources, requestedEntityCode);
+    if (selected) flows.push(selected);
+  }
   if (flows.length === 0) {
     throw new CliError(
       [
-        "未从项目代码中发现包含实际业务逻辑的 BPM 流程。",
-        "识别依据：BaseFlowController 的具体实现、Entity 类型、API PATH，以及真实 BPM 回调或 startDefaultFlow 调用。",
-        "不会读取 BPM流程配置登记册.md，也不会为仅返回成功的空回调生成配置。"
+        "未从项目代码中发现 BPM 流程骨架。",
+        "识别依据：BaseFlowController 的具体实现、Entity 类型和可解析的 API PATH。",
+        "BPM 回调和 startDefaultFlow 调用均为可选，不会读取 BPM流程配置登记册.md。"
       ].join("\n")
     );
   }
@@ -53,28 +63,184 @@ export async function discoverBpmProject(projectInput: string): Promise<BpmProje
   return { projectPath, sourcePath: projectPath, businessModule, flows };
 }
 
+export function resolveBpmEntityCode(
+  selector: string,
+  remote: {
+    flowTypes: Record<string, unknown>[];
+    entities: Record<string, unknown>[];
+  }
+): string {
+  const matches = remote.flowTypes.filter((flow) => sameText(stringValue(flow.code), selector));
+  if (matches.length > 1) {
+    throw new CliError(`远端 BPM 流程类型 code 不唯一：${selector}`);
+  }
+  if (matches.length === 0) return selector.trim();
+  const entity = uniqueRemoteEntityById(
+    remote.entities,
+    stringValue(matches[0]!.businessEntityId),
+    selector
+  );
+  const entityCode = stringValue(entity.code);
+  if (!entityCode) throw new CliError(`远端 BPM Entity 缺少全限定名：${selector}`);
+  return entityCode;
+}
+
 export function selectBpmFlow(
   definition: BpmProjectDefinition,
-  selector: string
+  selector: string,
+  remote?: {
+    flowTypes: Record<string, unknown>[];
+    entities: Record<string, unknown>[];
+  }
 ): BpmFlowDefinition {
   const normalized = selector.trim().toLowerCase();
-  const matches = definition.flows.filter(
-    (flow) =>
-      flow.code.toLowerCase() === normalized ||
-      flow.name.toLowerCase() === normalized ||
-      flow.entity.code.toLowerCase() === normalized
+  const entityMatches = definition.flows.filter(
+    (flow) => flow.entity.code.toLowerCase() === normalized
   );
-  if (matches.length === 1) {
-    return matches[0]!;
+  if (entityMatches.length > 1) {
+    throw new CliError(`Entity 全限定名不唯一：${selector}`);
   }
-  if (matches.length > 1) {
-    throw new CliError(`流程选择不唯一：${selector}`);
+
+  const remoteCodeMatches = (remote?.flowTypes ?? []).filter(
+    (flow) => stringValue(flow.code)?.toLowerCase() === normalized
+  );
+  if (remoteCodeMatches.length > 1) {
+    throw new CliError(`远端 BPM 流程类型 code 不唯一：${selector}`);
+  }
+  const remoteCodeMatch = remoteCodeMatches[0];
+  const remoteCodeEntity = remoteCodeMatch
+    ? uniqueRemoteEntityById(remote!.entities, stringValue(remoteCodeMatch.businessEntityId), selector)
+    : undefined;
+  const remoteCodeLocalFlow = remoteCodeEntity
+    ? uniqueLocalFlowByEntityCode(definition, stringValue(remoteCodeEntity.code), selector)
+    : undefined;
+
+  const entityMatch = entityMatches[0];
+  if (entityMatch) {
+    const remoteEntities = (remote?.entities ?? []).filter(
+      (entity) => stringValue(entity.code)?.toLowerCase() === normalized
+    );
+    if (remoteEntities.length > 1) {
+      throw new CliError(`远端 BPM Entity 全限定名不唯一：${selector}`);
+    }
+    const existingEntity = remoteEntities[0];
+    const boundFlowTypes = existingEntity
+      ? (remote?.flowTypes ?? []).filter(
+          (flow) => stringValue(flow.businessEntityId) === stringValue(existingEntity.id)
+        )
+      : [];
+    if (boundFlowTypes.length > 1) {
+      throw new CliError(`Entity 对应多个远端 BPM 流程类型，请改用流程 code：${selector}`);
+    }
+    if (remoteCodeLocalFlow && remoteCodeLocalFlow.entity.code !== entityMatch.entity.code) {
+      throw new CliError(`选择值同时匹配不同的 Entity 和远端流程 code：${selector}`);
+    }
+    const existingCode = stringValue(boundFlowTypes[0]?.code);
+    return existingCode ? { ...entityMatch, code: existingCode } : entityMatch;
+  }
+
+  if (remoteCodeLocalFlow && remoteCodeMatch) {
+    return { ...remoteCodeLocalFlow, code: stringValue(remoteCodeMatch.code)! };
   }
   throw new CliError(
-    `未找到流程：${selector}。可选值：${definition.flows
-      .map((flow) => `${flow.name}(${flow.code})`)
+    `未找到流程：${selector}。可选 Entity 全限定名：${definition.flows
+      .map((flow) => flow.entity.code)
       .join("、")}`
   );
+}
+
+function uniqueRemoteEntityById(
+  entities: Record<string, unknown>[],
+  id: string | undefined,
+  selector: string
+): Record<string, unknown> {
+  if (!id) throw new CliError(`远端 BPM 流程类型缺少 businessEntityId：${selector}`);
+  const matches = entities.filter((entity) => stringValue(entity.id) === id);
+  if (matches.length !== 1) {
+    throw new CliError(`远端 BPM 流程类型无法唯一定位 Entity：${selector}`);
+  }
+  return matches[0]!;
+}
+
+function uniqueLocalFlowByEntityCode(
+  definition: BpmProjectDefinition,
+  entityCode: string | undefined,
+  selector: string
+): BpmFlowDefinition {
+  if (!entityCode) throw new CliError(`远端 BPM Entity 缺少全限定名：${selector}`);
+  const matches = definition.flows.filter(
+    (flow) => flow.entity.code.toLowerCase() === entityCode.toLowerCase()
+  );
+  if (matches.length !== 1) {
+    throw new CliError(`项目代码无法按 Entity 全限定名唯一定位流程：${entityCode}`);
+  }
+  return matches[0]!;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+function sameText(value: string | undefined, expected: string): boolean {
+  return value?.toLowerCase() === expected.trim().toLowerCase();
+}
+
+function discoverSelectedEntity(
+  sources: JavaSource[],
+  requestedEntityCode: string
+): BpmFlowDefinition | undefined {
+  const matches = sources.filter(
+    (source) =>
+      source.typeName !== undefined &&
+      `${source.packageName ?? ""}.${source.typeName}`.replace(/^\./, "") === requestedEntityCode
+  );
+  if (matches.length > 1) {
+    throw new CliError(`Entity 全限定名不唯一：${requestedEntityCode}`);
+  }
+  const entity = matches[0];
+  if (!entity || !new RegExp(`\\bclass\\s+${escapeRegExp(entity.typeName!)}\\b`).test(entity.source)) {
+    return undefined;
+  }
+
+  const types = new Map<string, JavaSource>();
+  for (const source of sources) {
+    if (!source.typeName) continue;
+    types.set(source.typeName, source);
+    if (source.packageName) types.set(`${source.packageName}.${source.typeName}`, source);
+  }
+  const controllers = sources.filter((source) => {
+    const declaration = source.source.match(
+      /class\s+(\w+Controller)\b[^\{]*\bextends\s+BaseFlowController\s*<\s*([\w.]+)\s*,/
+    );
+    return declaration?.[2] !== undefined &&
+      resolveTypeName(source, declaration[2]) === requestedEntityCode;
+  });
+  if (controllers.length > 1) {
+    throw new CliError(`BPM Entity 对应多个 Controller，无法唯一确定：${requestedEntityCode}`);
+  }
+  const controller = controllers[0];
+  const simple = entity.typeName!;
+  const serviceName = controller
+    ? discoverServiceName(controller, types) ?? lowerCamel(simple)
+    : lowerCamel(simple);
+  const name = controller ? discoverBusinessName(controller.source, simple) : simple;
+  return {
+    name,
+    code: requestedEntityCode,
+    entity: { name, code: requestedEntityCode, serviceName },
+    interfaces: controller
+      ? discoverCallbacks(controller.source).map((callback) => ({
+          name: `${name}-${EVENT_NAMES[callback.methodName] ?? callback.methodName}`,
+          url: `${serviceName}/${callback.methodName}`,
+          interfaceType: callback.interfaceType
+        }))
+      : [],
+    pages: []
+  };
+}
+
+function lowerCamel(value: string): string {
+  return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
 function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
@@ -87,7 +253,6 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
       }
     }
   }
-  const startedEntities = discoverStartedEntities(sources);
   const flows: BpmFlowDefinition[] = [];
   const entityCodes = new Set<string>();
 
@@ -101,10 +266,6 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
     const entityType = declaration[2];
     const entityCode = resolveTypeName(controller, entityType);
     const callbacks = discoverCallbacks(controller.source);
-    const startsDefaultFlow = startedEntities.has(entityCode);
-    if (callbacks.length === 0 && !startsDefaultFlow) {
-      continue;
-    }
 
     const serviceName = discoverServiceName(controller, types);
     if (!serviceName) {
@@ -128,17 +289,6 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
     });
   }
   return flows.sort((left, right) => left.code.localeCompare(right.code));
-}
-
-function discoverStartedEntities(sources: JavaSource[]): Set<string> {
-  const result = new Set<string>();
-  const pattern = /DefaultStartParam\s*\(\s*([\w.]+)\.class\.getName\s*\(\s*\)/g;
-  for (const source of sources) {
-    for (const match of source.source.matchAll(pattern)) {
-      result.add(resolveTypeName(source, match[1]!));
-    }
-  }
-  return result;
 }
 
 function discoverCallbacks(source: string): DiscoveredCallback[] {

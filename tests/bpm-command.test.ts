@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/cli.js";
+import { BpmClient } from "../src/bpm/client.js";
+import { configureBpmProject } from "../src/bpm/configure.js";
 import { ConfigStore } from "../src/config/store.js";
 
 const temporaryDirectories: string[] = [];
@@ -83,6 +85,19 @@ describe("apply bpm", () => {
       serviceName: "/purchaseRequest",
       auditTypeId: "target-old-audit",
       auditTypeName: "旧审计对象"
+    });
+    targetState.pages.push({
+      id: "target-page-by-url",
+      name: "旧页面",
+      pcUrl: "/purchase/request",
+      businessModuleId: "another-module"
+    });
+    targetState.interfaces.push({
+      id: "target-interface-by-url",
+      name: "旧接口",
+      url: "/purchaseRequest/afterEndFlow",
+      interfaceType: "CUSTOM_PERSON",
+      businessModuleId: "another-module"
     });
     const urls = await startBpmServers({ source: sourceState, target: targetState });
     const directory = await mkdtemp(join(tmpdir(), "eadp-bpm-sync-"));
@@ -173,6 +188,116 @@ describe("apply bpm", () => {
     expect(state.flowTypes).toHaveLength(1);
     expect(state.pageRelations.get("entity-1") ?? []).toHaveLength(0);
     expect(state.interfaceRelations.get("entity-1")).toHaveLength(2);
+  });
+
+  it("apply bpm 可按远端流程类型 code 定位本地 Entity", async () => {
+    const project = await createProjectFixture();
+    const state = createBpmServerState();
+    state.entities.push({
+      id: "entity-existing",
+      name: "项目申请",
+      code: "com.sdh.tbs.project.entity.Project",
+      businessModuleId: "module-1",
+      serviceName: "project"
+    });
+    state.flowTypes.push({
+      id: "flow-existing",
+      name: "项目审批",
+      code: "PROJECT_APPROVAL",
+      businessEntityId: "entity-existing"
+    });
+    const server = createServer((request, response) =>
+      handleBpmRequest(request, response, state)
+    );
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const directory = await mkdtemp(join(tmpdir(), "eadp-bpm-remote-code-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: {
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          token: "secret",
+          tenantCode: "tenant-a"
+        }
+      }
+    });
+
+    await createProgram(store).parseAsync([
+      "apply", "bpm", "--project", project, "--flow", "PROJECT_APPROVAL", "--apply"
+    ], { from: "user" });
+
+    expect(state.entities).toHaveLength(1);
+    expect(state.flowTypes).toHaveLength(1);
+    expect(state.flowTypes[0]).toMatchObject({
+      code: "PROJECT_APPROVAL",
+      businessEntityId: "entity-existing"
+    });
+  });
+
+  it("流程页面和集成接口仅按 URL 复用并关联", async () => {
+    const state = createBpmServerState();
+    state.pages.push({
+      id: "page-by-url",
+      name: "已有页面",
+      pcUrl: "/project/apply",
+      businessModuleId: "another-module"
+    });
+    state.interfaces.push({
+      id: "interface-by-url",
+      name: "已有接口",
+      url: "project/afterEndFlow",
+      interfaceType: "CUSTOM_PERSON",
+      businessModuleId: "another-module"
+    });
+    const server = createServer((request, response) =>
+      handleBpmRequest(request, response, state)
+    );
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const client = new BpmClient({
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      token: "secret",
+      timeoutMs: 5_000
+    });
+
+    await configureBpmProject({
+      client,
+      environment: "dev",
+      apply: true,
+      definition: {
+        projectPath: "fixture",
+        sourcePath: "fixture",
+        businessModule: { code: "sdh-tbs", name: "川发贸易", serviceName: "sdh-tbs" },
+        flows: []
+      },
+      flows: [{
+        name: "项目申请",
+        code: "com.sdh.tbs.project.entity.Project",
+        entity: {
+          name: "项目申请",
+          code: "com.sdh.tbs.project.entity.Project",
+          serviceName: "project"
+        },
+        pages: [{ name: "项目申请页面", pcUrl: "/project/apply" }],
+        interfaces: [{
+          name: "项目流程结束后",
+          url: "project/afterEndFlow",
+          interfaceType: "EVENT"
+        }]
+      }]
+    });
+
+    expect(state.pages).toHaveLength(1);
+    expect(state.interfaces).toHaveLength(1);
+    expect(state.pageRelations.get("entity-1")).toEqual(["page-by-url"]);
+    expect(state.interfaceRelations.get("entity-1")).toEqual(["interface-by-url"]);
   });
 
   it("global 环境不能执行 BPM 配置", async () => {

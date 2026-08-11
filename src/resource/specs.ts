@@ -7,6 +7,7 @@ export interface ResourceSpec {
   endpoint: string;
   identityField: string;
   writableFields: string[];
+  preserveTargetFields?: string[];
   toDesired(
     source: ResourceRecord,
     targetClient: ResourceClient,
@@ -25,8 +26,7 @@ const featureWritableFields = [
   "appModuleId",
   "featureGroupId",
   "tenantCanUse",
-  "mobileUse",
-  "specialProjectId"
+  "mobileUse"
 ];
 
 const featureSpec: ResourceSpec = {
@@ -35,6 +35,7 @@ const featureSpec: ResourceSpec = {
   endpoint: "feature",
   identityField: "code",
   writableFields: featureWritableFields,
+  preserveTargetFields: ["specialProjectId"],
   async toDesired(source, targetClient) {
     const appModuleCode = requiredString(source.appModuleCode, "功能项缺少 appModuleCode");
     const appModules = await targetClient.findAll("appModule");
@@ -57,12 +58,6 @@ const featureSpec: ResourceSpec = {
       );
     }
 
-    if (typeof source.specialProjectId === "string" && source.specialProjectId) {
-      throw new CliError(
-        `功能项 ${String(source.code)} 关联专用项目，当前无法安全映射 specialProjectId`
-      );
-    }
-
     const desired: ResourceRecord = {};
     for (const field of featureWritableFields) {
       if (field in source) {
@@ -75,7 +70,6 @@ const featureSpec: ResourceSpec = {
     } else {
       desired.featureGroupId = featureGroupId;
     }
-    delete desired.specialProjectId;
     return desired;
   }
 };

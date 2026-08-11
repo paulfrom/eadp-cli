@@ -84,7 +84,7 @@ try {
     },
     {
       args: ["inspect", "bpm", "--help"],
-      expected: ["从真实项目代码发现有业务实现的 BPM 流程", "无需 YAML 或 BPM 登记册"]
+      expected: ["从真实项目代码发现 BPM 流程骨架及可选集成回调", "无需 YAML 或 BPM 登记册"]
     },
     {
       args: ["inspect", "permission", "functional", "--help"],
@@ -182,6 +182,26 @@ try {
   await access(join(workbuddyHome, "skills", "eadp-operator", "SKILL.md"));
   await access(join(claudeHome, "skills", "eadp-operator", "SKILL.md"));
   await access(join(qoderHome, "skills", "eadp-operator", "SKILL.md"));
+
+  if (process.env.EADP_LIVE_FEATURE_TEST === "1") {
+    const liveTest = spawnSync(
+      process.execPath,
+      [resolve("scripts", "live-feature-pagination-test.mjs")],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          EADP_EXECUTABLE: executable
+        }
+      }
+    );
+    if (liveTest.status !== 0) {
+      throw new Error(
+        `开发环境功能项分页验证失败：${liveTest.stderr || liveTest.stdout}`
+      );
+    }
+    process.stdout.write(liveTest.stdout);
+  }
 
   process.stdout.write(
     `${JSON.stringify(

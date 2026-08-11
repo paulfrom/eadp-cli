@@ -4,7 +4,7 @@ import { syncBpmFlow } from "../bpm/sync.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError } from "../errors.js";
-import { printValue } from "../io.js";
+import { printJsonLine, printValue } from "../io.js";
 import {
   ResourceClient,
   type ResourceFilter,
@@ -97,7 +97,9 @@ export function registerResourceCommands(
 示例：
   eadp query feature --env dev --created-in 2026-07
   eadp query feature --env dev --filter appModuleCode:EQ:BASIC
-  eadp query serialNumberConfig --env global --entity-class com.example.Order`
+  eadp query serialNumberConfig --env global --entity-class com.example.Order
+
+输出：NDJSON；依次输出 meta、逐条 item 和最终 summary。`
     )
     .action(async (resourceName: string, options: QueryOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
@@ -127,26 +129,39 @@ export function registerResourceCommands(
         });
       }
       const client = createClient(resolved, options.service, runtime.timeoutMs);
-      const result = await client.findByPage(resourceName, {
+      await printJsonLine({
+        kind: "eadp.resource.query.meta.v1",
+        environment: resolved.name,
+        service: options.service,
+        resource: resourceName,
+        filters
+      });
+      const serialIdentities = serialQuery ? new Set<string>() : undefined;
+      let total = 0;
+      for await (const page of client.iterateByPage(resourceName, {
         filters,
         ...(options.quick === undefined ? {} : { quickSearchValue: options.quick })
-      });
+      })) {
+        for (const item of page) {
+          if (serialIdentities) {
+            validateSerialNumberIdentityItem(serialIdentities, item);
+          }
+          total += 1;
+          await printJsonLine({
+            kind: "eadp.resource.query.item.v1",
+            index: total,
+            item
+          });
+        }
+      }
       const identity = serialQuery
-        ? validateSerialNumberIdentity(result.rows, options.entityClass)
+        ? buildSerialNumberIdentity(total, options.entityClass)
         : undefined;
-      printValue(
-        {
-          kind: "eadp.resource.query.v1",
-          environment: resolved.name,
-          service: options.service,
-          resource: resourceName,
-          filters,
-          total: result.total,
-          items: result.rows,
-          ...(identity === undefined ? {} : { identity })
-        },
-        runtime.compact
-      );
+      await printJsonLine({
+        kind: "eadp.resource.query.summary.v1",
+        total,
+        ...(identity === undefined ? {} : { identity })
+      });
     });
 
   commands.sync
@@ -260,6 +275,11 @@ async function executeSync(
     const targetRecord = findByIdentity(targetPage.rows, spec, key);
     if (targetRecord && typeof targetRecord.id === "string") {
       desired.id = targetRecord.id;
+      for (const field of spec.preserveTargetFields ?? []) {
+        if (field in targetRecord) {
+          desired[field] = targetRecord[field];
+        }
+      }
     }
     const changedFields = diffFields(targetRecord, desired, spec);
     changes.push({
@@ -341,8 +361,8 @@ function createClient(
   });
 }
 
-function validateSerialNumberIdentity(
-  rows: ResourceRecord[],
+function buildSerialNumberIdentity(
+  total: number,
   selectedEntityClass?: string
 ):
   | {
@@ -352,29 +372,29 @@ function validateSerialNumberIdentity(
       unique: true;
     }
   | undefined {
-  const groups = new Map<string, ResourceRecord[]>();
-  for (const row of rows) {
-    const value = row.entityClassName;
-    if (typeof value !== "string" || value.trim() === "") {
-      throw new CliError("给号配置缺少有效 entityClassName");
-    }
-    const key = value.trim().toLocaleLowerCase();
-    groups.set(key, [...(groups.get(key) ?? []), row]);
-  }
-  const duplicate = [...groups.values()].find((records) => records.length > 1);
-  if (duplicate) {
-    throw new CliError(
-      `给号配置 entityClassName 不唯一：${String(duplicate[0]!.entityClassName)}（匹配 ${duplicate.length} 条）`
-    );
-  }
   return selectedEntityClass
     ? {
         field: "entityClassName",
         value: selectedEntityClass,
-        exists: rows.length === 1,
+        exists: total === 1,
         unique: true
       }
     : undefined;
+}
+
+function validateSerialNumberIdentityItem(
+  identities: Set<string>,
+  item: ResourceRecord
+): void {
+  const value = item.entityClassName;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new CliError("给号配置缺少有效 entityClassName");
+  }
+  const key = value.trim().toLocaleLowerCase();
+  if (identities.has(key)) {
+    throw new CliError(`给号配置 entityClassName 不唯一：${value}（匹配至少 2 条）`);
+  }
+  identities.add(key);
 }
 
 function buildFilters(

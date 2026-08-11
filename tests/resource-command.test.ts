@@ -154,8 +154,8 @@ describe("query 和 sync 命令", () => {
         { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
       ]
     });
-    const result = JSON.parse(output.text());
-    expect(result.identity).toEqual({
+    const events = parseNdjson(output.text());
+    expect(events.at(-1)?.identity).toEqual({
       field: "entityClassName",
       value: "com.example.Order",
       exists: true,
@@ -219,9 +219,56 @@ describe("query 和 sync 命令", () => {
       { from: "user" }
     );
 
-    const result = JSON.parse(output.text());
+    const events = parseNdjson(output.text());
+    const items = events
+      .filter((event) => event.kind === "eadp.resource.query.item.v1")
+      .map((event) => event.item);
     expect(requestedPages).toEqual([1, 2]);
-    expect(result.items).toHaveLength(501);
+    expect(items).toHaveLength(501);
+    expect(events.at(-1)).toMatchObject({
+      kind: "eadp.resource.query.summary.v1",
+      total: 501
+    });
+  });
+
+  it("query 聚合开发环境的 1855 条功能项", async () => {
+    const requestedPages: number[] = [];
+    const expectedCount = 1_855;
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        const body = (await readBody(request)) as {
+          pageInfo: { page: number; rows: number };
+        };
+        const { page, rows: pageSize } = body.pageInfo;
+        requestedPages.push(page);
+        const start = (page - 1) * pageSize;
+        const count = Math.max(0, Math.min(pageSize, expectedCount - start));
+        const rows = Array.from({ length: count }, (_, index) => ({
+          id: `feature-${start + index}`,
+          code: `FEATURE_${start + index}`
+        }));
+        respond(response, { rows, total: 11 });
+      },
+      target: (_request, response) => respond(response, { rows: [], total: 0 })
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["query", "feature", "--env", "source"],
+      { from: "user" }
+    );
+
+    const events = parseNdjson(output.text());
+    const items = events
+      .filter((event) => event.kind === "eadp.resource.query.item.v1")
+      .map((event) => event.item as { id: string });
+    expect(requestedPages).toEqual([1, 2, 3, 4]);
+    expect(items).toHaveLength(expectedCount);
+    expect(new Set(items.map((item) => item.id)).size).toBe(expectedCount);
+    expect(events.at(-1)).toMatchObject({
+      kind: "eadp.resource.query.summary.v1",
+      total: expectedCount
+    });
   });
 
   it("query 将月份转换成创建时间的左闭右开过滤条件", async () => {
@@ -255,9 +302,13 @@ describe("query 和 sync 命令", () => {
         { fieldName: "createdDate", operator: "LT", value: "2026-08-01 00:00:00" }
       ]
     });
-    const result = JSON.parse(output.text());
-    expect(result.kind).toBe("eadp.resource.query.v1");
-    expect(result.items).toHaveLength(1);
+    const events = parseNdjson(output.text());
+    expect(events.map((event) => event.kind)).toEqual([
+      "eadp.resource.query.meta.v1",
+      "eadp.resource.query.item.v1",
+      "eadp.resource.query.summary.v1"
+    ]);
+    expect(events[1]?.item).toMatchObject({ code: "NEW_FEATURE" });
   });
 
   it("sync 功能项时按业务代码映射依赖和目标记录，默认只预览", async () => {
@@ -340,6 +391,67 @@ describe("query 和 sync 命令", () => {
     expect(result.changes[0].desired).not.toHaveProperty("id");
     expect(result.changes[0].desired).not.toHaveProperty("createdDate");
     expect(targetSaveCount).toBe(0);
+  });
+
+  it("sync 功能项时忽略源 specialProjectId 并保留目标环境关联", async () => {
+    const { store } = await createFixtureServer({
+      source: (request, response) => {
+        if (requestPath(request).endsWith("/feature/findByPage")) {
+          respond(response, {
+            rows: [{
+              id: "source-feature-id",
+              code: "FSSC-FMS-11",
+              name: "新名称",
+              featureType: "Operate",
+              canMenu: false,
+              tenantCanUse: true,
+              mobileUse: false,
+              appModuleCode: "FSSC",
+              specialProjectId: "source-project-id"
+            }],
+            total: 1
+          });
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) {
+          respond(response, {
+            rows: [{
+              id: "target-feature-id",
+              code: "FSSC-FMS-11",
+              name: "旧名称",
+              featureType: "Operate",
+              canMenu: false,
+              tenantCanUse: true,
+              mobileUse: false,
+              appModuleId: "target-app-id",
+              specialProjectId: "target-project-id"
+            }],
+            total: 1
+          });
+          return;
+        }
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "target-app-id", code: "FSSC" }]);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["sync", "feature", "--source", "source", "--target", "target"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toEqual({ create: 0, update: 1, unchanged: 0 });
+    expect(result.changes[0].changedFields).not.toContain("specialProjectId");
+    expect(result.changes[0].desired.specialProjectId).toBe("target-project-id");
   });
 
   it("sync --apply 写入后重新查询验证", async () => {
@@ -515,6 +627,10 @@ function captureOutput(): { text: () => string } {
     return true;
   });
   return { text: () => value };
+}
+
+function parseNdjson(value: string): Array<Record<string, any>> {
+  return value.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {

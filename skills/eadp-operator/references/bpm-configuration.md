@@ -29,12 +29,27 @@ eadp sync bpm --source 开发环境 --target ead环境 --flow 采购申请
 - Repeated execution is idempotent: update changed writable fields, reuse unchanged records, and add
   only missing relations.
 
-## Discover only implemented flows
+## Select and apply a project flow
+
+- For `apply bpm`, resolve `--flow` only as an Entity fully qualified class name or an existing remote
+  BPM flow-type `code`. Never match a flow name or Entity display name.
+- Query remote flow types and business entities read-only before applying. A remote flow-type code
+  must map through `businessEntityId` to exactly one Entity fully qualified class name in project code.
+- Permit creating the base flow configuration when the Entity fully qualified class name is unique
+  and does not conflict. Use that class name as the default code when no remote flow type exists.
+- Do not require an explicitly selected Entity to be present in the regular discovered-flow list.
+  When no API path can supply its service name, use the Entity simple class name in lowerCamel form.
+- Identify, deduplicate, and relate each flow page only by its `pcUrl`, and each integration interface
+  only by its `url`. Stop when either URL has multiple remote matches.
+
+## Discover implemented flow skeletons and optional callbacks
 
 - Discover BPM definitions from Controller, Entity, API path, workflow callbacks, service calls, and frontend routes.
 - Never require or infer from `BPM流程配置登记册.md`.
 - Use the Entity fully qualified class name as the default flow model code.
-- Exclude empty callbacks and configuration that has no real business behavior.
+- Treat a concrete `BaseFlowController`, its Entity, and a resolvable API path as an implemented flow skeleton.
+- Workflow callbacks and `startDefaultFlow` are optional and must not be used as flow-discovery prerequisites.
+- Exclude empty callbacks from integration-interface configuration without excluding the containing flow.
 - Classify a callback that returns `Executor` personnel data as `CUSTOM_PERSON` (自定义人).
   Classify workflow lifecycle callbacks that do not return personnel as `EVENT` (事件).
   Never register every integration callback as `EVENT`; derive the type from the Java return contract.

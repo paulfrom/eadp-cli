@@ -136,7 +136,7 @@ export async function syncBpmFlow(options: {
       compareFields: [...pageFields, "businessModuleId"],
       existing: uniqueMatch(
         targetPages,
-        (item) => sameText(item.businessModuleId, module.id) && sameText(item.pcUrl, pcUrl),
+        (item) => sameText(item.pcUrl, pcUrl),
         `目标 BPM 页面 ${pcUrl}`
       ),
       apply: options.apply
@@ -162,11 +162,8 @@ export async function syncBpmFlow(options: {
       compareFields: [...interfaceFields, "businessModuleId"],
       existing: uniqueMatch(
         targetInterfaces,
-        (target) =>
-          sameText(target.businessModuleId, module.id) &&
-          sameText(target.url, url) &&
-          sameText(target.interfaceType, interfaceType),
-        `目标 BPM 接口 ${interfaceType}:${url}`
+        (target) => sameText(target.url, url),
+        `目标 BPM 接口 ${url}`
       ),
       apply: options.apply
     });

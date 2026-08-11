@@ -1,5 +1,6 @@
 import { CliError } from "../errors.js";
 import { sendRequest } from "../http/client.js";
+import { iteratePages } from "../http/pagination.js";
 
 export type ResourceRecord = Record<string, unknown>;
 
@@ -34,13 +35,27 @@ export class ResourceClient {
       quickSearchProperties?: string[];
     } = {}
   ): Promise<ResourcePage> {
-    const pageSize = 500;
     const rows: ResourceRecord[] = [];
-    let page = 1;
-    let total = 0;
-    while (true) {
-      const data = await this.call(`${resource}/findByPage`, "POST", {
-        pageInfo: { page, rows: pageSize },
+    for await (const page of this.iterateByPage(resource, options)) {
+      rows.push(...page);
+    }
+    return { rows, total: rows.length };
+  }
+
+  iterateByPage(
+    resource: string,
+    options: {
+      filters?: ResourceFilter[];
+      quickSearchValue?: string;
+      quickSearchProperties?: string[];
+    } = {}
+  ): AsyncGenerator<ResourceRecord[]> {
+    const endpoint = `${resource}/findByPage`;
+    return iteratePages({
+      endpoint,
+      isItem: isRecord,
+      fetchPage: (pageInfo) => this.call(endpoint, "POST", {
+        pageInfo,
         filters: options.filters ?? [],
         sortOrders: [],
         ...(options.quickSearchValue === undefined
@@ -49,22 +64,8 @@ export class ResourceClient {
         ...(options.quickSearchProperties === undefined
           ? {}
           : { quickSearchProperties: options.quickSearchProperties })
-      });
-      if (!isRecord(data) || !Array.isArray(data.rows)) {
-        throw new CliError(`${resource}/findByPage 返回格式无效`);
-      }
-      const pageRows = data.rows.filter(isRecord);
-      rows.push(...pageRows);
-      total = typeof data.total === "number" ? data.total : rows.length;
-      if (rows.length >= total || pageRows.length < pageSize) {
-        break;
-      }
-      page += 1;
-      if (page > 10_000) {
-        throw new CliError(`${resource}/findByPage 分页数量异常`);
-      }
-    }
-    return { rows, total };
+      })
+    });
   }
 
   async findAll(resource: string): Promise<ResourceRecord[]> {

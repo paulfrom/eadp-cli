@@ -1,5 +1,6 @@
 import { CliError } from "../errors.js";
 import { sendRequest } from "../http/client.js";
+import { readAllPages } from "../http/pagination.js";
 
 export interface PermissionClientOptions {
   baseUrl: string;
@@ -20,14 +21,15 @@ export class PermissionClient {
   }
 
   async findByPage(resource: string): Promise<PermissionRecord[]> {
-    const data = await this.call(`${resource}/findByPage`, "POST", {
-      pageInfo: { page: 1, rows: 10_000 },
-      filters: []
+    const endpoint = `${resource}/findByPage`;
+    return readAllPages({
+      endpoint,
+      isItem: isRecord,
+      fetchPage: (pageInfo) => this.call(endpoint, "POST", {
+        pageInfo,
+        filters: []
+      })
     });
-    if (!isRecord(data) || !Array.isArray(data.rows)) {
-      throw new CliError(`${resource}/findByPage 返回格式无效`);
-    }
-    return data.rows.filter(isRecord);
   }
 
   async getFeatureTypes(): Promise<unknown[]> {

@@ -14,7 +14,7 @@ export interface VerbCommands {
 export function registerVerbCommands(program: Command): VerbCommands {
   return {
     inspect: program.command("inspect").description("查看目录、项目或权限配置"),
-    query: program.command("query").description("查询 EADP 资源数据"),
+    query: program.command("query").description("查询 EADP 资源数据（NDJSON 流式输出）"),
     call: program.command("call").description("调用已登记接口或指定 HTTP 方法和路径"),
     apply: program.command("apply").description("预览或应用配置变更"),
     assign: program.command("assign").description("预览或分配权限关系"),

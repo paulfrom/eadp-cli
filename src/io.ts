@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { CliError } from "./errors.js";
 
@@ -41,4 +42,10 @@ export function flattenPairs(values: Record<string, string[]>): Record<string, s
 
 export function printValue(value: unknown, compact = false): void {
   process.stdout.write(`${JSON.stringify(value, null, compact ? 0 : 2)}\n`);
+}
+
+export async function printJsonLine(value: unknown): Promise<void> {
+  if (!process.stdout.write(`${JSON.stringify(value)}\n`)) {
+    await once(process.stdout, "drain");
+  }
 }

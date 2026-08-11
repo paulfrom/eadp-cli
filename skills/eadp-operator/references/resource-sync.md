@@ -77,5 +77,6 @@ Require `verified: true`. A result with `applied: false` and all items unchanged
 - Resolve target application module by `appModuleCode`.
 - Resolve target feature group by `featureGroupCode`.
 - Do not copy `id`, creation audit fields, or source dependency IDs.
-- Stop if a source feature references a special project that the CLI cannot safely map.
+- Ignore source `specialProjectId` during comparison and synchronization. Never copy it across
+  environments; preserve the target environment's existing value when updating, and omit it when creating.
 - Existing target features may be updated only in the writable fields reported by the CLI diff.

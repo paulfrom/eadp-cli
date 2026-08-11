@@ -12,8 +12,9 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 1. Run `eadp --help`.
 2. Run `eadp env list` and use only environment names configured there.
 3. Run the relevant subcommand help before constructing a command.
-4. All commands output JSON by default. Use root-level `--compact` only when a single-line result is needed:
-   `eadp --compact <verb> ...`.
+4. Commands output JSON by default. `eadp query` streams NDJSON (`meta`, one `item` per record,
+   then `summary`); consume it line by line. For other commands, use root-level `--compact` when a
+   single-line result is needed: `eadp --compact <verb> ...`.
 5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
 
 `env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
