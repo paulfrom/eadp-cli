@@ -28,6 +28,12 @@ Treat the preview as create / update / unchanged / blocked, not as create-only s
 Time options filter source records only. After filtering, always compare every selected source record
 with the target by its registered business identity.
 
+For `serial-number`, the registered identity is the composite `entityClassName + tenantCode`;
+`configType` is only a filter. Normalize case and surrounding whitespace when checking duplicates.
+Build source keys from each source record's actual `tenantCode`, then map the desired key and
+post-write lookup to the target environment's recorded `tenantCode`. Missing identity fields or
+duplicate composite keys stop the workflow before any write.
+
 Preview source records created in one month:
 
 ```text

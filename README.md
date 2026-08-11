@@ -373,8 +373,10 @@ eadp query feature \
 `eadp.resource.query.item.v1`，最后一行是包含实际记录总数的
 `eadp.resource.query.summary.v1`。可以逐行消费，不需要将全部结果保存在内存中。
 
-查询给号配置时，`configType` 默认是 `CODE_TYPE`，CLI 会检查返回结果中的
-`entityClassName` 是否唯一：
+查询给号配置时，`configType` 默认是 `CODE_TYPE`，仅用于筛选，不参与业务唯一键。
+CLI 按 `entityClassName + tenantCode` 复合键逐条判重；同一实体在不同租户可以同时返回，
+缺少任一键字段会明确失败。指定 `--entity-class` 时，summary 的 `identity` 会输出全部匹配
+记录的 `fields` 和 `values`，并以规范化后的键判断 `exists`：
 
 ```bash
 eadp query serialNumberConfig \
@@ -450,7 +452,7 @@ eadp sync bpm --source dev --target ead --flow 采购申请
 eadp sync bpm --source dev --target ead --flow 采购申请 --apply
 ```
 
-按实体完整类名同步给号配置，`configType` 默认使用 `CODE_TYPE`：
+按实体完整类名同步给号配置，`configType` 默认使用 `CODE_TYPE`（仅筛选）：
 
 ```bash
 eadp sync serial-number \
@@ -460,8 +462,10 @@ eadp sync serial-number \
   --apply
 ```
 
-BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 ID；给号同步会清除源配置和
-`configItem` ID，并使用目标环境由 `env add` 获取的 `tenantCode`。两者重复执行均只处理差异。
+BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 ID；给号同步按
+`entityClassName + tenantCode` 匹配，源记录使用实际 `tenantCode` 判重，目标匹配和写入时
+将 `desired.tenantCode` 映射为目标环境由 `env add` 获取的值；`configType` 不参与键计算。
+CLI 会清除源配置和 `configItem` ID，两者重复执行均只处理差异。
 BPM 业务实体的 `auditTypeId`、`auditTypeName` 不随源环境迁移，目标环境始终置空。
 
 BPM 同步会先完成整个流程的只读规划，再开始目标写入。源流程、业务实体或业务模块等
@@ -470,7 +474,7 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 `summary.blocked` 和 `skippedBlocked` 报告跳过项。
 
 批量给号同步中，单条配置缺少或包含非法 `configItem` 时同样标记为 `blocked`，不会阻断
-其他安全配置；源或目标的 `entityClassName` 重复仍属于全局唯一性错误并立即终止。
+其他安全配置；源或目标的 `entityClassName + tenantCode` 复合键重复仍属于全局唯一性错误并立即终止。
 
 ## 给用户或岗位分配和移除角色
 

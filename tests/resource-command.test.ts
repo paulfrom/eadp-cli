@@ -115,6 +115,122 @@ describe("query 和 sync 命令", () => {
     expect(results[1].summary.unchanged).toBe(1);
   });
 
+  it("sync serial-number 按 entityClassName 和目标 tenantCode 匹配，忽略其他租户同名配置", async () => {
+    const targetConfigs: Array<Record<string, unknown>> = [{
+      id: "other-tenant-config-id",
+      entityClassName: "com.example.Order",
+      configType: "CODE_TYPE",
+      tenantCode: "other-tenant",
+      name: "其他租户编号",
+      returnStrategy: "NEW",
+      configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+    }];
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        const body = (await readBody(request)) as { filters?: unknown[] };
+        expect(body.filters).toEqual([
+          { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
+          { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
+        ]);
+        respond(response, {
+          rows: [{
+            entityClassName: "com.example.Order",
+            configType: "CODE_TYPE",
+            tenantCode: "source-tenant",
+            name: "源租户编号",
+            returnStrategy: "NEW",
+            configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+          }],
+          total: 1
+        });
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/serialNumberConfig/findByPage")) {
+          respond(response, { rows: targetConfigs, total: targetConfigs.length });
+          return;
+        }
+        if (path.endsWith("/serialNumberConfig/save")) {
+          const body = (await readBody(request)) as Record<string, unknown>;
+          savedBodies.push(body);
+          const saved = { ...body, id: "target-global-config-id" };
+          targetConfigs.push(saved);
+          respond(response, saved);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "--compact", "sync", "serial-number",
+        "--source", "source", "--target", "target",
+        "--entity-class", "com.example.Order", "--apply"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
+    expect(savedBodies).toHaveLength(1);
+    expect(savedBodies[0]).not.toHaveProperty("id");
+    expect(savedBodies[0]).toMatchObject({
+      entityClassName: "com.example.Order",
+      tenantCode: "global"
+    });
+  });
+
+  it("sync serial-number 检测多个源租户映射到同一目标复合键并在写入前失败", async () => {
+    let targetSaveCount = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) =>
+        respond(response, {
+          rows: [
+            {
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE",
+              tenantCode: "source-a",
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            },
+            {
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE",
+              tenantCode: "source-b",
+              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+            }
+          ],
+          total: 2
+        }),
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/serialNumberConfig/findByPage")) {
+          respond(response, { rows: [], total: 0 });
+          return;
+        }
+        if (path.endsWith("/serialNumberConfig/save")) {
+          targetSaveCount += 1;
+          respond(response, { id: `target-${targetSaveCount}` });
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "sync", "serial-number",
+          "--source", "source", "--target", "target"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("映射到目标环境后业务唯一键重复");
+    expect(targetSaveCount).toBe(0);
+  });
+
   it("sync serial-number 预览时按实体过滤目标环境，避免无关非法枚举记录导致查询失败", async () => {
     const expectedFilters = [
       { fieldName: "entityClassName", operator: "EQ", value: "com.test.cli.demo" },
@@ -129,6 +245,7 @@ describe("query 和 sync 命令", () => {
             id: "source-config-id",
             entityClassName: "com.test.cli.demo",
             configType: "CODE_TYPE",
+            tenantCode: "source-tenant",
             name: "CLI 测试编号",
             returnStrategy: "NEW",
             configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
@@ -174,17 +291,20 @@ describe("query 和 sync 命令", () => {
             {
               entityClassName: "com.example.MissingStrategy",
               configType: "CODE_TYPE",
+              tenantCode: "source-tenant",
               configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
             },
             {
               entityClassName: "com.example.NullStrategy",
               configType: "CODE_TYPE",
+              tenantCode: "source-tenant",
               returnStrategy: null,
               configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
             },
             {
               entityClassName: "com.example.BlankStrategy",
               configType: "CODE_TYPE",
+              tenantCode: "source-tenant",
               returnStrategy: "  ",
               configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
             }
@@ -220,6 +340,7 @@ describe("query 和 sync 命令", () => {
               id: "source-valid",
               entityClassName: "com.example.ValidOrder",
               configType: "CODE_TYPE",
+              tenantCode: "source-tenant",
               name: "有效编号",
               configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
             },
@@ -227,6 +348,7 @@ describe("query 和 sync 命令", () => {
               id: "source-invalid",
               entityClassName: "com.example.InvalidOrder",
               configType: "CODE_TYPE",
+              tenantCode: "source-tenant",
               name: "无效编号",
               configItem: null
             }
@@ -268,7 +390,7 @@ describe("query 和 sync 命令", () => {
     expect(savedEntities).toEqual(["com.example.ValidOrder"]);
     expect(result.changes).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        key: "com.example.InvalidOrder",
+        key: JSON.stringify({ entityClassName: "com.example.invalidorder", tenantCode: "global" }),
         action: "blocked",
         desired: null,
         blockingIssues: [expect.objectContaining({
@@ -297,7 +419,8 @@ describe("query 和 sync 命令", () => {
             {
               id: "serial-1",
               entityClassName: "com.example.Order",
-              configType: "CODE_TYPE"
+              configType: "CODE_TYPE",
+              tenantCode: "global"
             }
           ],
           total: 1
@@ -324,13 +447,19 @@ describe("query 和 sync 命令", () => {
     expect(requestBody).toMatchObject({
       filters: [
         { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
-        { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
+        { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" },
+        {
+          fieldName: "publicFlag",
+          fieldType: "java.lang.Boolean",
+          operator: "EQ",
+          value: true
+        }
       ]
     });
     const events = parseNdjson(output.text());
     expect(events.at(-1)?.identity).toEqual({
-      field: "entityClassName",
-      value: "com.example.Order",
+      fields: ["entityClassName", "tenantCode"],
+      values: [{ entityClassName: "com.example.order", tenantCode: "global" }],
       exists: true,
       unique: true
     });
@@ -341,8 +470,18 @@ describe("query 和 sync 命令", () => {
       source: (_request, response) =>
         respond(response, {
           rows: [
-            { id: "serial-1", entityClassName: "com.example.Order", configType: "CODE_TYPE" },
-            { id: "serial-2", entityClassName: "com.example.Order", configType: "CODE_TYPE" }
+            {
+              id: "serial-1",
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE",
+              tenantCode: "global"
+            },
+            {
+              id: "serial-2",
+              entityClassName: "com.example.Order",
+              configType: "BAR_TYPE",
+              tenantCode: "global"
+            }
           ],
           total: 2
         })
@@ -363,7 +502,85 @@ describe("query 和 sync 命令", () => {
         ],
         { from: "user" }
       )
-    ).rejects.toThrow("entityClassName 不唯一");
+    ).rejects.toThrow("业务唯一键 entityClassName+tenantCode 重复");
+  });
+
+  it("query 给号配置按 entityClassName 和 tenantCode 逐条判重并输出全部复合键", async () => {
+    const { store } = await createFixtureServer({
+      source: (_request, response) =>
+        respond(response, {
+          rows: [
+            {
+              id: "serial-global",
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE",
+              tenantCode: "global"
+            },
+            {
+              id: "serial-tenant-a",
+              entityClassName: "com.example.Order",
+              configType: "CODE_TYPE",
+              tenantCode: "tenant-a"
+            }
+          ],
+          total: 2
+        })
+    });
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "global";
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "query",
+        "serialNumberConfig",
+        "--env",
+        "source",
+        "--entity-class",
+        "com.example.Order"
+      ],
+      { from: "user" }
+    );
+
+    const events = parseNdjson(output.text());
+    expect(events.at(-1)?.identity).toEqual({
+      fields: ["entityClassName", "tenantCode"],
+      values: [
+        { entityClassName: "com.example.order", tenantCode: "global" },
+        { entityClassName: "com.example.order", tenantCode: "tenant-a" }
+      ],
+      exists: true,
+      unique: true
+    });
+  });
+
+  it("query 给号配置缺少 tenantCode 时明确失败", async () => {
+    const { store } = await createFixtureServer({
+      source: (_request, response) =>
+        respond(response, {
+          rows: [{
+            id: "serial-missing-tenant",
+            entityClassName: "com.example.Order",
+            configType: "CODE_TYPE"
+          }],
+          total: 1
+        })
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "query",
+          "serialNumberConfig",
+          "--env",
+          "source",
+          "--entity-class",
+          "com.example.Order"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("tenantCode");
   });
 
   it("query 自动读取全部分页结果", async () => {

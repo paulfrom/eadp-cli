@@ -2,7 +2,7 @@ id: serial-number-config-find-by-page
 name: serialNumberConfig.findByPage
 domain: serial-number
 title: 查询给号服务配置
-description: 按 entityClassName 查询给号规则；configType 默认使用 CODE_TYPE，CLI 会校验 entityClassName 唯一性。
+description: 按 entityClassName 查询给号规则；configType 默认使用 CODE_TYPE 且仅用于筛选，CLI 按 entityClassName + tenantCode 复合业务唯一键逐条判重并输出 identity。
 method: POST
 path: /api-gateway/sei-basic/serialNumberConfig/findByPage
 permission: read
@@ -16,4 +16,3 @@ requestSchema:
     - pageInfo
     - filters
     - sortOrders
-

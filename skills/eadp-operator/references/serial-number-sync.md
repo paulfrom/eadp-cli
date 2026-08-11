@@ -32,19 +32,22 @@ eadp sync serial-number --source A --target B --created-in 2026-08
 Combine `--created-in` with `--entity-class` when both time and entity scope are required. Do not
 combine `--created-in` with `--from` or `--to`.
 
-6. Stop if `entityClassName` is duplicated in either environment. A single source or target record
-   with a missing or invalid `configItem` is instead reported as `blocked`; continue comparing and
-   applying safe records. Review create/update/unchanged/blocked, every changed field, and every
-   `blockingIssues` entry before adding `--apply`.
+6. The business identity is the composite `entityClassName + tenantCode`; `configType` is only the
+   selection filter and never part of the key. The CLI trims and case-normalizes both fields for
+   comparison, but builds each source key from that record's actual `tenantCode`. Stop if the same
+   composite key is duplicated in either environment or if either key field is missing. A single
+   source or target record with a missing or invalid `configItem` is instead reported as `blocked`;
+   continue comparing and applying safe records. Review create/update/unchanged/blocked, every
+   changed field, and every `blockingIssues` entry before adding `--apply`.
 7. Apply only after authorization and require `verified: true`:
 
 ```text
 eadp sync serial-number --source A --target B --entity-class com.example.Order --apply
 ```
 
-The CLI replaces source record and `configItem` IDs with target IDs, sets `tenantCode` from the target
-environment recorded by `env add`, and performs an idempotent post-write query. When creating a target
-configuration, a missing, null, or blank `returnStrategy` defaults to `NEW`; an update preserves the
-existing target value when the source value is missing. During `--apply`, require `skippedBlocked` to
-match the blocked count and report the skipped entity class names. Never provide or override
-`tenantCode` manually.
+The CLI replaces source record and `configItem` IDs with target IDs, maps the composite key to the
+target environment's recorded `tenantCode` (including `desired.tenantCode` and post-write lookup),
+and performs an idempotent post-write query. When creating a target configuration, a missing, null,
+or blank `returnStrategy` defaults to `NEW`; an update preserves the existing target value when the
+source value is missing. During `--apply`, require `skippedBlocked` to match the blocked count and
+report the skipped composite keys. Never provide or override `tenantCode` manually.

@@ -6,6 +6,7 @@ export type ResourceRecord = Record<string, unknown>;
 
 export interface ResourceFilter {
   fieldName: string;
+  fieldType?: string;
   operator: string;
   value: unknown;
 }

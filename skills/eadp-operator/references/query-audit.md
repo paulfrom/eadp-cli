@@ -28,9 +28,14 @@ eadp query serialNumberConfig --env GLOBAL --entity-class com.example.Order
 
 The generic query command requires the resource to expose `findByPage`. If the server rejects the field or resource, inspect the corresponding backend controller rather than guessing another field.
 
-For `serialNumberConfig`, use a `global` environment. `--config-type` defaults to `CODE_TYPE`,
-and `--entity-class` selects the business-unique `entityClassName`. Stop if the CLI reports
-duplicate `entityClassName` values. A missing record means the name is available for creation.
+For `serialNumberConfig`, use a `global` environment. `--config-type` defaults to `CODE_TYPE` and
+is only a filter; it is not part of the business key. The CLI uses the composite key
+`entityClassName + tenantCode`, normalizing case and surrounding whitespace consistently. Stop if
+the CLI reports a duplicate composite key or a record is missing either key field. With
+`--entity-class`, the summary `identity` has `fields: ["entityClassName", "tenantCode"]` and a
+`values` array containing every returned composite key; `exists` is true when that array is non-empty.
+A missing composite key means the requested entity/tenant is available for creation only when the
+query completes with an empty `values` array.
 
 ## Permission query
 
@@ -66,7 +71,8 @@ menu name matches multiple nodes, stop and request an exact menu code or path.
 - `eadp.resource.query.meta.v1`: environment, service, resource, and filters used.
 - `eadp.resource.query.item.v1`: one queried resource record in `item`, with a one-based `index`.
 - `eadp.resource.query.summary.v1`: completion marker and actual streamed `total`; for serial-number
-  queries it also contains `identity` when an entity class was selected.
+  queries with an entity selector it also contains `identity.fields`, `identity.values` (all returned
+  composite keys), `identity.exists`, and `identity.unique`.
 - Treat a stream without a final `summary` as incomplete or failed; never report it as a complete query.
 - `featureRoles` and `dataRoles`: effective role results returned for the account.
 - `featureChecks`: explicit feature-code decisions.

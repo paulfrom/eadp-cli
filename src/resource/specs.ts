@@ -5,7 +5,13 @@ export interface ResourceSpec {
   name: string;
   service: string;
   endpoint: string;
+  /**
+   * Fields that together form the resource's business identity.  The
+   * legacy identityField is retained for single-field resources while
+   * identityFields allows composite keys such as serial-number configs.
+   */
   identityField: string;
+  identityFields?: string[];
   writableFields: string[];
   preserveTargetFields?: string[];
   toDesired(
@@ -163,6 +169,7 @@ const serialNumberSpec: ResourceSpec = {
   service: "sei-basic",
   endpoint: "serialNumberConfig",
   identityField: "entityClassName",
+  identityFields: ["entityClassName", "tenantCode"],
   writableFields: serialNumberWritableFields,
   async toDesired(source, _targetClient, context) {
     const desired: ResourceRecord = {};

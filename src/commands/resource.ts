@@ -99,7 +99,7 @@ export function registerResourceCommands(
           resource: resourceName,
           service: spec.service,
           endpoint: spec.endpoint,
-          identityField: spec.identityField,
+          identityFields: resourceIdentityFields(spec),
           writableFields: spec.writableFields
         },
         getRuntimeOptions(root).compact
@@ -247,6 +247,12 @@ export function registerResourceCommands(
   eadp query menu --env global --quick 采购
   eadp query serialNumberConfig --env global --entity-class com.example.Order
 
+serialNumberConfig 在 global 租户查询时会在现有过滤条件后自动追加
+publicFlag=true（fieldType=java.lang.Boolean）；sync serial-number 不受此默认过滤器影响。
+给号配置业务唯一键为 entityClassName + tenantCode（按记录实际值规范化判重）；
+configType 仅作为查询/同步筛选条件，不参与业务唯一键。选择 --entity-class 时，summary.identity
+输出全部匹配记录的复合键 values；缺少任一键字段会明确失败。
+
 输出：NDJSON；依次输出 meta、逐条 item 和最终 summary。`
     )
     .action(async (resourceName: string, options: QueryOptions) => {
@@ -275,6 +281,14 @@ export function registerResourceCommands(
           operator: "EQ",
           value: options.configType ?? "CODE_TYPE"
         });
+        if (resolved.config.tenantCode === "global") {
+          filters.push({
+            fieldName: "publicFlag",
+            fieldType: "java.lang.Boolean",
+            operator: "EQ",
+            value: true
+          });
+        }
       }
       const client = createClient(resolved, options.service, runtime.timeoutMs);
       await printJsonLine({
@@ -284,7 +298,9 @@ export function registerResourceCommands(
         resource: resourceName,
         filters
       });
-      const serialIdentities = serialQuery ? new Set<string>() : undefined;
+      const serialIdentities = serialQuery
+        ? { keys: new Set<string>(), values: [] as SerialNumberIdentityValue[] }
+        : undefined;
       let total = 0;
       if (resourceName.toLocaleLowerCase() === "menu") {
         if (options.service !== "sei-basic") throw new CliError("menu 查询仅支持 sei-basic 服务");
@@ -313,7 +329,7 @@ export function registerResourceCommands(
         }
       }
       const identity = serialQuery
-        ? buildSerialNumberIdentity(total, options.entityClass)
+        ? buildSerialNumberIdentity(serialIdentities?.values ?? [], options.entityClass)
         : undefined;
       await printJsonLine({
         kind: "eadp.resource.query.summary.v1",
@@ -352,6 +368,10 @@ export function registerResourceCommands(
   ReturnStrategy: NEW, REPEAT, PATCH
   LinkCharacter: EMPTY, DASH, DOT, PIPE, COLON
   DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE
+
+serial-number 按 entityClassName + tenantCode 匹配；源记录使用各自实际 tenantCode
+判重，目标匹配和 desired.tenantCode 使用目标环境的 tenantCode。configType 仅用于筛选，
+不参与业务唯一键；缺少 entityClassName 或 tenantCode 的记录会明确失败。
 
 执行前会校验源、目标环境的租户条件；任一环境不满足时不会读取迁移数据。`
     )
@@ -483,8 +503,15 @@ async function executeSync(
   }> = [];
   assertUniqueIdentities(sourcePage.rows, spec, "源环境");
   assertUniqueIdentities(targetPage.rows, spec, "目标环境");
+  const mappedIdentityKeys = new Set<string>();
   for (const sourceRecord of sourcePage.rows) {
-    const key = identityValue(sourceRecord, spec);
+    // Source uniqueness is checked against each record's actual tenantCode.
+    // Matching and post-write verification use the target tenant for serial
+    // number configurations because toDesired remaps tenantCode to that value.
+    const sourceKey = identityValue(sourceRecord, spec);
+    const key = serialSync
+      ? identityValue(sourceRecord, spec, { tenantCode: target.config.tenantCode! })
+      : sourceKey;
     const targetRecord = findByIdentity(targetPage.rows, spec, key);
     let desired: ResourceRecord;
     try {
@@ -546,6 +573,12 @@ async function executeSync(
       });
       continue;
     }
+    if (mappedIdentityKeys.has(key)) {
+      throw new CliError(
+        `源环境记录映射到目标环境后业务唯一键重复：${identityDescription(spec)}=${key}`
+      );
+    }
+    mappedIdentityKeys.add(key);
     changes.push({
       key,
       action:
@@ -689,40 +722,62 @@ function createClient(
   });
 }
 
+interface SerialNumberIdentityValue {
+  entityClassName: string;
+  tenantCode: string;
+}
+
+interface SerialNumberIdentityState {
+  keys: Set<string>;
+  values: SerialNumberIdentityValue[];
+}
+
 function buildSerialNumberIdentity(
-  total: number,
+  values: SerialNumberIdentityValue[],
   selectedEntityClass?: string
 ):
   | {
-      field: "entityClassName";
-      value: string;
+      fields: ["entityClassName", "tenantCode"];
+      values: SerialNumberIdentityValue[];
       exists: boolean;
       unique: true;
     }
   | undefined {
   return selectedEntityClass
     ? {
-        field: "entityClassName",
-        value: selectedEntityClass,
-        exists: total === 1,
+        fields: ["entityClassName", "tenantCode"],
+        values,
+        exists: values.length > 0,
         unique: true
       }
     : undefined;
 }
 
 function validateSerialNumberIdentityItem(
-  identities: Set<string>,
+  identities: SerialNumberIdentityState,
   item: ResourceRecord
 ): void {
-  const value = item.entityClassName;
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new CliError("给号配置缺少有效 entityClassName");
+  const entityClassName = requiredIdentityPart(
+    item.entityClassName,
+    "entityClassName",
+    "给号配置"
+  );
+  const tenantCode = requiredIdentityPart(item.tenantCode, "tenantCode", "给号配置");
+  const value: SerialNumberIdentityValue = {
+    entityClassName: normalizeIdentityPart(entityClassName),
+    tenantCode: normalizeIdentityPart(tenantCode)
+  };
+  const key = identityKey(
+    [entityClassName, tenantCode],
+    ["entityClassName", "tenantCode"]
+  );
+  if (identities.keys.has(key)) {
+    throw new CliError(
+      `给号配置业务唯一键 entityClassName+tenantCode 重复：entityClassName=${entityClassName}, tenantCode=${tenantCode}（匹配至少 2 条）`
+    );
   }
-  const key = value.trim().toLocaleLowerCase();
-  if (identities.has(key)) {
-    throw new CliError(`给号配置 entityClassName 不唯一：${value}（匹配至少 2 条）`);
-  }
-  identities.add(key);
+  identities.keys.add(key);
+  identities.values.push(value);
 }
 
 function buildFilters(
@@ -785,12 +840,46 @@ function monthRange(source: string): { from: string; to: string } {
   };
 }
 
-function identityValue(record: ResourceRecord, spec: ResourceSpec): string {
-  const value = record[spec.identityField];
-  if (typeof value !== "string" || !value) {
-    throw new CliError(`源资源缺少业务唯一键 ${spec.identityField}`);
+function resourceIdentityFields(spec: ResourceSpec): string[] {
+  return spec.identityFields ?? [spec.identityField];
+}
+
+function identityValue(
+  record: ResourceRecord,
+  spec: ResourceSpec,
+  overrides: Partial<Record<string, string>> = {}
+): string {
+  const fields = resourceIdentityFields(spec);
+  const values = fields.map((field) =>
+    requiredIdentityPart(
+      overrides[field] ?? record[field],
+      field,
+      `资源 ${spec.name}`
+    )
+  );
+  return values.length === 1 ? values[0]! : identityKey(values, fields);
+}
+
+function identityKey(values: string[], fields: string[] = []): string {
+  const normalized = values.map(normalizeIdentityPart);
+  if (normalized.length === 1) return normalized[0]!;
+  const fieldNames = fields.length === normalized.length
+    ? fields
+    : normalized.map((_value, index) => String(index));
+  return JSON.stringify(
+    Object.fromEntries(fieldNames.map((field, index) => [field, normalized[index]!]))
+  );
+}
+
+function normalizeIdentityPart(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function requiredIdentityPart(value: unknown, field: string, label: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new CliError(`${label}缺少有效业务唯一键字段 ${field}`);
   }
-  return value;
+  return value.trim();
 }
 
 function findByIdentity(
@@ -798,13 +887,22 @@ function findByIdentity(
   spec: ResourceSpec,
   value: string
 ): ResourceRecord | undefined {
-  const normalized = value.toLocaleLowerCase();
+  const fields = resourceIdentityFields(spec);
+  const comparableValue = fields.length === 1
+    ? identityKey([value], fields)
+    : value;
   const matches = records.filter((record) => {
-    const candidate = record[spec.identityField];
-    return typeof candidate === "string" && candidate.toLocaleLowerCase() === normalized;
+    try {
+      const values = fields.map((field) =>
+        requiredIdentityPart(record[field], field, `目标环境资源`)
+      );
+      return identityKey(values, fields) === comparableValue;
+    } catch {
+      return false;
+    }
   });
   if (matches.length > 1) {
-    throw new CliError(`目标环境业务唯一键重复：${spec.identityField}=${value}`);
+    throw new CliError(`目标环境业务唯一键重复：${identityDescription(spec)}=${value}`);
   }
   return matches[0];
 }
@@ -829,19 +927,33 @@ function assertUniqueIdentities(
   spec: ResourceSpec,
   label: string
 ): void {
-  const counts = new Map<string, { value: string; count: number }>();
+  const counts = new Map<string, { values: string[]; count: number }>();
   for (const record of records) {
-    const value = identityValue(record, spec);
-    const key = value.trim().toLocaleLowerCase();
+    const fields = resourceIdentityFields(spec);
+    const values = fields.map((field) =>
+      requiredIdentityPart(record[field], field, `${label}资源`)
+    );
+    const key = identityKey(values, fields);
     const current = counts.get(key);
-    counts.set(key, { value, count: (current?.count ?? 0) + 1 });
+    counts.set(key, { values, count: (current?.count ?? 0) + 1 });
   }
   const duplicate = [...counts.values()].find((item) => item.count > 1);
   if (duplicate) {
     throw new CliError(
-      `${label}业务唯一键重复：${spec.identityField}=${duplicate.value}（匹配 ${duplicate.count} 条）`
+      `${label}业务唯一键重复：${identityDescription(spec)}=${formatIdentityValues(
+        resourceIdentityFields(spec),
+        duplicate.values
+      )}（匹配 ${duplicate.count} 条）`
     );
   }
+}
+
+function identityDescription(spec: ResourceSpec): string {
+  return resourceIdentityFields(spec).join("+");
+}
+
+function formatIdentityValues(fields: string[], values: string[]): string {
+  return fields.map((field, index) => `${field}=${values[index]}`).join(", ");
 }
 
 function collect(value: string, previous: string[]): string[] {
