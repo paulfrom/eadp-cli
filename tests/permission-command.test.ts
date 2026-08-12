@@ -160,7 +160,8 @@ describe("统一权限命令", () => {
   it("data inspect 不调用具有自动清理副作用的已分配值接口", async () => {
     const requestedPaths: string[] = [];
     const { store } = await createFixtureServer((request, response) => {
-      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const path = url.pathname;
       requestedPaths.push(path);
       const dataByPath: Record<string, unknown> = {
         "/api-gateway/sei-basic/authorizeEntityType/findAll": [
@@ -172,13 +173,17 @@ describe("统一权限命令", () => {
         "/api-gateway/sei-basic/dataRoleGroup/findAll": [
           { id: "group-1", code: "ORG_ROLE", name: "组织角色" }
         ],
-        "/api-gateway/sei-basic/dataRole/findByPage": {
-          rows: [{ id: "role-1", code: "ORG_ADMIN", name: "组织管理员" }]
-        },
         "/api-gateway/sei-basic/dataRoleAuthTypeValue/getAuthorizeTypesByRoleId": [
           { id: "auth-type-1", code: "ORG", name: "组织权限" }
         ]
       };
+      if (path === "/api-gateway/sei-basic/dataRole/findByDataRoleGroup") {
+        expect(url.searchParams.get("roleGroupId")).toBe("group-1");
+        respond(response, [
+          { id: "role-1", code: "ORG_ADMIN", name: "组织管理员" }
+        ]);
+        return;
+      }
       respond(response, dataByPath[path]);
     });
     const output = captureOutput();
@@ -1170,8 +1175,12 @@ describe("统一权限命令", () => {
         respond(response, [{ id: "group-1", code: "ORG_ROLE", name: "组织角色" }]);
         return;
       }
-      if (url.pathname.endsWith("/dataRole/findByPage")) {
-        respond(response, { rows: roles });
+      if (url.pathname.endsWith("/dataRole/findByDataRoleGroup")) {
+        expect(url.searchParams.get("roleGroupId")).toBe("group-1");
+        respond(
+          response,
+          roles.filter((role) => role.dataRoleGroupId === "group-1")
+        );
         return;
       }
       if (url.pathname.endsWith("/dataRole/save")) {
@@ -1220,10 +1229,20 @@ describe("统一权限命令", () => {
     const { store } = await createFixtureServer(async (request, response) => {
       const url = new URL(request.url ?? "/", "http://localhost");
       requestedPaths.push(url.pathname);
-      if (url.pathname.endsWith("/dataRole/findByPage")) {
-        respond(response, {
-          rows: [{ id: "role-1", code: "ORG_READER", name: "组织只读角色" }]
-        });
+      if (url.pathname.endsWith("/dataRoleGroup/findAll")) {
+        respond(response, [{ id: "group-1", code: "ORG_ROLE", name: "组织角色" }]);
+        return;
+      }
+      if (url.pathname.endsWith("/dataRole/findByDataRoleGroup")) {
+        expect(url.searchParams.get("roleGroupId")).toBe("group-1");
+        respond(response, [
+          {
+            id: "role-1",
+            code: "ORG_READER",
+            name: "组织只读角色",
+            dataRoleGroupId: "group-1"
+          }
+        ]);
         return;
       }
       if (url.pathname.endsWith("/dataAuthorizeType/findAll")) {
