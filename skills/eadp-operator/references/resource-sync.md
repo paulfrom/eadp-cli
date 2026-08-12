@@ -7,6 +7,11 @@ Use this workflow for requests such as:
 
 ## Preconditions
 
+Menu, feature, feature-group, and serial-number synchronization is a global-administrator
+operation: both source and target must record `tenantCode === "global"`. The CLI enforces this
+before any remote read, including the `feature-group`/`featureGroup` and
+`serial-number`/`serialNumberConfig` spellings.
+
 1. Run `eadp inspect resource --help` and `eadp sync --help`.
 2. Confirm the source and target environment names are distinct.
 3. Confirm the requested resource is listed as a registered sync resource.

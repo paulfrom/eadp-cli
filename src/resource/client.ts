@@ -88,6 +88,11 @@ export class ResourceClient {
     if (!isRecord(data) || typeof data.id !== "string") {
       throw new CliError(`${resource}/save 未返回有效 ID`);
     }
+    // A prior findAll may have populated a snapshot that no longer reflects
+    // the just-written resource.  Invalidate only that resource so post-write
+    // verification can observe the server state without affecting unrelated
+    // cached collections.
+    this.findAllCache.delete(resource);
     return data;
   }
 
@@ -128,4 +133,76 @@ export class ResourceClient {
 
 export function isRecord(value: unknown): value is ResourceRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const LOCAL_FILTER_OPERATORS = new Set(["EQ", "NE", "LIKE", "GT", "GE", "LT", "LE"]);
+
+/**
+ * Apply the public resource filter contract to an already-loaded record list.
+ * This is used for findAll-backed resources whose endpoints do not expose the
+ * paged filter API.  Quick search intentionally scans every top-level string
+ * field so the behavior is independent of a particular resource's schema.
+ */
+export function filterRecords(
+  records: ResourceRecord[],
+  filters: ResourceFilter[] = [],
+  quickSearchValue?: string
+): ResourceRecord[] {
+  for (const filter of filters) {
+    const operator = filter.operator.toUpperCase();
+    if (!LOCAL_FILTER_OPERATORS.has(operator)) {
+      throw new CliError(`不支持的过滤操作符：${filter.operator}`);
+    }
+  }
+  const quick = quickSearchValue?.trim().toLocaleLowerCase();
+  return records.filter((record) => {
+    if (quick && !Object.values(record).some(
+      (value) => typeof value === "string" && value.toLocaleLowerCase().includes(quick)
+    )) {
+      return false;
+    }
+    return filters.every((filter) =>
+      matchRecordFilter(record[filter.fieldName], filter.operator, filter.value)
+    );
+  });
+}
+
+function matchRecordFilter(left: unknown, operator: string, right: unknown): boolean {
+  switch (operator.toUpperCase()) {
+    case "EQ":
+      return sameRecordValue(left, right);
+    case "NE":
+      return !sameRecordValue(left, right);
+    case "LIKE":
+      return String(left ?? "").toLocaleLowerCase().includes(
+        String(right ?? "").toLocaleLowerCase()
+      );
+    case "GT":
+      return compareRecordValues(left, right) > 0;
+    case "GE":
+      return compareRecordValues(left, right) >= 0;
+    case "LT":
+      return compareRecordValues(left, right) < 0;
+    case "LE":
+      return compareRecordValues(left, right) <= 0;
+    default:
+      // filterRecords validates operators before evaluating records; this is
+      // defensive for callers that invoke the matcher through future paths.
+      throw new CliError(`不支持的过滤操作符：${operator}`);
+  }
+}
+
+function sameRecordValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function compareRecordValues(left: unknown, right: unknown): number {
+  const leftNumber = typeof left === "number" ? left : undefined;
+  const rightNumber = typeof right === "number" ? right : undefined;
+  if (leftNumber !== undefined && rightNumber !== undefined) {
+    return leftNumber - rightNumber;
+  }
+  const leftText = String(left ?? "");
+  const rightText = String(right ?? "");
+  return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
 }

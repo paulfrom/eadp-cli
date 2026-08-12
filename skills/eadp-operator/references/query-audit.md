@@ -8,6 +8,12 @@ Use this workflow for requests such as:
 
 ## Resource query
 
+Remote queries for application modules (`appModule`/`app-module`), menus (`menu`), features (`feature`), feature groups
+(`feature-group`/`featureGroup`), and serial-number configurations
+(`serial-number`/`serialNumberConfig`) require an environment whose recorded
+`tenantCode === "global"` (the global administrator). Resource aliases are normalized before
+the tenant check and cannot bypass it.
+
 1. Run `eadp query --help`.
 2. Resolve the environment name and resource endpoint name.
 3. For “某月新增”, use an explicit `YYYY-MM` with `--created-in`.
@@ -21,6 +27,8 @@ Examples:
 eadp query feature --env A --created-in 2026-07
 eadp query feature --env A --from "2026-07-01 00:00:00" --to "2026-08-01 00:00:00"
 eadp query feature --env A --filter appModuleCode:EQ:BASIC
+eadp query appModule --env GLOBAL --filter code:EQ:ams
+eadp query app-module --env GLOBAL --filter code:EQ:ams
 eadp query serialNumberConfig --env GLOBAL --entity-class com.example.Order
 ```
 

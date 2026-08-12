@@ -123,7 +123,7 @@ function validateRecord(value: unknown): asserts value is OperationRecord {
 }
 
 const basicEntities = new Set([
-  "featureRole", "dataRole", "feature", "featureGroup", "menu", "serialNumberConfig"
+  "appModule", "featureRole", "dataRole", "feature", "featureGroup", "menu", "serialNumberConfig"
 ]);
 const bpmEntities = new Set([
   "conBusinessModule", "conBusinessEntity", "conPage", "conInterface", "conFlowType"

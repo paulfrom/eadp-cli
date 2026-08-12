@@ -20,6 +20,17 @@ export async function rollbackOperation(options: {
   }
   if (record.status === "rolled-back") return result(record, 0, record.actions.length, true);
 
+  // Preflight every action that may still touch EADP. This must happen before
+  // findEntity/getChildren/getDataValues so a mixed operation cannot perform a
+  // non-global request and only then discover that a global resource is being
+  // rolled back from the wrong tenant.
+  for (const action of record.actions) {
+    if (action.status === "rolled-back" || action.status === "not-applied") {
+      continue;
+    }
+    assertRollbackActionTenantScope(action, options.environment);
+  }
+
   record.status = "rolling-back";
   delete record.error;
   await save(record, options.store);
@@ -54,6 +65,8 @@ async function rollbackAction(action: OperationAction, env: ResolvedEnvironment,
 }
 
 async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {
+  const path = `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`;
+  assertPathTenantScope(env.config.tenantCode, path, env.name);
   const current = await findEntity(action, env, timeoutMs);
   if (current === null) return false;
   const conflicts = Object.entries(action.expected).filter(
@@ -62,13 +75,18 @@ async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironme
   if (conflicts.length) {
     throw new CliError(`回滚冲突：${action.resource}/${action.entityId} 已被后续修改（${conflicts.map(([field]) => field).join(", ")}）`);
   }
-  const path = `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`;
-  assertPathTenantScope(env.config.tenantCode, path, env.name);
   await call(env, timeoutMs, action.deleteMethod, path);
   if ((await findEntity(action, env, timeoutMs)) !== null) {
     throw new CliError(`回滚后回查失败：${action.resource}/${action.entityId} 仍然存在`);
   }
   return true;
+}
+
+function assertRollbackActionTenantScope(action: OperationAction, env: ResolvedEnvironment): void {
+  const path = action.type === "create-entity"
+    ? `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`
+    : `${gateway(action.service)}/${action.resource}`;
+  assertPathTenantScope(env.config.tenantCode, path, env.name);
 }
 
 async function rollbackRelations(action: AssignRelationsAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {

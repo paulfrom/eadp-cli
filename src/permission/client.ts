@@ -8,6 +8,13 @@ export interface PermissionClientOptions {
   timeoutMs?: number;
 }
 
+export interface PermissionFilter {
+  fieldName: string;
+  fieldType?: string;
+  operator: string;
+  value: unknown;
+}
+
 export type PermissionRecord = Record<string, unknown>;
 
 export class PermissionClient {
@@ -20,16 +27,55 @@ export class PermissionClient {
     );
   }
 
-  async findByPage(resource: string): Promise<PermissionRecord[]> {
+  async findByPage(
+    resource: string,
+    options: { filters?: PermissionFilter[] } = {}
+  ): Promise<PermissionRecord[]> {
     const endpoint = `${resource}/findByPage`;
     return readAllPages({
       endpoint,
       isItem: isRecord,
       fetchPage: (pageInfo) => this.call(endpoint, "POST", {
         pageInfo,
-        filters: []
+        filters: options.filters ?? []
       })
     });
+  }
+
+  /**
+   * Resolve a feature-group by its business code.  FeatureGroupController
+   * exposes findAll rather than a dedicated findByCode route, so matching is
+   * performed locally and the result is still checked for duplicate business
+   * keys using strict case-insensitive comparison.
+   */
+  async findFeatureGroupByCode(code: string): Promise<PermissionRecord | null> {
+    const rows = await this.findAll("featureGroup");
+    const normalized = code.trim().toLocaleLowerCase();
+    const matches = rows.filter(
+      (record) =>
+        typeof record.code === "string" &&
+        record.code.trim().toLocaleLowerCase() === normalized
+    );
+    if (matches.length > 1) {
+      throw new CliError(`功能项组 code 不唯一：${code}`);
+    }
+    return matches[0] ?? null;
+  }
+
+  /** Resolve every global application module matching an explicit code. */
+  async findAppModulesByCode(code: string): Promise<PermissionRecord[]> {
+    // Do not use findAll's cache here: apply feature-group creates a module
+    // and immediately re-queries by code to verify the server state.
+    const rows = this.expectRecordList(
+      await this.call("appModule/findAll", "GET"),
+      "appModule/findAll"
+    );
+    const normalized = code.trim().toLocaleLowerCase();
+    return rows.filter(
+      (record) =>
+        typeof record.code === "string" &&
+        record.code.trim().toLocaleLowerCase() === normalized
+    );
   }
 
   async getFeatureTypes(): Promise<unknown[]> {
@@ -85,6 +131,19 @@ export class PermissionClient {
     }
     if (!isRecord(data)) {
       throw new CliError("featureRole/findByCode 返回格式无效");
+    }
+    return data;
+  }
+
+  async findFeatureByCode(code: string): Promise<PermissionRecord | null> {
+    const data = await this.call("feature/findByCode", "GET", undefined, {
+      code: [code]
+    });
+    if (data === null || data === undefined) {
+      return null;
+    }
+    if (!isRecord(data)) {
+      throw new CliError("feature/findByCode 返回格式无效");
     }
     return data;
   }

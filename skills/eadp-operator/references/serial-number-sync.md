@@ -3,7 +3,8 @@
 Use this workflow for migrating 给号配置 between named environments.
 
 1. Run `eadp sync --help` and resolve both environments with `eadp env list`.
-2. Require both environments to have `tenantCode: global` before any remote read.
+2. Require both environments to record `tenantCode === "global"` (the global administrator)
+   before any remote read; `serial-number` and `serialNumberConfig` are equivalent aliases.
 3. Resolve the entity's fully qualified `entityClassName`; do not use a short class name.
 4. Select enum names only from the complete server-defined sets below. Infer from business meaning,
    but never invent a value:

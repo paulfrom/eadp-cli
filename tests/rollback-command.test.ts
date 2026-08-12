@@ -16,6 +16,52 @@ afterEach(async () => {
 });
 
 describe("rollback 命令", () => {
+  it("回滚全局资源时先校验 tenantCode，非 global 环境零远端请求", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      respond(response, { id: "feature-1", code: "FEATURE" });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-global-guard-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "tenant-a" }
+      }
+    });
+    await new OperationLogStore(directory).save({
+      version: 1,
+      id: "feature-operation",
+      command: "eadp apply feature",
+      environment: "dev",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: "completed",
+      actions: [{
+        id: "feature-create",
+        type: "create-entity",
+        service: "sei-basic",
+        resource: "feature",
+        entityId: "feature-1",
+        expected: { code: "FEATURE" },
+        deleteMethod: "DELETE",
+        status: "applied"
+      }]
+    });
+
+    await expect(
+      createProgram(configStore).parseAsync(["rollback", "feature-operation"], { from: "user" })
+    ).rejects.toThrow("必须使用 global 租户");
+    expect(requestCount).toBe(0);
+  });
+
   it("不要求 --apply，并按逆序移除分配关系后删除新增角色", async () => {
     const role = { id: "role-1", code: "TEST_ROLE", name: "测试角色" };
     const assigned = new Set(["feature-1"]);

@@ -4,9 +4,11 @@ import { sendRequest } from "./http/client.js";
 export type TenantScope = "global" | "non-global";
 
 const GLOBAL_RESOURCE_SEGMENTS = new Set([
+  "appmodule",
   "feature",
   "featuregroup",
   "menu",
+  "serialnumber",
   "serialnumberconfig"
 ]);
 
@@ -41,7 +43,11 @@ export function scopeForPath(path: string): TenantScope {
     .split(/[?#]/, 1)[0]!
     .split("/")
     .filter(Boolean)
-    .map((segment) => segment.toLocaleLowerCase());
+    // Resource aliases are accepted by the CLI in both kebab and camel case
+    // (for example, feature-group/featureGroup and serial-number/
+    // serialNumberConfig). Compare a separator-free token so a caller cannot
+    // bypass the global-only policy by choosing a different spelling.
+    .map((segment) => segment.replace(/[-_]/g, "").toLocaleLowerCase());
   return segments.some((segment) => GLOBAL_RESOURCE_SEGMENTS.has(segment))
     ? "global"
     : "non-global";
@@ -65,11 +71,11 @@ export function assertTenantScope(
 
   if (requiredScope === "global") {
     throw new CliError(
-      `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 ${tenantCode}，功能项、菜单和给号配置操作必须使用 global 租户`
+      `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 ${tenantCode}，应用模块、菜单、功能项、功能项组和给号配置操作必须使用 global 租户（tenantCode === "global" 的全局管理员环境）`
     );
   }
   throw new CliError(
-    `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 global，该操作必须使用非 global 租户`
+    `环境${environmentName ? ` ${environmentName}` : ""} 的 tenantCode 为 global（tenantCode === "global" 的全局管理员），该操作必须使用非 global 租户`
   );
 }
 

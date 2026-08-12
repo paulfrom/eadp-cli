@@ -66,6 +66,44 @@ user to select one.
 - For serial-number configuration synchronization, read [references/serial-number-sync.md](references/serial-number-sync.md).
 - For rolling back a prior CLI create or assignment, read [references/rollback.md](references/rollback.md).
 
+### Creating a feature
+
+Use `eadp apply feature` for a new `sei-basic` feature item. Run `eadp apply feature --help`
+before constructing the command. The required selectors are `--code`, `--name`, `--app`
+(application module code, name, or ID), and `--feature-type` (`Operate`, `Business`, or `Page`).
+Optionally provide `--group` (feature-group code, name, or ID), `--group-code`, `--url`,
+`--can-menu`, `--tenant-can-use`, and `--mobile-use`.
+
+This workflow is limited to an environment whose recorded `tenantCode` is `global`. The command
+first checks `feature/findByCode`; an existing `code` is reported as `action: "unchanged"` with
+`applied: false` and does not resolve dependencies or call `feature/save`. For a missing code,
+resolve the application module and feature group through read-only queries and require exactly one
+match; when the group exposes `appModuleId` or `appModuleCode`, verify that it belongs to the
+selected module. The default command is preview-only. Add `--apply` only after the preview is
+reviewed. The command creates only: it never updates an existing item. A successful create is
+verified with `feature/findByCode`, returns an `operationId`, and can later be removed only by an
+explicit `eadp rollback <operationId>`.
+
+### Creating a feature group and its application module
+
+Use `eadp apply feature-group --help` before constructing this command. Provide the feature-group
+`--code`, `--name`, and an explicit application-module code through `--app-code` (the `--app` and
+`--module-code` spellings are compatibility aliases). The command is global-only and defaults to a
+preview. It first queries the feature-group by code; an existing match returns `action: "unchanged"`
+without querying or creating an application module. For a missing group, the module code is matched
+uniquely. A missing module is planned as `action: "create"`; its name is inferred from the supplied
+`--project`/`--project-path` (default current project) Gradle/package metadata or business code
+comments and is capped at eight characters. `rank` defaults to `1`. The preview reports both the
+module action/name/rank and the feature-group action, and never writes.
+
+After explicit authorization, add `--apply`. If the module is missing, the CLI creates it and checks
+it by code before creating the feature group with the returned target module ID, then checks the group
+by code. Existing modules are reused and never overwritten. Both creates share one operation log;
+partial failure stops immediately and reports its `operationId` for an explicit rollback. Run
+`eadp rollback <operationId>` only when requested; rollback removes the feature group first and the
+module second. Never infer a remote module from `sei.application.code` or copy an ID from another
+environment.
+
 Load only the selected workflow unless the request combines workflows.
 
 ## Global safety rules
@@ -75,8 +113,11 @@ Load only the selected workflow unless the request combines workflows.
 - Resolve every missing or ambiguous parameter through the read-only procedure above before requesting user input.
 - For a person, prefer employee number. Permit exact employee name only when it resolves to one employee; never choose among duplicates.
 - For cross-environment operations, preserve source/target direction exactly as requested.
-- Use a `global` environment only for feature, feature-group, menu, and serial-number configuration queries or writes.
-  Use a non-`global` environment for permission and position configuration/assignment, user queries,
+- Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
+  Use it for every remote operation on application modules (`appModule`/`app-module`), menus (`menu`), features (`feature`), feature groups
+  (`feature-group`/`featureGroup`), and serial-number configurations
+  (`serial-number`/`serialNumberConfig`), including query, apply, sync, generic `call`, and rollback;
+  aliases must not bypass this check. Use a non-`global` environment for permission and position configuration/assignment, user queries,
   BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.
 - When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and

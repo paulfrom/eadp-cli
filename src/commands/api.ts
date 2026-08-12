@@ -87,7 +87,11 @@ export function registerApiCommands(
       `
 示例：
   eadp call permission-role-menu-feature-tree --query featureRoleId=<角色 ID> --dry-run
-  eadp call POST /api-gateway/sei-basic/example/save --data '{"name":"示例"}' --dry-run`
+  eadp call POST /api-gateway/sei-basic/example/save --data '{"name":"示例"}' --dry-run
+
+通用 call 与高层命令使用同一路径租户校验：应用模块（appModule/app-module）、菜单（menu）、功能项（feature）、
+功能项组（feature-group/featureGroup）和给号（serial-number/serialNumberConfig）
+只有 tenantCode === "global" 的环境才可远端操作，不能通过别名绕过。`
     )
     .action(async (idOrMethod: string, path: string | undefined, options: CallOptions) => {
       if (path) {

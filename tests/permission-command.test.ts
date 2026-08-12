@@ -323,6 +323,312 @@ describe("统一权限命令", () => {
     expect(saveCount).toBe(1);
   });
 
+  it("feature apply 默认预览，正式创建后回查并返回可回滚 operationId；重复 code 只查 code 即跳过", async () => {
+    const features: Array<Record<string, unknown>> = [];
+    const requestedPaths: string[] = [];
+    const requestedMethods: string[] = [];
+    let saveCount = 0;
+    const { store } = await createFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      requestedPaths.push(url.pathname);
+      requestedMethods.push(request.method ?? "");
+      if (url.pathname.endsWith("/appModule/findAll")) {
+        respond(response, [{ id: "app-1", code: "BASIC", name: "基础应用" }]);
+        return;
+      }
+      if (url.pathname.endsWith("/featureGroup/findAll")) {
+        respond(response, [
+          { id: "group-1", code: "BASIC_DATA", name: "基础数据", appModuleId: "app-1" }
+        ]);
+        return;
+      }
+      if (url.pathname.endsWith("/feature/save")) {
+        saveCount += 1;
+        const body = (await readBody(request)) as Record<string, unknown>;
+        const saved = { ...body, id: "feature-1" };
+        features.push(saved);
+        respond(response, saved);
+        return;
+      }
+      if (url.pathname.endsWith("/feature/findByCode")) {
+        respond(
+          response,
+          features.find((feature) => feature.code === url.searchParams.get("code")) ?? null
+        );
+        return;
+      }
+      if (url.pathname.endsWith("/feature/findOne")) {
+        respond(
+          response,
+          features.find((feature) => feature.id === url.searchParams.get("id")) ?? null
+        );
+        return;
+      }
+      if (url.pathname.endsWith("/feature/delete/feature-1")) {
+        features.splice(0, features.length);
+        respond(response, true);
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    const args = [
+      "apply",
+      "feature",
+      "--code",
+      "BASIC_VIEW",
+      "--name",
+      "查看基础数据",
+      "--app",
+      "BASIC",
+      "--group",
+      "BASIC_DATA",
+      "--feature-type",
+      "Page",
+      "--group-code",
+      "/basic",
+      "--url",
+      "/basic/view",
+      "--tenant-can-use",
+      "--can-menu"
+    ];
+    const previewOutput = captureOutput();
+    await createProgram(store).parseAsync(args, { from: "user" });
+    const preview = JSON.parse(previewOutput.text());
+    expect(preview.action).toBe("create");
+    expect(preview.applied).toBe(false);
+    expect(preview.desired).toMatchObject({
+      code: "BASIC_VIEW",
+      appModuleId: "app-1",
+      featureGroupId: "group-1",
+      featureType: "Page",
+      canMenu: true,
+      tenantCanUse: true,
+      mobileUse: false
+    });
+    expect(saveCount).toBe(0);
+    vi.restoreAllMocks();
+
+    const applyOutput = captureOutput();
+    await createProgram(store).parseAsync([...args, "--apply"], { from: "user" });
+    const applied = JSON.parse(applyOutput.text());
+    expect(applied.applied).toBe(true);
+    expect(applied.verified).toBe(true);
+    expect(applied.operationId).toEqual(expect.any(String));
+    await expect(new OperationLogStore(store.directory).load(applied.operationId)).resolves.toMatchObject({
+      environment: "dev",
+      status: "completed",
+      actions: [expect.objectContaining({
+        type: "create-entity",
+        resource: "feature",
+        entityId: "feature-1"
+      })]
+    });
+    expect(saveCount).toBe(1);
+    vi.restoreAllMocks();
+
+    requestedPaths.length = 0;
+    requestedMethods.length = 0;
+    const unchangedOutput = captureOutput();
+    await createProgram(store).parseAsync([...args, "--apply"], { from: "user" });
+    const unchanged = JSON.parse(unchangedOutput.text());
+    expect(unchanged.action).toBe("unchanged");
+    expect(unchanged.applied).toBe(false);
+    expect(unchanged.operationId).toBeUndefined();
+    expect(saveCount).toBe(1);
+    expect(requestedPaths).toEqual([
+      "/api-gateway/sei-basic/feature/findByCode"
+    ]);
+    expect(requestedMethods).toEqual(["GET"]);
+
+    const rollbackOutput = captureOutput();
+    await createProgram(store).parseAsync(
+      ["rollback", applied.operationId],
+      { from: "user" }
+    );
+    const rollback = JSON.parse(rollbackOutput.text());
+    expect(rollback).toMatchObject({
+      operationId: applied.operationId,
+      status: "rolled-back",
+      rolledBack: 1,
+      verified: true
+    });
+    expect(features).toHaveLength(0);
+    expect(requestedPaths.filter((path) => path.endsWith("/feature/findOne"))).toHaveLength(2);
+    expect(
+      requestedPaths.some((path, index) =>
+        path.endsWith("/feature/delete/feature-1") && requestedMethods[index] === "DELETE"
+      )
+    ).toBe(true);
+  });
+
+  it("feature apply 拒绝歧义的应用模块且不保存", async () => {
+    let saveCount = 0;
+    const { store } = await createFixtureServer((request, response) => {
+      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      if (path.endsWith("/appModule/findAll")) {
+        respond(response, [
+          { id: "app-1", code: "BASIC", name: "基础应用" },
+          { id: "app-2", code: "BASIC", name: "另一个基础应用" }
+        ]);
+        return;
+      }
+      if (path.endsWith("/featureGroup/findAll")) {
+        respond(response, []);
+        return;
+      }
+      if (path.endsWith("/feature/findByCode")) {
+        respond(response, null);
+        return;
+      }
+      if (path.endsWith("/feature/save")) {
+        saveCount += 1;
+        respond(response, { id: "unexpected" });
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Page"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("应用模块匹配到多条记录");
+    expect(saveCount).toBe(0);
+  });
+
+  it("feature apply 拒绝功能项组不存在、歧义或跨应用，并且不保存", async () => {
+    const run = async (
+      groups: Array<Record<string, unknown>>,
+      groupSelector: string,
+      expectedError: string
+    ): Promise<void> => {
+      let saveCount = 0;
+      const { store } = await createFixtureServer((request, response) => {
+        const path = new URL(request.url ?? "/", "http://localhost").pathname;
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "app-1", code: "BASIC", name: "基础应用" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, groups);
+          return;
+        }
+        if (path.endsWith("/feature/findByCode")) {
+          respond(response, null);
+          return;
+        }
+        if (path.endsWith("/feature/save")) {
+          saveCount += 1;
+          respond(response, { id: "unexpected" });
+          return;
+        }
+        respond(response, undefined, 404);
+      });
+      await store.update((config) => {
+        config.environments.dev!.tenantCode = "global";
+      });
+      await expect(
+        createProgram(store).parseAsync(
+          [
+            "apply",
+            "feature",
+            "--code",
+            "BASIC_VIEW",
+            "--name",
+            "查看",
+            "--app",
+            "BASIC",
+            "--group",
+            groupSelector,
+            "--feature-type",
+            "Page"
+          ],
+          { from: "user" }
+        )
+      ).rejects.toThrow(expectedError);
+      expect(saveCount).toBe(0);
+    };
+
+    await run([], "MISSING_GROUP", "功能项组不存在");
+    await run(
+      [
+        { id: "group-1", code: "BASIC_DATA", name: "基础数据", appModuleId: "app-1" },
+        { id: "group-2", code: "BASIC_DATA", name: "另一个基础数据", appModuleId: "app-1" }
+      ],
+      "BASIC_DATA",
+      "功能项组匹配到多条记录"
+    );
+    await run(
+      [{ id: "group-1", code: "BASIC_DATA", name: "基础数据", appModuleId: "app-2" }],
+      "BASIC_DATA",
+      "功能项组与应用模块不一致"
+    );
+  });
+
+  it("feature apply 只接受合法功能项类型且必须使用 global 租户", async () => {
+    const { store } = await createFixtureServer((_request, response) =>
+      respond(response, undefined, 404)
+    );
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`exit ${String(code)}`);
+    });
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Invalid"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("exit 1");
+    exitSpy.mockRestore();
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Page"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用 global 租户");
+    stderrSpy.mockRestore();
+  });
+
   it("functional assign 只补充缺失功能项并在写入后回查", async () => {
     const assignedIds = new Set(["feature-1"]);
     let insertCount = 0;

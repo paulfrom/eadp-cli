@@ -9,6 +9,7 @@ import {
   PermissionClient,
   type PermissionRecord
 } from "../permission/client.js";
+import { inferProjectModuleName } from "../project/name.js";
 import { getRuntimeOptions } from "../runtime-options.js";
 import { assertTenantScope } from "../tenant.js";
 import type { VerbCommands } from "./verbs.js";
@@ -84,6 +85,32 @@ interface VerifyOptions extends CommonOptions {
 
 interface FeatureUsersOptions extends CommonOptions {
   feature: string;
+}
+
+interface ApplyFeatureOptions extends CommonOptions {
+  code: string;
+  name: string;
+  app: string;
+  featureType: "Operate" | "Business" | "Page";
+  group?: string;
+  groupCode?: string;
+  url?: string;
+  canMenu?: boolean;
+  tenantCanUse?: boolean;
+  mobileUse?: boolean;
+  apply?: boolean;
+}
+
+interface ApplyFeatureGroupOptions extends CommonOptions {
+  code: string;
+  name: string;
+  app?: string;
+  appCode?: string;
+  moduleCode?: string;
+  project?: string;
+  projectPath?: string;
+  rank: number;
+  apply?: boolean;
 }
 
 export function registerPermissionCommands(
@@ -209,6 +236,72 @@ export function registerPermissionCommands(
         },
         options.compact
       );
+    });
+
+  commands.apply
+    .command("feature")
+    .description("只创建功能项；同 code 已存在时跳过，默认只预览")
+    .requiredOption("--code <code>", "功能项代码")
+    .requiredOption("--name <name>", "功能项名称")
+    .requiredOption("--app <code-or-name-or-id>", "应用模块代码、名称或 ID")
+    .addOption(
+      new Option("--feature-type <type>", "功能项类型")
+        .choices(["Operate", "Business", "Page"])
+        .makeOptionMandatory()
+    )
+    .option("--group <code-or-name-or-id>", "功能项组代码、名称或 ID")
+    .option("--group-code <code>", "功能项分组代码（页面路由）")
+    .option("--url <url>", "功能项资源地址（操作接口 API）")
+    .option("--can-menu", "标记为菜单功能项")
+    .option("--tenant-can-use", "标记为租户可用")
+    .option("--mobile-use", "标记为移动端使用")
+    .option("--env <name>", "global 环境名称；默认使用当前环境")
+    .option("--apply", "执行创建；默认只预览")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp apply feature --env global-dev --code BASIC_VIEW \\
+    --name 查看基础数据 --app BASIC --feature-type Page
+  eadp apply feature --env global-dev --code BASIC_EXPORT \\
+    --name 导出基础数据 --app BASIC --group BASIC_DATA \\
+    --feature-type Operate --url /basic/export --apply
+
+仅允许 tenantCode 为 global 的环境。创建时 appModule 与可选 featureGroup 会按代码、名称或 ID
+唯一解析，写入时只使用解析出的 ID；同 code 已存在时优先返回 unchanged，不调用 save。`
+    )
+    .action(async (options: ApplyFeatureOptions) => {
+      await applyFeature(store, options, root);
+    });
+
+  commands.apply
+    .command("feature-group")
+    .description("只创建功能项组；同 code 已存在时跳过，默认只预览")
+    .requiredOption("--code <code>", "功能项组代码")
+    .requiredOption("--name <name>", "功能项组名称")
+    .option("--app-code <code>", "应用模块代码（必须明确指定）")
+    .option("--module-code <code>", "应用模块代码（--app-code 的别名）")
+    .option("--app <code>", "应用模块代码（--app-code 的兼容别名）")
+    .option("--project <path>", "业务项目路径；用于推断新应用模块名称，默认当前路径")
+    .option("--project-path <path>", "业务项目路径（--project 的别名）")
+    .option("--rank <number>", "新应用模块排序号", parsePositiveInteger, 1)
+    .option("--env <name>", "global 环境名称；默认使用当前环境")
+    .option("--apply", "执行创建；默认只预览")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp apply feature-group --env global-dev --app-code AMS \
+    --code AMS_ORDER --name 订单功能组 --project D:/project/order
+  eadp apply feature-group --env global-dev --app-code AMS \
+    --code AMS_ORDER --name 订单功能组 --apply
+
+应用模块按明确 code 唯一解析；缺失时从业务项目名称或代码注释推断不超过 8 个字的名称，
+rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再创建功能项组、回查。两项新增
+共用一个 operationId，可显式执行 eadp rollback <operationId> 按逆序删除。仅允许 tenantCode === "global"。`
+    )
+    .action(async (options: ApplyFeatureGroupOptions) => {
+      await applyFeatureGroup(store, options, root);
     });
 
   commands.apply
@@ -1075,6 +1168,344 @@ export function registerPermissionCommands(
     });
 }
 
+async function applyFeature(
+  store: ConfigStore,
+  options: ApplyFeatureOptions,
+  root: Command
+): Promise<void> {
+  const context = await createGlobalContext(store, options, root);
+  const code = options.code.trim();
+  const name = options.name.trim();
+  if (!code) {
+    throw new CliError("功能项代码不能为空");
+  }
+  if (!name) {
+    throw new CliError("功能项名称不能为空");
+  }
+  if (!options.app.trim()) {
+    throw new CliError("应用模块选择器不能为空");
+  }
+
+  const existing = await context.client.findFeatureByCode(code);
+  if (existing) {
+    printValue(
+      {
+        kind: "eadp.permission.feature.apply.v1",
+        environment: context.environment,
+        applied: false,
+        action: "unchanged",
+        appModule: null,
+        featureGroup: null,
+        before: existing,
+        desired: null,
+        verified: true
+      },
+      options.compact
+    );
+    return;
+  }
+
+  const [appModules, featureGroups] = await Promise.all([
+    context.client.findAll("appModule"),
+    options.group
+      ? context.client.findAll("featureGroup")
+      : Promise.resolve([] as PermissionRecord[])
+  ]);
+  const appModule = selectRecord(appModules, options.app, "应用模块");
+  const appModuleId = recordId(appModule, "应用模块");
+  const featureGroup = options.group
+    ? selectRecord(featureGroups, options.group, "功能项组")
+    : undefined;
+  if (featureGroup) {
+    assertFeatureGroupAppModule(featureGroup, appModule, appModuleId);
+  }
+
+  const desired: PermissionRecord = {
+    code,
+    name,
+    featureType: options.featureType,
+    appModuleId,
+    canMenu: options.canMenu === true,
+    tenantCanUse: options.tenantCanUse === true,
+    mobileUse: options.mobileUse === true,
+    ...(featureGroup
+      ? { featureGroupId: recordId(featureGroup, "功能项组") }
+      : {}),
+    ...(options.groupCode === undefined ? {} : { groupCode: options.groupCode }),
+    ...(options.url === undefined
+      ? {}
+      : { url: options.url.startsWith("/") ? options.url : `/${options.url}` })
+  };
+  if (!options.apply) {
+    printValue(
+      {
+        kind: "eadp.permission.feature.apply.v1",
+        environment: context.environment,
+        applied: false,
+        action: "create",
+        appModule,
+        featureGroup: featureGroup ?? null,
+        before: null,
+        desired,
+        verified: false
+      },
+      options.compact
+    );
+    return;
+  }
+
+  const saved = await context.client.save("feature", desired);
+  const operationId = await recordOperation(store, context.environment, "eadp apply feature", {
+    type: "create-entity",
+    service: "sei-basic",
+    resource: "feature",
+    entityId: recordId(saved, "功能项"),
+    expected: desired,
+    deleteMethod: "DELETE"
+  });
+  const verifiedFeature = await context.client.findFeatureByCode(code);
+  const verified =
+    verifiedFeature !== null &&
+    changedFeatureFields(verifiedFeature, desired).length === 0;
+  if (!verified) {
+    throw new CliError(`功能项创建后回查验证失败：${code}`);
+  }
+  printValue(
+    {
+      kind: "eadp.permission.feature.apply.v1",
+      environment: context.environment,
+      applied: true,
+      action: "create",
+      appModule,
+      featureGroup: featureGroup ?? null,
+      before: null,
+      desired,
+      saved,
+      operationId,
+      verified,
+      verifiedFeature
+    },
+    options.compact
+  );
+}
+
+async function applyFeatureGroup(
+  store: ConfigStore,
+  options: ApplyFeatureGroupOptions,
+  root: Command
+): Promise<void> {
+  const context = await createGlobalContext(store, options, root);
+  const code = options.code.trim();
+  const name = options.name.trim();
+  const appCode = resolveAppCode(options);
+  if (!code) throw new CliError("功能项组代码不能为空");
+  if (!name) throw new CliError("功能项组名称不能为空");
+  if (!appCode) throw new CliError("必须明确指定应用模块 code（--app-code）");
+
+  // This is intentionally the first and only lookup on the unchanged path.
+  // It prevents an existing group from causing any app-module read or write.
+  const existingGroup = await context.client.findFeatureGroupByCode(code);
+  if (existingGroup) {
+    printValue(
+      {
+        kind: "eadp.permission.feature-group.apply.v1",
+        environment: context.environment,
+        applied: false,
+        action: "unchanged",
+        appModuleAction: "skipped",
+        featureGroupAction: "unchanged",
+        appModule: null,
+        featureGroup: {
+          action: "unchanged",
+          ...existingGroup,
+          before: existingGroup,
+          desired: null
+        },
+        before: existingGroup,
+        desired: null,
+        verified: true
+      },
+      options.compact
+    );
+    return;
+  }
+
+  const appModules = await context.client.findAppModulesByCode(appCode);
+  if (appModules.length > 1) {
+    throw new CliError(`应用模块 code 不唯一：${appCode}（匹配 ${appModules.length} 条）`);
+  }
+  const appModule = appModules[0];
+  // Existing modules are immutable for this command.  Do not inspect the
+  // project path in that case: the remote module already supplies its name
+  // and rank, and an unrelated/unreadable project must not block reuse.
+  const inferred = appModule
+    ? undefined
+    : await inferProjectModuleName(options.projectPath ?? options.project ?? process.cwd());
+  const moduleName = inferred?.name ?? (typeof appModule?.name === "string" ? appModule.name : "");
+  const moduleRank = appModule?.rank ?? options.rank;
+  const moduleDesired: PermissionRecord = {
+    code: appCode,
+    name: moduleName,
+    rank: moduleRank
+  };
+  const appModuleId = appModule ? recordId(appModule, "应用模块") : undefined;
+  const moduleAction = appModule ? "unchanged" : "create";
+  const groupDesiredPreview: PermissionRecord = {
+    code,
+    name,
+    appModuleId: appModuleId ?? null
+  };
+
+  if (!options.apply) {
+    printValue(
+      {
+        kind: "eadp.permission.feature-group.apply.v1",
+        environment: context.environment,
+        applied: false,
+        action: "create",
+        appModuleAction: moduleAction,
+        featureGroupAction: "create",
+        appModule: {
+          action: moduleAction,
+          code: appCode,
+          name: moduleName,
+          rank: moduleRank,
+          before: appModule ?? null,
+          desired: moduleDesired,
+          ...(inferred
+            ? { inference: { source: inferred.source, projectPath: inferred.projectPath } }
+            : { inference: { source: "remote" as const } })
+        },
+        featureGroup: {
+          action: "create",
+          before: null,
+          desired: groupDesiredPreview
+        },
+        before: null,
+        desired: groupDesiredPreview,
+        verified: false
+      },
+      options.compact
+    );
+    return;
+  }
+
+  const recorder = new OperationRecorder(
+    new OperationLogStore(store.directory),
+    "eadp apply feature-group",
+    context.environment
+  );
+  try {
+    let targetAppModule = appModule;
+    if (!targetAppModule) {
+      const savedModule = await context.client.save("appModule", moduleDesired);
+      await recorder.recordAction({
+        type: "create-entity",
+        service: "sei-basic",
+        resource: "appModule",
+        entityId: recordId(savedModule, "应用模块"),
+        expected: moduleDesired,
+        deleteMethod: "DELETE"
+      });
+      const verifiedModules = await context.client.findAppModulesByCode(appCode);
+      if (verifiedModules.length > 1) {
+        throw new CliError(`应用模块创建后 code 不唯一：${appCode}`);
+      }
+      targetAppModule = verifiedModules[0];
+      if (!targetAppModule || !sameFields(targetAppModule, moduleDesired, ["code", "name", "rank"])) {
+        throw new CliError(`应用模块创建后回查验证失败：${appCode}`);
+      }
+    }
+    const targetAppModuleId = recordId(targetAppModule, "应用模块");
+    const groupDesired: PermissionRecord = {
+      code,
+      name,
+      appModuleId: targetAppModuleId
+    };
+    const savedGroup = await context.client.save("featureGroup", groupDesired);
+    await recorder.recordAction({
+      type: "create-entity",
+      service: "sei-basic",
+      resource: "featureGroup",
+      entityId: recordId(savedGroup, "功能项组"),
+      expected: groupDesired,
+      deleteMethod: "DELETE"
+    });
+    const verifiedGroup = await context.client.findFeatureGroupByCode(code);
+    if (!verifiedGroup || !sameFields(verifiedGroup, groupDesired, ["code", "name", "appModuleId"])) {
+      throw new CliError(`功能项组创建后回查验证失败：${code}`);
+    }
+    const operationId = await recorder.complete();
+    printValue(
+      {
+        kind: "eadp.permission.feature-group.apply.v1",
+        environment: context.environment,
+        applied: true,
+        action: "create",
+        appModuleAction: moduleAction,
+        featureGroupAction: "create",
+        appModule: {
+          action: moduleAction,
+          code: appCode,
+          name: moduleName,
+          rank: moduleRank,
+          before: appModule ?? null,
+          desired: moduleDesired,
+          actual: targetAppModule,
+          ...(inferred
+            ? { inference: { source: inferred.source, projectPath: inferred.projectPath } }
+            : { inference: { source: "remote" as const } })
+        },
+        featureGroup: {
+          action: "create",
+          before: null,
+          desired: groupDesired,
+          actual: verifiedGroup
+        },
+        before: null,
+        desired: groupDesired,
+        saved: savedGroup,
+        ...(operationId ? { operationId } : {}),
+        verified: true,
+        verifiedFeatureGroup: verifiedGroup
+      },
+      options.compact
+    );
+  } catch (error) {
+    await recorder.fail(error);
+    const suffix = recorder.hasActions
+      ? `；可使用 operation-id ${recorder.operationId} 回滚已新增的功能项组和应用模块`
+      : "";
+    throw new CliError(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+  }
+}
+
+function resolveAppCode(options: ApplyFeatureGroupOptions): string {
+  const values = [options.appCode, options.moduleCode, options.app]
+    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    .map((value) => value.trim());
+  const unique = [...new Set(values.map((value) => value.toLocaleLowerCase()))];
+  if (unique.length > 1) {
+    throw new CliError("--app-code、--module-code 和 --app 必须指定相同的应用模块 code");
+  }
+  return values[0] ?? "";
+}
+
+function sameFields(
+  record: PermissionRecord,
+  expected: PermissionRecord,
+  fields: string[]
+): boolean {
+  return fields.every((field) => {
+    const left = record[field];
+    const right = expected[field];
+    if (field === "rank") {
+      return Number(left) === Number(right);
+    }
+    return left === right;
+  });
+}
+
 async function createContext(
   store: ConfigStore,
   options: CommonOptions,
@@ -1088,6 +1519,30 @@ async function createContext(
   options.compact = runtime.compact;
   const resolved = resolveEnvironment(await store.load(), options.env);
   assertTenantScope(resolved.config.tenantCode, "non-global", resolved.name);
+  return {
+    environment: resolved.name,
+    tenantCode: resolved.config.tenantCode!,
+    client: new PermissionClient({
+      baseUrl: resolved.config.baseUrl,
+      token: resolved.token,
+      timeoutMs: runtime.timeoutMs
+    })
+  };
+}
+
+async function createGlobalContext(
+  store: ConfigStore,
+  options: CommonOptions,
+  root: Command
+): Promise<{
+  environment: string;
+  tenantCode: string;
+  client: PermissionClient;
+}> {
+  const runtime = getRuntimeOptions(root);
+  options.compact = runtime.compact;
+  const resolved = resolveEnvironment(await store.load(), options.env);
+  assertTenantScope(resolved.config.tenantCode, "global", resolved.name);
   return {
     environment: resolved.name,
     tenantCode: resolved.config.tenantCode!,
@@ -1418,6 +1873,49 @@ function findRecordByCode(
   );
 }
 
+function assertFeatureGroupAppModule(
+  featureGroup: PermissionRecord,
+  appModule: PermissionRecord,
+  appModuleId: string
+): void {
+  if (
+    typeof featureGroup.appModuleId === "string" &&
+    featureGroup.appModuleId &&
+    featureGroup.appModuleId !== appModuleId
+  ) {
+    throw new CliError("功能项组与应用模块不一致");
+  }
+  if (
+    typeof featureGroup.appModuleCode === "string" &&
+    typeof appModule.code === "string" &&
+    featureGroup.appModuleCode.trim().toLocaleLowerCase() !==
+      appModule.code.trim().toLocaleLowerCase()
+  ) {
+    throw new CliError("功能项组与应用模块不一致");
+  }
+}
+
+function changedFeatureFields(
+  before: PermissionRecord,
+  desired: PermissionRecord
+): string[] {
+  return Object.keys(desired).filter(
+    (field) => !sameFeatureValue(field, before[field], desired[field])
+  );
+}
+
+function sameFeatureValue(field: string, left: unknown, right: unknown): boolean {
+  if (["canMenu", "tenantCanUse", "mobileUse"].includes(field)) {
+    return (left ?? false) === (right ?? false);
+  }
+  if (field === "featureType") {
+    const normalizedLeft =
+      typeof left === "number" ? ["Operate", "Business", "Page"][left] : left;
+    return normalizedLeft === right;
+  }
+  return left === right;
+}
+
 function changedRoleFields(
   before: PermissionRecord | undefined,
   desired: PermissionRecord
@@ -1506,6 +2004,14 @@ function validateVerifyOptions(
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+function parsePositiveInteger(source: string): number {
+  const value = Number(source);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new CliError(`应用模块排序号无效：${source}`);
+  }
+  return value;
 }
 
 async function recordOperation(

@@ -82,7 +82,9 @@ eadp rollback <operation-id>
 
 租户隔离规则：
 
-- 功能项、菜单、给号配置的增删改查只能使用 `tenantCode: global` 的环境；
+- 只有 `tenantCode === "global"` 的环境才表示全局管理员；应用模块（`appModule`/`app-module`）、菜单（`menu`）、功能项（`feature`）、
+  功能项组（`feature-group`/`featureGroup`）和给号配置（`serial-number`/`serialNumberConfig`）
+  的全部远端增删改查只能使用该环境；别名不会改变租户校验；
 - 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
 - `call` 也执行同样的路径租户校验，不能通过通用接口绕过规则。
 
@@ -272,6 +274,44 @@ eadp verify \
 
 写入命令默认只返回差异预览。只有增加 `--apply` 才会修改远端环境。
 
+新增功能项仅允许使用 `tenantCode: global` 的环境。`--code`、`--name`、`--app` 和
+`--feature-type` 必填；创建缺失 code 时，应用模块及可选功能项组按代码、名称或 ID 唯一
+解析，写入时使用解析出的目标 ID。功能类型只能是 `Operate`、`Business` 或 `Page`：
+
+```bash
+eadp apply feature \
+  --env global-dev \
+  --code BASIC_VIEW \
+  --name 查看基础数据 \
+  --app BASIC \
+  --feature-type Page \
+  --group BASIC_DATA \
+  --url /basic/view \
+  --can-menu \
+  --tenant-can-use
+```
+
+确认预览后追加 `--apply`。该命令只创建，不更新已有记录；同 `code` 会先按代码查重，已存在
+时返回 `action: "unchanged"`、`applied: false`，且不会解析依赖或调用保存接口。创建成功会
+按代码回查并返回 `operationId`，如需撤销可显式执行 `eadp rollback <operationId>`。
+
+新增功能项组使用明确的应用模块代码；命令默认只预览，且同 `code` 已存在时只查询功能项组
+并返回 `unchanged`，不会读取或创建应用模块：
+
+```bash
+eadp apply feature-group \
+  --env global-dev \
+  --app-code AMS \
+  --code AMS_ORDER \
+  --name 订单功能组 \
+  --project D:/project/order
+```
+
+应用模块不存在时，CLI 从 `--project`（省略时为当前路径）的 Gradle/package 项目名称或业务
+代码注释推断不超过 8 个字的模块名，`rank` 默认为 1；确认预览后追加 `--apply`，将在同一
+次操作中按“创建模块→回查→创建功能项组→回查”执行。模块和功能项组只创建、不覆盖已有
+记录，并共享一个 `operationId`；显式执行 `eadp rollback <operationId>` 会按逆序删除。
+
 预览创建或更新功能角色：
 
 ```bash
@@ -365,6 +405,14 @@ eadp apply menu \
 eadp query feature \
   --env A \
   --created-in 2026-07
+```
+
+应用模块是 global 资源，可使用 `appModule` 或 `app-module` 别名按代码查询；远端是否存在
+必须以查询结果为准，不能把 `sei.application.code` 配置值当作已注册结论：
+
+```bash
+eadp query appModule --env global-dev --filter code:EQ:ams
+eadp query app-module --env global-dev --filter code:EQ:ams
 ```
 
 查询命令适用于具有 `findByPage` 接口的资源，也可通过

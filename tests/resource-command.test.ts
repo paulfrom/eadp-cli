@@ -27,6 +27,33 @@ afterEach(async () => {
 });
 
 describe("query 和 sync 命令", () => {
+  it.each([
+    "feature-group",
+    "featureGroup",
+    "serial-number",
+    "serialNumberConfig"
+  ])("query %s 别名在非 global 环境先拒绝且不发请求", async (resource) => {
+    let requestCount = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => {
+        requestCount += 1;
+        respond(response, { rows: [], total: 0 });
+      },
+      target: (_request, response) => respond(response, { rows: [], total: 0 })
+    });
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "tenant-a";
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["query", resource, "--env", "source"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("必须使用 global 租户");
+    expect(requestCount).toBe(0);
+  });
+
   it("sync serial-number 按 entityClassName 幂等同步给号配置且不复制源 ID", async () => {
     const targetConfigs: Array<Record<string, unknown>> = [];
     const savedBodies: Array<Record<string, unknown>> = [];
@@ -938,29 +965,33 @@ describe("query 和 sync 命令", () => {
 
   it("sync feature-group 按代码映射应用模块并创建后回查", async () => {
     const targetGroups: Array<Record<string, unknown>> = [];
-    let sourceRequestBody: unknown;
+    let sourceRequestPath: string | undefined;
     const { store } = await createFixtureServer({
       source: async (request, response) => {
-        if (requestPath(request).endsWith("/featureGroup/findByPage")) {
-          sourceRequestBody = await readBody(request);
-          respond(response, {
-            rows: [{
+        if (requestPath(request).endsWith("/featureGroup/findAll")) {
+          sourceRequestPath = requestPath(request);
+          // findAll has no request body; filtering is intentionally local.
+          respond(response, [{
               id: "source-group-id",
               code: "ISRM-PA-OLD-2",
               name: "旧采购功能组",
               appModuleId: "source-app-id",
               appModuleCode: "ISRM"
-            }],
-            total: 1
-          });
+            }, {
+              id: "source-other-id",
+              code: "OTHER-GROUP",
+              name: "其他功能组",
+              appModuleId: "source-app-id",
+              appModuleCode: "ISRM"
+          }]);
           return;
         }
         respond(response, undefined, 404);
       },
       target: async (request, response) => {
         const path = requestPath(request);
-        if (path.endsWith("/featureGroup/findByPage")) {
-          respond(response, { rows: targetGroups, total: targetGroups.length });
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, targetGroups);
           return;
         }
         if (path.endsWith("/appModule/findAll")) {
@@ -994,12 +1025,12 @@ describe("query 和 sync 命令", () => {
       { from: "user" }
     );
 
-    expect(sourceRequestBody).toMatchObject({
-      filters: [{ fieldName: "code", operator: "EQ", value: "ISRM-PA-OLD-2" }]
-    });
+    expect(sourceRequestPath).toContain("/featureGroup/findAll");
     const result = JSON.parse(output.text());
     expect(result.resource).toBe("feature-group");
     expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0].key).toBe("ISRM-PA-OLD-2");
     expect(result.applied).toBe(true);
     expect(result.verified).toBe(true);
     expect(targetGroups[0]).toMatchObject({

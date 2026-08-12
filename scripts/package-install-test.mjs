@@ -108,6 +108,19 @@ try {
       expected: ["功能角色代码", "--apply"]
     },
     {
+      args: ["apply", "feature", "--help"],
+      expected: [
+        "--code <code>",
+        "--app <code-or-name-or-id>",
+        "--feature-type <type>",
+        "Operate",
+        "Business",
+        "Page",
+        "global",
+        "--apply"
+      ]
+    },
+    {
       args: ["assign", "role", "--help"],
       expected: ["授权主体类型", "--role-type"]
     },

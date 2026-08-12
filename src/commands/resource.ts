@@ -17,6 +17,7 @@ import {
 import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
 import {
+  filterRecords,
   ResourceClient,
   type ResourceFilter,
   type ResourceRecord
@@ -108,7 +109,7 @@ export function registerResourceCommands(
 
   commands.apply
     .command("menu")
-    .description("按菜单代码安全新增菜单；默认只预览")
+    .description("按菜单代码安全新增菜单；默认只预览；仅允许 tenantCode === \"global\" 的全局管理员环境")
     .requiredOption("--name <name>", "菜单名称")
     .option("--code <code>", "菜单代码；省略时由服务端给号")
     .option("--parent-code <code>", "父菜单代码；省略时新增根菜单")
@@ -125,7 +126,8 @@ export function registerResourceCommands(
   eadp apply menu --name 采购申请 --code PURCHASING_APPLY \\
     --parent-code PURCHASING --feature-code PURCHASE_APPLY --rank 10 --apply
 
-父菜单和功能项均按 code 唯一解析；不会接受或复制其他环境的 ID。新增成功会返回 operationId。`
+父菜单和功能项均按 code 唯一解析；不会接受或复制其他环境的 ID。新增成功会返回 operationId。
+菜单、功能项、功能项组和给号配置的远端操作均要求 tenantCode === "global"。`
     )
     .action(async (options: ApplyMenuOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
@@ -244,11 +246,15 @@ export function registerResourceCommands(
 示例：
   eadp query feature --env dev --created-in 2026-07
   eadp query feature --env dev --filter appModuleCode:EQ:BASIC
+  eadp query appModule --env global --filter code:EQ:ams
+  eadp query app-module --env global --filter code:EQ:ams
   eadp query menu --env global --quick 采购
   eadp query serialNumberConfig --env global --entity-class com.example.Order
 
 serialNumberConfig 在 global 租户查询时会在现有过滤条件后自动追加
 publicFlag=true（fieldType=java.lang.Boolean）；sync serial-number 不受此默认过滤器影响。
+应用模块（appModule/app-module）、菜单（menu）、功能项（feature）、功能项组（feature-group/featureGroup）和给号（serial-number/serialNumberConfig）
+只有 tenantCode === "global" 的环境才允许查询；别名会按同一资源归一化后再执行租户校验。
 给号配置业务唯一键为 entityClassName + tenantCode（按记录实际值规范化判重）；
 configType 仅作为查询/同步筛选条件，不参与业务唯一键。选择 --entity-class 时，summary.identity
 输出全部匹配记录的复合键 values；缺少任一键字段会明确失败。
@@ -257,13 +263,14 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
     )
     .action(async (resourceName: string, options: QueryOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
+      const queryResource = normalizeQueryResource(resourceName);
       assertPathTenantScope(
         resolved.config.tenantCode,
-        `/api-gateway/${options.service}/${resourceName}`,
+        `/api-gateway/${options.service}/${queryResource.endpoint}`,
         resolved.name
       );
       const runtime = getRuntimeOptions(root);
-      const serialQuery = resourceName.toLocaleLowerCase() === "serialnumberconfig";
+      const serialQuery = queryResource.serial;
       if (!serialQuery && (options.entityClass || options.configType)) {
         throw new CliError("--entity-class 和 --config-type 仅适用于 serialNumberConfig");
       }
@@ -302,7 +309,7 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
         ? { keys: new Set<string>(), values: [] as SerialNumberIdentityValue[] }
         : undefined;
       let total = 0;
-      if (resourceName.toLocaleLowerCase() === "menu") {
+      if (queryResource.menu) {
         if (options.service !== "sei-basic") throw new CliError("menu 查询仅支持 sei-basic 服务");
         const menus = filterMenus(await loadMenus(client), filters, options.quick);
         for (const item of menus) {
@@ -312,7 +319,34 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
         await printJsonLine({ kind: "eadp.resource.query.summary.v1", total });
         return;
       }
-      for await (const page of client.iterateByPage(resourceName, {
+      if (queryResource.findAll) {
+        const records = filterRecords(
+          await client.findAll(queryResource.endpoint),
+          filters,
+          options.quick
+        );
+        for (const item of records) {
+          if (serialIdentities) {
+            validateSerialNumberIdentityItem(serialIdentities, item);
+          }
+          total += 1;
+          await printJsonLine({
+            kind: "eadp.resource.query.item.v1",
+            index: total,
+            item
+          });
+        }
+        const identity = serialQuery
+          ? buildSerialNumberIdentity(serialIdentities?.values ?? [], options.entityClass)
+          : undefined;
+        await printJsonLine({
+          kind: "eadp.resource.query.summary.v1",
+          total,
+          ...(identity === undefined ? {} : { identity })
+        });
+        return;
+      }
+      for await (const page of client.iterateByPage(queryResource.endpoint, {
         filters,
         ...(options.quick === undefined ? {} : { quickSearchValue: options.quick })
       })) {
@@ -373,11 +407,45 @@ serial-number 按 entityClassName + tenantCode 匹配；源记录使用各自实
 判重，目标匹配和 desired.tenantCode 使用目标环境的 tenantCode。configType 仅用于筛选，
 不参与业务唯一键；缺少 entityClassName 或 tenantCode 的记录会明确失败。
 
-执行前会校验源、目标环境的租户条件；任一环境不满足时不会读取迁移数据。`
+菜单（menu）、功能项（feature）、功能项组（feature-group）和给号（serial-number）的同步，
+源、目标环境均必须记录 tenantCode === "global"；任一环境不满足时不会读取迁移数据。`
     )
     .action(async (resourceName: string, options: SyncOptions) => {
       await executeSync(store, resourceName, options, getRuntimeOptions(root));
     });
+}
+
+interface QueryResource {
+  endpoint: string;
+  menu: boolean;
+  serial: boolean;
+  findAll: boolean;
+}
+
+/**
+ * Resolve query aliases to the endpoint spelling expected by sei-basic while
+ * retaining the user's resource name in the streamed metadata. The tenant
+ * guard uses the canonical endpoint, so aliases cannot avoid the global-only
+ * check before the first remote request.
+ */
+function normalizeQueryResource(resourceName: string): QueryResource {
+  const trimmed = resourceName.trim();
+  const token = trimmed.replace(/[-_]/g, "").toLocaleLowerCase();
+  if (token === "appmodule") {
+    return { endpoint: "appModule", menu: false, serial: false, findAll: true };
+  }
+  if (token === "featuregroup") {
+    return { endpoint: "featureGroup", menu: false, serial: false, findAll: true };
+  }
+  if (token === "serialnumber" || token === "serialnumberconfig") {
+    return { endpoint: "serialNumberConfig", menu: false, serial: true, findAll: false };
+  }
+  return {
+    endpoint: trimmed,
+    menu: token === "menu",
+    serial: false,
+    findAll: false
+  };
 }
 
 async function executeSync(
@@ -488,9 +556,14 @@ async function executeSync(
     filters.push(codeFilter);
     targetFilters.push(codeFilter);
   }
-  const [sourcePage, targetPage] = await Promise.all([
-    sourceClient.findByPage(spec.endpoint, { filters }),
-    targetClient.findByPage(spec.endpoint, { filters: targetFilters })
+  const findAllFeatureGroup = featureGroupSync;
+  const [sourceRows, targetRows] = await Promise.all([
+    findAllFeatureGroup
+      ? sourceClient.findAll(spec.endpoint).then((records) => filterRecords(records, filters))
+      : sourceClient.findByPage(spec.endpoint, { filters }).then((page) => page.rows),
+    findAllFeatureGroup
+      ? targetClient.findAll(spec.endpoint).then((records) => filterRecords(records, targetFilters))
+      : targetClient.findByPage(spec.endpoint, { filters: targetFilters }).then((page) => page.rows)
   ]);
   const changes: Array<{
     key: string;
@@ -501,10 +574,10 @@ async function executeSync(
     missingDependencies?: MissingDependency[];
     blockingIssues?: BlockingIssue[];
   }> = [];
-  assertUniqueIdentities(sourcePage.rows, spec, "源环境");
-  assertUniqueIdentities(targetPage.rows, spec, "目标环境");
+  assertUniqueIdentities(sourceRows, spec, "源环境");
+  assertUniqueIdentities(targetRows, spec, "目标环境");
   const mappedIdentityKeys = new Set<string>();
-  for (const sourceRecord of sourcePage.rows) {
+  for (const sourceRecord of sourceRows) {
     // Source uniqueness is checked against each record's actual tenantCode.
     // Matching and post-write verification use the target tenant for serial
     // number configurations because toDesired remaps tenantCode to that value.
@@ -512,7 +585,7 @@ async function executeSync(
     const key = serialSync
       ? identityValue(sourceRecord, spec, { tenantCode: target.config.tenantCode! })
       : sourceKey;
-    const targetRecord = findByIdentity(targetPage.rows, spec, key);
+    const targetRecord = findByIdentity(targetRows, spec, key);
     let desired: ResourceRecord;
     try {
       desired = await spec.toDesired(sourceRecord, targetClient, {
@@ -622,11 +695,13 @@ async function executeSync(
 
   let verified = !options.apply;
   if (options.apply) {
-    const after = await targetClient.findByPage(spec.endpoint, { filters: targetFilters });
+    const after = findAllFeatureGroup
+      ? filterRecords(await targetClient.findAll(spec.endpoint), targetFilters)
+      : (await targetClient.findByPage(spec.endpoint, { filters: targetFilters })).rows;
     verified = changes
       .filter((change) => change.action !== "blocked")
       .every((change) => {
-      const targetRecord = findByIdentity(after.rows, spec, change.key);
+      const targetRecord = findByIdentity(after, spec, change.key);
       return (
         targetRecord !== undefined &&
         change.desired !== null &&

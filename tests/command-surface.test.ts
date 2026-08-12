@@ -70,6 +70,35 @@ describe("统一命令面", () => {
     expect(help).toContain("DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE");
   });
 
+  it("apply feature 帮助暴露新增参数、合法类型和 global 约束", () => {
+    const apply = createProgram().commands.find((command) => command.name() === "apply");
+    const feature = apply?.commands.find((command) => command.name() === "feature");
+    const help = feature?.helpInformation() ?? "";
+    expect(help).toContain("--code <code>");
+    expect(help).toContain("--app <code-or-name-or-id>");
+    expect(help).toContain("Operate");
+    expect(help).toContain("global");
+    expect(help).toContain("--apply");
+  });
+
+  it("资源和通用 call 帮助明确四类 global 管理员资源", () => {
+    const program = createProgram();
+    let help = "";
+    const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    for (const name of ["query", "sync", "call"]) {
+      program.commands.find((command) => command.name() === name)?.outputHelp();
+    }
+    output.mockRestore();
+    expect(help).toContain('tenantCode === "global"');
+    expect(help).toContain("menu");
+    expect(help).toContain("feature");
+    expect(help).toContain("feature-group");
+    expect(help).toContain("serial-number");
+  });
+
   it("在业务命令前后都接受 --compact 并压缩只读输出", async () => {
     const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
