@@ -3,8 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
+import { OperationLogStore } from "../src/operations/store.js";
 
 const servers: Server[] = [];
 const temporaryDirectories: string[] = [];
@@ -646,6 +647,29 @@ describe("query 和 sync 命令", () => {
     });
   });
 
+  it("query --output compact-ndjson emits schema-first rows without a success summary", async () => {
+    const { store } = await createFixtureServer({
+      source: async (_request, response) => {
+        respond(response, {
+          rows: [{ id: "feature-a", code: "FEATURE_A" }],
+          total: 1
+        });
+      },
+      target: (_request, response) => respond(response, { rows: [], total: 0 })
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["query", "feature", "--env", "source", "--output", "compact-ndjson"],
+      { from: "user" }
+    );
+
+    const lines = parseNdjson(output.text());
+    expect(lines[0]).toMatchObject({ type: "meta", schema: ["code", "id"], count: 1 });
+    expect(lines[1]).toEqual({ type: "row", key: "FEATURE_A", v: ["FEATURE_A", "feature-a"] });
+    expect(lines.every((line) => !("kind" in line))).toBe(true);
+  });
+
   it("query 聚合开发环境的 1855 条功能项", async () => {
     const requestedPages: number[] = [];
     const expectedCount = 1_855;
@@ -738,10 +762,9 @@ describe("query 和 sync 命令", () => {
                 id: "source-feature-id",
                 code: "NEW_FEATURE",
                 name: "新功能",
-                url: "/new",
+                url: "//new///",
                 featureType: "Operate",
                 canMenu: false,
-                tenantCanUse: true,
                 mobileUse: false,
                 appModuleId: "source-app-id",
                 appModuleCode: "BASIC",
@@ -801,11 +824,144 @@ describe("query 和 sync 命令", () => {
     expect(result.changes[0].desired).toMatchObject({
       code: "NEW_FEATURE",
       appModuleId: "target-app-id",
-      featureGroupId: "target-group-id"
+      featureGroupId: "target-group-id",
+      url: "/new",
+      tenantCanUse: true
     });
     expect(result.changes[0].desired).not.toHaveProperty("id");
     expect(result.changes[0].desired).not.toHaveProperty("createdDate");
     expect(targetSaveCount).toBe(0);
+  });
+
+  it("sync 功能项创建时保留源端显式 tenantCanUse=false", async () => {
+    let savedBody: Record<string, unknown> | undefined;
+    const targetFeatures: Record<string, unknown>[] = [];
+    const { store } = await createFixtureServer({
+      source: (request, response) => {
+        if (requestPath(request).endsWith("/feature/findByPage")) {
+          respond(response, {
+            rows: [{
+              id: "source-feature-id",
+              code: "EXPLICIT_FALSE",
+              name: "显式关闭",
+              url: "//false//",
+              featureType: "Operate",
+              canMenu: false,
+              tenantCanUse: false,
+              mobileUse: false,
+              appModuleCode: "BASIC"
+            }],
+            total: 1
+          });
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) {
+          respond(response, { rows: targetFeatures, total: targetFeatures.length });
+          return;
+        }
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, []);
+          return;
+        }
+        if (path.endsWith("/feature/save")) {
+          savedBody = (await readBody(request)) as Record<string, unknown>;
+          const saved = {
+            ...savedBody,
+            ...(typeof savedBody.url === "string"
+              ? { url: savedBody.url.replace(/^\/+|\/+$/g, "") }
+              : {}),
+            id: "target-feature-id"
+          };
+          targetFeatures.push(saved);
+          respond(response, saved);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["sync", "feature", "--source", "source", "--target", "target", "--apply"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.changes[0].desired).toMatchObject({
+          url: "/false",
+          tenantCanUse: false
+        });
+    expect(savedBody).toMatchObject({
+      url: "/false",
+      tenantCanUse: false
+    });
+    expect(result.operationId).toEqual(expect.any(String));
+    await expect(new OperationLogStore(store.directory).load(result.operationId)).resolves.toMatchObject({
+      status: "completed",
+      actions: [expect.objectContaining({
+        resource: "feature",
+        expected: expect.objectContaining({
+          url: "/false",
+          tenantCanUse: false
+        })
+      })]
+    });
+  });
+
+  it("sync 功能项更新时源端缺少 tenantCanUse 会保留目标值", async () => {
+    const { store } = await createFixtureServer({
+      source: (request, response) => {
+        if (requestPath(request).endsWith("/feature/findByPage")) {
+          respond(response, { rows: [{
+            id: "source-feature-id", code: "EXISTING_FEATURE", name: "新名称",
+            featureType: "Operate", canMenu: false, mobileUse: false, appModuleCode: "BASIC"
+          }], total: 1 });
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) {
+          respond(response, { rows: [{
+            id: "target-feature-id", code: "EXISTING_FEATURE", name: "旧名称",
+            featureType: "Operate", canMenu: false, tenantCanUse: false, mobileUse: false,
+            appModuleId: "target-app-id"
+          }], total: 1 });
+          return;
+        }
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, []);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      ["sync", "feature", "--source", "source", "--target", "target"],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.changes[0]).toMatchObject({
+      action: "update",
+      desired: { tenantCanUse: false }
+    });
+    expect(result.changes[0].changedFields).not.toContain("tenantCanUse");
   });
 
   it("sync 功能项时忽略源 specialProjectId 并保留目标环境关联", async () => {

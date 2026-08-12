@@ -80,12 +80,6 @@ async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironme
   assertPathTenantScope(env.config.tenantCode, path, env.name);
   const current = await findEntity(action, env, timeoutMs);
   if (current === null) return false;
-  const conflicts = Object.entries(action.expected).filter(
-    ([field, expected]) => field !== "id" && !sameValue(current[field], expected)
-  );
-  if (conflicts.length) {
-    throw new CliError(`回滚冲突：${action.resource}/${action.entityId} 已被后续修改（${conflicts.map(([field]) => field).join(", ")}）`);
-  }
   await call(env, timeoutMs, action.deleteMethod, path);
   if ((await findEntity(action, env, timeoutMs)) !== null) {
     throw new CliError(`回滚后回查失败：${action.resource}/${action.entityId} 仍然存在`);
@@ -119,7 +113,7 @@ async function rollbackDataValues(action: AssignDataValuesAction, env: ResolvedE
   const removable = action.entityIds.filter((id) => ids.has(id));
   if (!removable.length) return false;
   const suffix = action.parentEntityId ? "removeRelationsByParentEntityId" : "removeRelations";
-  await call(env, timeoutMs, "DELETE", `${base}/${suffix}`, {
+  await call(env, timeoutMs, "POST", `${base}/${suffix}`, {
     dataRoleId: action.dataRoleId, dataAuthorizeTypeId: action.dataAuthorizeTypeId, entityIds: removable,
     ...(action.parentEntityId ? { parentEntityId: action.parentEntityId } : {})
   });
@@ -174,6 +168,5 @@ async function save(record: OperationRecord, store: OperationLogStore): Promise<
   record.updatedAt = new Date().toISOString();
   await store.save(record);
 }
-function sameValue(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 function isRecord(value: unknown): value is RecordValue { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isString(value: unknown): value is string { return typeof value === "string"; }

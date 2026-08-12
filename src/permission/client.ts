@@ -43,6 +43,45 @@ export class PermissionClient {
   }
 
   /**
+   * Read the data-role catalog through the endpoints exposed by sei-basic.
+   * DataRole does not provide findByPage: roles are returned per role group.
+   * The optional groups argument lets callers that already need the group
+   * list avoid fetching it twice; without it this method performs findAll.
+   */
+  async findDataRoles(
+    roleGroups?: PermissionRecord[]
+  ): Promise<PermissionRecord[]> {
+    const groups = roleGroups ?? (await this.findAll("dataRoleGroup"));
+    const roles: PermissionRecord[] = [];
+    const seenIds = new Set<string>();
+    const groupIds: string[] = [];
+    for (const group of groups) {
+      if (typeof group.id !== "string" || group.id.trim() === "") {
+        throw new CliError("数据角色组缺少有效 ID，无法查询数据角色");
+      }
+      groupIds.push(group.id);
+    }
+    for (const groupId of groupIds) {
+      const groupRoles = this.expectRecordList(
+        await this.call("dataRole/findByDataRoleGroup", "GET", undefined, {
+          roleGroupId: [groupId]
+        }),
+        "dataRole/findByDataRoleGroup"
+      );
+      for (const role of groupRoles) {
+        if (typeof role.id === "string" && role.id !== "") {
+          if (seenIds.has(role.id)) {
+            continue;
+          }
+          seenIds.add(role.id);
+        }
+        roles.push(role);
+      }
+    }
+    return roles;
+  }
+
+  /**
    * Resolve a feature-group by its business code.  FeatureGroupController
    * exposes findAll rather than a dedicated findByCode route, so matching is
    * performed locally and the result is still checked for duplicate business
@@ -193,7 +232,7 @@ export class PermissionClient {
     if (childIds.length === 0) {
       return;
     }
-    await this.call(`${resource}/removeRelations`, "POST", {
+    await this.call(`${resource}/removeRelations`, "DELETE", {
       parentId,
       childIds
     });

@@ -10,8 +10,7 @@ Use this workflow for requests such as:
 
 Remote queries for CLI resources `app-module`, `menu`, `feature`, `feature-group`, and
 `serial-number` require an environment whose recorded `tenantCode === "global"` (the global
-administrator). Their real backend paths (`appModule`, `featureGroup`, and `serialNumberConfig`)
-are covered by the same tenant check.
+administrator).
 
 1. Run `eadp query --help`.
 2. Resolve the environment name and canonical CLI resource name.
@@ -34,7 +33,7 @@ eadp query serial-number --env GLOBAL --entity-class com.example.Order
 
 The generic query command requires the resource to expose `findByPage`. If the server rejects the field or resource, inspect the corresponding backend controller rather than guessing another field.
 
-For `serial-number`, use a `global` environment. Its backend endpoint is `serialNumberConfig`.
+For `serial-number`, use a `global` environment.
 `--config-type` defaults to `CODE_TYPE` and
 is only a filter; it is not part of the business key. The CLI uses the composite key
 `entityClassName + tenantCode`, normalizing case and surrounding whitespace consistently. Stop if

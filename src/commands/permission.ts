@@ -71,6 +71,14 @@ interface AssignPrincipalOptions extends CommonOptions {
   apply?: boolean;
 }
 
+interface AssignPermissionOptions extends CommonOptions {
+  sourceEmployeeCode?: string;
+  sourceEmployeeName?: string;
+  targetEmployeeCode?: string;
+  targetEmployeeName?: string;
+  apply?: boolean;
+}
+
 interface VerifyOptions extends CommonOptions {
   user?: string;
   userId?: string;
@@ -250,7 +258,10 @@ export function registerPermissionCommands(
     .option("--group-code <code>", "功能项分组代码（页面路由）")
     .option("--url <url>", "功能项资源地址（操作接口 API）")
     .option("--can-menu", "标记为菜单功能项")
-    .option("--tenant-can-use", "标记为租户可用")
+    .addOption(
+      new Option("--tenant-can-use", "标记为租户可用（默认启用）").default(true)
+    )
+    .addOption(new Option("--no-tenant-can-use", "标记为租户不可用"))
     .option("--mobile-use", "标记为移动端使用")
     .option("--env <name>", "global 环境名称；默认使用当前环境")
     .option("--apply", "执行创建；默认只预览")
@@ -259,13 +270,15 @@ export function registerPermissionCommands(
       `
 示例：
   eadp apply feature --env global-dev --code BASIC_VIEW \\
-    --name 查看基础数据 --app BASIC --feature-type Page
+    --name 查看基础数据 --app BASIC --feature-type Page --url /basic/view
   eadp apply feature --env global-dev --code BASIC_EXPORT \\
     --name 导出基础数据 --app BASIC --group BASIC_DATA \\
     --feature-type Operate --url /basic/export --apply
 
-仅允许 tenantCode 为 global 的环境。创建时 appModule 与可选 featureGroup 会按代码、名称或 ID
-唯一解析，写入时只使用解析出的 ID；同 code 已存在时优先返回 unchanged，不调用 save。`
+仅允许 tenantCode 为 global 的环境。Page 类型必须显式提供非空 --url；--url 未以 / 开头时自动补 /，
+且不会从 --group-code 推断。Operate、Business 类型不受此必填规则影响。
+创建时 appModule 与可选 featureGroup 会按代码、名称或 ID 唯一解析，写入时只使用解析出的 ID；
+同 code 已存在时优先返回 unchanged，不调用 save。`
     )
     .action(async (options: ApplyFeatureOptions) => {
       await applyFeature(store, options, root);
@@ -401,6 +414,31 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
     });
 
   commands.assign
+    .command("permission")
+    .description("差异复制用户权限：补充直接功能角色、数据角色和岗位关系")
+    .option("--source-employee-code <code>", "源员工号；与 --source-employee-name 二选一")
+    .option("--source-employee-name <name>", "源员工姓名；必须精确且唯一")
+    .option("--target-employee-code <code>", "目标员工号；与 --target-employee-name 二选一")
+    .option("--target-employee-name <name>", "目标员工姓名；必须精确且唯一")
+    .option("--env <name>", "环境名称；默认使用当前环境")
+    .option("--apply", "执行写入；不提供时仅输出差异预览")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp assign permission --env dev \\
+    --source-employee-code E1001 --target-employee-code E1002
+  eadp assign permission --env dev \\
+    --source-employee-name 张三 --target-employee-name 李四 --apply
+
+仅复制源员工直接分配的功能角色、数据角色和全部岗位；公共角色（功能/数据角色中存在
+publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，绝不移除目标已有关系。`
+    )
+    .action(async (options: AssignPermissionOptions) => {
+      await assignPermission(store, options, root);
+    });
+
+  commands.assign
     .command("feature")
     .description("幂等地给功能角色补充分配功能项；不会移除已有权限")
     .requiredOption("--role <code-or-id>", "功能角色代码、名称或 ID")
@@ -529,13 +567,13 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
     )
     .action(async (options: InspectOptions) => {
       const context = await createContext(store, options, root);
-      const [authorizeEntityTypes, dataAuthorizeTypes, roleGroups, roles] =
+      const [authorizeEntityTypes, dataAuthorizeTypes, roleGroups] =
         await Promise.all([
           context.client.findAll("authorizeEntityType"),
           context.client.findAll("dataAuthorizeType"),
-          context.client.findAll("dataRoleGroup"),
-          context.client.findByPage("dataRole")
+          context.client.findAll("dataRoleGroup")
         ]);
+      const roles = await context.client.findDataRoles(roleGroups);
       const role = options.role
         ? selectRecord(roles, options.role, "数据角色")
         : undefined;
@@ -581,10 +619,8 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
     )
     .action(async (options: ApplyDataRoleOptions) => {
       const context = await createContext(store, options, root);
-      const [groups, roles] = await Promise.all([
-        context.client.findAll("dataRoleGroup"),
-        context.client.findByPage("dataRole")
-      ]);
+      const groups = await context.client.findAll("dataRoleGroup");
+      const roles = await context.client.findDataRoles(groups);
       const group = selectRecord(groups, options.group, "数据角色组");
       const existing = findRecordByCode(roles, options.roleCode);
       const desired: PermissionRecord = {
@@ -633,7 +669,7 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
           })
         : undefined;
       const verifiedRole = findRecordByCode(
-        await context.client.findByPage("dataRole"),
+        await context.client.findDataRoles(),
         options.roleCode
       );
       const verified =
@@ -689,7 +725,7 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
     .action(async (options: AssignDataOptions) => {
       const context = await createContext(store, options, root);
       const [roles, authorizeTypes] = await Promise.all([
-        context.client.findByPage("dataRole"),
+        context.client.findDataRoles(),
         context.client.findAll("dataAuthorizeType")
       ]);
       const role = selectRecord(roles, options.role, "数据角色");
@@ -854,13 +890,14 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
           : options.subjectType === "position"
             ? "position"
             : "positionCategory";
-      const roleResource =
-        options.roleType === "functional" ? "featureRole" : "dataRole";
       const relationResource = principalRelationResource(
         options.subjectType,
         options.roleType
       );
-      const roles = await context.client.findByPage(roleResource);
+      const roles =
+        options.roleType === "functional"
+          ? await context.client.findByPage("featureRole")
+          : await context.client.findDataRoles();
       const subject = await resolvePrincipalSubject(
         context.client,
         options,
@@ -994,13 +1031,14 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
           : options.subjectType === "position"
             ? "position"
             : "positionCategory";
-      const roleResource =
-        options.roleType === "functional" ? "featureRole" : "dataRole";
       const relationResource = principalRelationResource(
         options.subjectType,
         options.roleType
       );
-      const roles = await context.client.findByPage(roleResource);
+      const roles =
+        options.roleType === "functional"
+          ? await context.client.findByPage("featureRole")
+          : await context.client.findDataRoles();
       const subject = await resolvePrincipalSubject(
         context.client,
         options,
@@ -1179,6 +1217,12 @@ async function applyFeature(
   if (!options.app.trim()) {
     throw new CliError("应用模块选择器不能为空");
   }
+  if (
+    options.featureType === "Page" &&
+    (typeof options.url !== "string" || options.url.trim() === "")
+  ) {
+    throw new CliError("Page 类型功能项必须显式提供非空 --url");
+  }
 
   const existing = await context.client.findFeatureByCode(code);
   if (existing) {
@@ -1214,22 +1258,20 @@ async function applyFeature(
     assertFeatureGroupAppModule(featureGroup, appModule, appModuleId);
   }
 
-  const desired: PermissionRecord = {
+  const desired = normalizeFeatureDesired({
     code,
     name,
     featureType: options.featureType,
     appModuleId,
     canMenu: options.canMenu === true,
-    tenantCanUse: options.tenantCanUse === true,
+    tenantCanUse: options.tenantCanUse !== false,
     mobileUse: options.mobileUse === true,
     ...(featureGroup
       ? { featureGroupId: recordId(featureGroup, "功能项组") }
       : {}),
     ...(options.groupCode === undefined ? {} : { groupCode: options.groupCode }),
-    ...(options.url === undefined
-      ? {}
-      : { url: options.url.startsWith("/") ? options.url : `/${options.url}` })
-  };
+    ...(options.url === undefined ? {} : { url: normalizeFeatureUrl(options.url) })
+  });
   if (!options.apply) {
     printValue(
       {
@@ -1535,6 +1577,329 @@ async function createGlobalContext(
       timeoutMs: runtime.timeoutMs
     })
   };
+}
+
+type PermissionCopyCategory = "functionalRoles" | "dataRoles" | "positions";
+
+interface PermissionCopyDiff {
+  category: PermissionCopyCategory;
+  resource: "userFeatureRole" | "userDataRole" | "employeePosition";
+  source: PermissionRecord[];
+  eligible: PermissionRecord[];
+  skippedPublic: PermissionRecord[];
+  alreadyAssigned: PermissionRecord[];
+  added: PermissionRecord[];
+}
+
+interface PermissionCopyRelations {
+  functionalRoles: PermissionRecord[];
+  dataRoles: PermissionRecord[];
+  positions: PermissionRecord[];
+}
+
+async function assignPermission(
+  store: ConfigStore,
+  options: AssignPermissionOptions,
+  root: Command
+): Promise<void> {
+  const context = await createContext(store, options, root);
+  const source = await resolvePermissionEmployee(context.client, {
+    ...(options.sourceEmployeeCode === undefined
+      ? {}
+      : { employeeCode: options.sourceEmployeeCode }),
+    ...(options.sourceEmployeeName === undefined
+      ? {}
+      : { employeeName: options.sourceEmployeeName }),
+    label: "源员工"
+  });
+  const target = await resolvePermissionEmployee(context.client, {
+    ...(options.targetEmployeeCode === undefined
+      ? {}
+      : { employeeCode: options.targetEmployeeCode }),
+    ...(options.targetEmployeeName === undefined
+      ? {}
+      : { employeeName: options.targetEmployeeName }),
+    label: "目标员工"
+  });
+  const sourceId = recordId(source, "源员工");
+  const targetId = recordId(target, "目标员工");
+  if (
+    sourceId === targetId ||
+    (typeof source.code === "string" &&
+      typeof target.code === "string" &&
+      source.code.trim().toLocaleLowerCase() ===
+        target.code.trim().toLocaleLowerCase())
+  ) {
+    throw new CliError("源员工和目标员工不能相同");
+  }
+  assertPermissionEmployeeTenant(source, context.tenantCode, "源员工");
+  assertPermissionEmployeeTenant(target, context.tenantCode, "目标员工");
+
+  const sourceRelations = await readPermissionRelations(context.client, sourceId);
+  const targetRelations = await readPermissionRelations(context.client, targetId);
+  const diffs = buildPermissionCopyDiffs(sourceRelations, targetRelations);
+  const requested = toPermissionCopyRelations(diffs, "source");
+  const skippedPublic = toPermissionCopyRelations(diffs, "skippedPublic");
+  const alreadyAssigned = toPermissionCopyRelations(diffs, "alreadyAssigned");
+  const added = toPermissionCopyRelations(diffs, "added");
+  const counts = buildPermissionCopyCounts(diffs);
+  const hasChanges = diffs.some((diff) => diff.added.length > 0);
+
+  let recorder: OperationRecorder | undefined;
+  let operationId: string | undefined;
+  try {
+    if (options.apply && hasChanges) {
+      recorder = new OperationRecorder(
+        new OperationLogStore(store.directory),
+        "eadp assign permission",
+        context.environment
+      );
+      for (const diff of diffs) {
+        if (diff.added.length === 0) continue;
+        const addedIds = diff.added.map(permissionRelationId);
+        await context.client.insertRelations(diff.resource, targetId, addedIds);
+        await recorder.recordAction({
+          type: "assign-relations",
+          service: "sei-basic",
+          resource: diff.resource,
+          parentId: targetId,
+          childIds: addedIds
+        });
+      }
+    }
+
+    let verified = false;
+    if (options.apply) {
+      const verifiedRelations = await readPermissionRelations(context.client, targetId);
+      verified = verifyPermissionCopy(diffs, verifiedRelations);
+      if (!verified) {
+        throw new CliError("权限关系写入后回查失败");
+      }
+      if (recorder) {
+        operationId = await recorder.complete();
+      }
+    }
+
+    printValue(
+      {
+        kind: "eadp.permission.copy.v1",
+        environment: context.environment,
+        applied: options.apply === true && hasChanges,
+        action: hasChanges ? (options.apply ? "assigned" : "preview") : "unchanged",
+        source,
+        sourceDirect: requested,
+        target,
+        requested,
+        skippedPublic,
+        alreadyAssigned,
+        added,
+        counts,
+        ...(operationId ? { operationId } : {}),
+        verified
+      },
+      options.compact
+    );
+  } catch (error) {
+    if (recorder) {
+      await recorder.fail(error);
+    }
+    const suffix = recorder?.hasActions
+      ? `；部分关系可能已新增，可使用 operation-id ${recorder.operationId} 回滚`
+      : "";
+    throw new CliError(
+      `${error instanceof Error ? error.message : String(error)}${suffix}`
+    );
+  }
+}
+
+async function resolvePermissionEmployee(
+  client: PermissionClient,
+  selector: {
+    employeeCode?: string;
+    employeeName?: string;
+    label: string;
+  }
+): Promise<PermissionRecord> {
+  const selectorCount =
+    (selector.employeeCode ? 1 : 0) + (selector.employeeName ? 1 : 0);
+  if (selectorCount !== 1) {
+    throw new CliError(
+      `${selector.label}必须且只能提供 --${selector.label === "源员工" ? "source" : "target"}-employee-code 或 --${selector.label === "源员工" ? "source" : "target"}-employee-name`
+    );
+  }
+  if (selector.employeeCode) {
+    const employee = await client.findEmployeeByCode(selector.employeeCode);
+    if (!employee) {
+      throw new CliError(`${selector.label}号不存在：${selector.employeeCode}`);
+    }
+    return employee;
+  }
+  const name = selector.employeeName!;
+  const normalized = name.trim().toLocaleLowerCase();
+  const matches = (await client.quickSearchEmployees(name)).filter((employee) => {
+    const employeeName =
+      typeof employee.userName === "string"
+        ? employee.userName
+        : typeof employee.name === "string"
+          ? employee.name
+          : undefined;
+    return employeeName?.trim().toLocaleLowerCase() === normalized;
+  });
+  if (matches.length === 0) {
+    throw new CliError(`${selector.label}姓名不存在：${name}`);
+  }
+  if (matches.length > 1) {
+    const candidates = matches
+      .map((employee) => `${String(employee.code ?? "?")}/${String(employee.userAccount ?? "?")}`)
+      .join(", ");
+    throw new CliError(
+      `${selector.label}姓名存在重名，请改用员工号：${name}（${candidates}）`
+    );
+  }
+  return matches[0]!;
+}
+
+function assertPermissionEmployeeTenant(
+  employee: PermissionRecord,
+  tenantCode: string,
+  label: string
+): void {
+  if (typeof employee.tenantCode === "string" && employee.tenantCode !== tenantCode) {
+    throw new CliError(`${label}不属于当前环境租户：${employee.tenantCode}`);
+  }
+}
+
+async function readPermissionRelations(
+  client: PermissionClient,
+  employeeId: string
+): Promise<PermissionCopyRelations> {
+  return {
+    functionalRoles: await client.getChildren("userFeatureRole", employeeId),
+    dataRoles: await client.getChildren("userDataRole", employeeId),
+    positions: await client.getChildren("employeePosition", employeeId)
+  };
+}
+
+function buildPermissionCopyDiffs(
+  source: PermissionCopyRelations,
+  target: PermissionCopyRelations
+): PermissionCopyDiff[] {
+  return [
+    createPermissionCopyDiff(
+      "functionalRoles",
+      "userFeatureRole",
+      source.functionalRoles,
+      target.functionalRoles,
+      true
+    ),
+    createPermissionCopyDiff(
+      "dataRoles",
+      "userDataRole",
+      source.dataRoles,
+      target.dataRoles,
+      true
+    ),
+    createPermissionCopyDiff(
+      "positions",
+      "employeePosition",
+      source.positions,
+      target.positions,
+      false
+    )
+  ];
+}
+
+function createPermissionCopyDiff(
+  category: PermissionCopyCategory,
+  resource: PermissionCopyDiff["resource"],
+  source: PermissionRecord[],
+  target: PermissionRecord[],
+  skipPublic: boolean
+): PermissionCopyDiff {
+  const seenSourceIds = new Set<string>();
+  const uniqueSource = source.filter((record) => {
+    const id = permissionRelationId(record);
+    if (seenSourceIds.has(id)) return false;
+    seenSourceIds.add(id);
+    return true;
+  });
+  const skippedPublic = skipPublic
+    ? uniqueSource.filter(isPublicPermissionRole)
+    : [];
+  const eligible = uniqueSource.filter((record) => !skippedPublic.includes(record));
+  const targetIds = new Set(target.map((record) => permissionRelationId(record)));
+  const alreadyAssigned = eligible.filter((record) =>
+    targetIds.has(permissionRelationId(record))
+  );
+  const alreadyIds = new Set(alreadyAssigned.map((record) => permissionRelationId(record)));
+  const added = eligible.filter((record) => !alreadyIds.has(permissionRelationId(record)));
+  return { category, resource, source: uniqueSource, eligible, skippedPublic, alreadyAssigned, added };
+}
+
+function isPublicPermissionRole(record: PermissionRecord): boolean {
+  return record.publicUserType !== null && record.publicUserType !== undefined;
+}
+
+function permissionRelationId(record: PermissionRecord): string {
+  if (typeof record.id === "string" && record.id) return record.id;
+  if (typeof record.childId === "string" && record.childId) return record.childId;
+  if (isPermissionRecord(record.child) && typeof record.child.id === "string" && record.child.id) {
+    return record.child.id;
+  }
+  throw new CliError("权限关系缺少有效子实体 ID");
+}
+
+function toPermissionCopyRelations(
+  diffs: PermissionCopyDiff[],
+  field: "source" | "skippedPublic" | "alreadyAssigned" | "added"
+): PermissionCopyRelations {
+  return {
+    functionalRoles: diffs.find((diff) => diff.category === "functionalRoles")![field],
+    dataRoles: diffs.find((diff) => diff.category === "dataRoles")![field],
+    positions: diffs.find((diff) => diff.category === "positions")![field]
+  };
+}
+
+function buildPermissionCopyCounts(
+  diffs: PermissionCopyDiff[]
+): Record<PermissionCopyCategory, {
+  requested: number;
+  eligible: number;
+  skippedPublic: number;
+  alreadyAssigned: number;
+  added: number;
+}> {
+  return Object.fromEntries(
+    diffs.map((diff) => [
+      diff.category,
+      {
+        requested: diff.source.length,
+        eligible: diff.eligible.length,
+        skippedPublic: diff.skippedPublic.length,
+        alreadyAssigned: diff.alreadyAssigned.length,
+        added: diff.added.length
+      }
+    ])
+  ) as Record<PermissionCopyCategory, {
+    requested: number;
+    eligible: number;
+    skippedPublic: number;
+    alreadyAssigned: number;
+    added: number;
+  }>;
+}
+
+function verifyPermissionCopy(
+  diffs: PermissionCopyDiff[],
+  target: PermissionCopyRelations
+): boolean {
+  const targetByCategory: Record<PermissionCopyCategory, PermissionRecord[]> = target;
+  return diffs.every((diff) => {
+    const targetIds = new Set(
+      targetByCategory[diff.category].map((record) => permissionRelationId(record))
+    );
+    return diff.eligible.every((record) => targetIds.has(permissionRelationId(record)));
+  });
 }
 
 function selectFeatureByCode(
@@ -1887,6 +2252,23 @@ function changedFeatureFields(
   );
 }
 
+function normalizeFeatureDesired(desired: PermissionRecord): PermissionRecord {
+  const normalized: PermissionRecord = { ...desired };
+  if (typeof normalized.url === "string") {
+    normalized.url = normalizeFeatureUrl(normalized.url);
+  }
+  if (normalized.featureType === "Business") {
+    normalized.canMenu = false;
+  }
+  return normalized;
+}
+
+function normalizeFeatureUrl(value: string): string {
+  const trimmed = value.trim();
+  const withoutBoundarySlashes = trimmed.replace(/^\/+|\/+$/g, "");
+  return withoutBoundarySlashes ? `/${withoutBoundarySlashes}` : "/";
+}
+
 function sameFeatureValue(field: string, left: unknown, right: unknown): boolean {
   if (["canMenu", "tenantCanUse", "mobileUse"].includes(field)) {
     return (left ?? false) === (right ?? false);
@@ -1895,6 +2277,13 @@ function sameFeatureValue(field: string, left: unknown, right: unknown): boolean
     const normalizedLeft =
       typeof left === "number" ? ["Operate", "Business", "Page"][left] : left;
     return normalizedLeft === right;
+  }
+  if (field === "url") {
+    const normalizedLeft =
+      typeof left === "string" ? normalizeFeatureUrl(left) : left;
+    const normalizedRight =
+      typeof right === "string" ? normalizeFeatureUrl(right) : right;
+    return normalizedLeft === normalizedRight;
   }
   return left === right;
 }

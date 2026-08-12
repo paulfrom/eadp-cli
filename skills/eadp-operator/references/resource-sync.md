@@ -9,8 +9,7 @@ Use this workflow for requests such as:
 
 Menu, feature, feature-group, and serial-number synchronization is a global-administrator
 operation: both source and target must record `tenantCode === "global"`. The CLI enforces this
-before any remote read. The canonical CLI names `feature-group` and `serial-number` map to the
-backend endpoints `featureGroup` and `serialNumberConfig`.
+before any remote read.
 
 1. Run `eadp inspect resource --help` and `eadp sync --help`.
 2. Confirm the source and target environment names are distinct.
@@ -109,8 +108,8 @@ is a successful idempotent outcome.
 Preview and then apply a missing feature-group dependency:
 
 ```text
-eadp sync feature-group --source A --target B --code ISRM-PA-OLD-2
-eadp sync feature-group --source A --target B --code ISRM-PA-OLD-2 --apply
+eadp sync feature-group --source A --target B --code ISRM-PA-2
+eadp sync feature-group --source A --target B --code ISRM-PA-2 --apply
 ```
 
 ## Menu synchronization semantics

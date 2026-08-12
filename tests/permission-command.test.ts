@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
 import { OperationLogStore } from "../src/operations/store.js";
 
@@ -327,6 +327,7 @@ describe("统一权限命令", () => {
     const features: Array<Record<string, unknown>> = [];
     const requestedPaths: string[] = [];
     const requestedMethods: string[] = [];
+    let savedPayload: Record<string, unknown> | undefined;
     let saveCount = 0;
     const { store } = await createFixtureServer(async (request, response) => {
       const url = new URL(request.url ?? "/", "http://localhost");
@@ -345,7 +346,14 @@ describe("统一权限命令", () => {
       if (url.pathname.endsWith("/feature/save")) {
         saveCount += 1;
         const body = (await readBody(request)) as Record<string, unknown>;
-        const saved = { ...body, id: "feature-1" };
+        savedPayload = body;
+        const saved = {
+          ...body,
+          ...(typeof body.url === "string"
+            ? { url: body.url.replace(/^\/+|\/+$/g, "") }
+            : {}),
+          id: "feature-1"
+        };
         features.push(saved);
         respond(response, saved);
         return;
@@ -391,8 +399,7 @@ describe("统一权限命令", () => {
       "--group-code",
       "/basic",
       "--url",
-      "/basic/view",
-      "--tenant-can-use",
+      "//basic/view///",
       "--can-menu"
     ];
     const previewOutput = captureOutput();
@@ -409,6 +416,14 @@ describe("统一权限命令", () => {
       tenantCanUse: true,
       mobileUse: false
     });
+    expect(preview.desired.url).toBe("/basic/view");
+    expect(saveCount).toBe(0);
+    vi.restoreAllMocks();
+
+    const tenantDisabledOutput = captureOutput();
+    await createProgram(store).parseAsync([...args, "--no-tenant-can-use"], { from: "user" });
+    const tenantDisabled = JSON.parse(tenantDisabledOutput.text());
+    expect(tenantDisabled.desired.tenantCanUse).toBe(false);
     expect(saveCount).toBe(0);
     vi.restoreAllMocks();
 
@@ -418,15 +433,41 @@ describe("统一权限命令", () => {
     expect(applied.applied).toBe(true);
     expect(applied.verified).toBe(true);
     expect(applied.operationId).toEqual(expect.any(String));
+    expect(savedPayload).toMatchObject({
+      url: "/basic/view",
+      tenantCanUse: true
+    });
     await expect(new OperationLogStore(store.directory).load(applied.operationId)).resolves.toMatchObject({
       environment: "dev",
       status: "completed",
       actions: [expect.objectContaining({
         type: "create-entity",
         resource: "feature",
-        entityId: "feature-1"
+        entityId: "feature-1",
+        expected: expect.objectContaining({
+          url: "/basic/view",
+          tenantCanUse: true
+        })
       })]
     });
+    expect(saveCount).toBe(1);
+    vi.restoreAllMocks();
+
+    const rootUrlOutput = captureOutput();
+    await createProgram(store).parseAsync(
+      [
+        ...args,
+        "--code",
+        "BASIC_ROOT",
+        "--name",
+        "根路径",
+        "--url",
+        "///"
+      ],
+      { from: "user" }
+    );
+    const rootUrlPreview = JSON.parse(rootUrlOutput.text());
+    expect(rootUrlPreview.desired.url).toBe("/");
     expect(saveCount).toBe(1);
     vi.restoreAllMocks();
 
@@ -463,6 +504,138 @@ describe("统一权限命令", () => {
         path.endsWith("/feature/delete/feature-1") && requestedMethods[index] === "DELETE"
       )
     ).toBe(true);
+  });
+
+  it("feature apply Business 类型的 --can-menu 会按后端规范化为 false 并通过回查", async () => {
+    const features: Array<Record<string, unknown>> = [];
+    let savedPayload: Record<string, unknown> | undefined;
+    const { store } = await createFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/appModule/findAll")) {
+        respond(response, [{ id: "app-1", code: "BASIC", name: "基础应用" }]);
+        return;
+      }
+      if (url.pathname.endsWith("/featureGroup/findAll")) {
+        respond(response, []);
+        return;
+      }
+      if (url.pathname.endsWith("/feature/save")) {
+        const body = (await readBody(request)) as Record<string, unknown>;
+        savedPayload = body;
+        const saved = {
+          ...body,
+          canMenu: body.featureType === "Business" ? false : body.canMenu,
+          ...(typeof body.url === "string"
+            ? { url: body.url.replace(/^\/+|\/+$/g, "") }
+            : {}),
+          id: "feature-business-1"
+        };
+        features.push(saved);
+        respond(response, saved);
+        return;
+      }
+      if (url.pathname.endsWith("/feature/findByCode")) {
+        respond(
+          response,
+          features.find((feature) => feature.code === url.searchParams.get("code")) ?? null
+        );
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    const output = captureOutput();
+    await createProgram(store).parseAsync(
+      [
+        "apply",
+        "feature",
+        "--code",
+        "BASIC_EXPORT",
+        "--name",
+        "导出基础数据",
+        "--app",
+        "BASIC",
+        "--feature-type",
+        "Business",
+        "--url",
+        "/basic/export/",
+        "--can-menu",
+        "--apply"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.applied).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(result.desired).toMatchObject({
+      featureType: "Business",
+      canMenu: false,
+      url: "/basic/export"
+    });
+    expect(savedPayload).toMatchObject({
+      featureType: "Business",
+      canMenu: false,
+      url: "/basic/export"
+    });
+    expect(result.verifiedFeature).toMatchObject({
+      featureType: "Business",
+      canMenu: false,
+      url: "basic/export"
+    });
+  });
+
+  it("Page feature 缺少或传入空白 --url 时立即失败且不发起远端请求", async () => {
+    const requestedPaths: string[] = [];
+    const { store } = await createFixtureServer((request, response) => {
+      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      requestedPaths.push(path);
+      respond(response, undefined, 500);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Page"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("Page 类型功能项必须显式提供非空 --url");
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Page",
+          "--url",
+          "   "
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("Page 类型功能项必须显式提供非空 --url");
+    expect(requestedPaths).toEqual([]);
   });
 
   it("feature apply 拒绝歧义的应用模块且不保存", async () => {
@@ -506,7 +679,9 @@ describe("统一权限命令", () => {
           "--app",
           "BASIC",
           "--feature-type",
-          "Page"
+          "Page",
+          "--url",
+          "/basic/view"
         ],
         { from: "user" }
       )
@@ -559,7 +734,9 @@ describe("统一权限命令", () => {
             "--group",
             groupSelector,
             "--feature-type",
-            "Page"
+            "Page",
+            "--url",
+            "/basic/view"
           ],
           { from: "user" }
         )
@@ -621,7 +798,9 @@ describe("统一权限命令", () => {
           "--app",
           "BASIC",
           "--feature-type",
-          "Page"
+          "Page",
+          "--url",
+          "/basic/view"
         ],
         { from: "user" }
       )
@@ -695,6 +874,291 @@ describe("统一权限命令", () => {
     captureOutput();
     await createProgram(store).parseAsync(args, { from: "user" });
     expect(insertCount).toBe(1);
+  });
+
+  it("permission copy 预览三类直接关系、跳过公共角色且不写入", async () => {
+    const writes: string[] = [];
+    const { store } = await createPermissionCopyFixtureServer(
+      async (request, response) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname.endsWith("/employee/findByCode")) {
+          const employee = url.searchParams.get("code") === "E1001"
+            ? { id: "employee-1", code: "E1001", userName: "源员工", tenantCode: "tenant-a" }
+            : { id: "employee-2", code: "E1002", userName: "目标员工", tenantCode: "tenant-a" };
+          respond(response, employee);
+          return;
+        }
+        if (url.pathname.endsWith("/userFeatureRole/getChildrenFromParentId")) {
+          const source = url.searchParams.get("parentId") === "employee-1";
+          respond(response, source
+            ? [
+                { id: "feature-public", code: "PUBLIC", publicUserType: "ALL" },
+                { id: "feature-1", code: "FUNC_1" }
+              ]
+            : [{ id: "feature-existing", code: "FUNC_EXISTING" }]);
+          return;
+        }
+        if (url.pathname.endsWith("/userDataRole/getChildrenFromParentId")) {
+          const source = url.searchParams.get("parentId") === "employee-1";
+          respond(response, source
+            ? [{ id: "data-1", code: "DATA_1" }]
+            : []);
+          return;
+        }
+        if (url.pathname.endsWith("/employeePosition/getChildrenFromParentId")) {
+          const source = url.searchParams.get("parentId") === "employee-1";
+          respond(response, source
+            ? [{ id: "position-1", code: "POSITION_1" }, { id: "position-2", code: "POSITION_2" }]
+            : [{ id: "position-2", code: "POSITION_2" }]);
+          return;
+        }
+        if (url.pathname.endsWith("/insertRelations")) {
+          writes.push(url.pathname);
+          respond(response, "unexpected", 500);
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    );
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync(
+      [
+        "assign",
+        "permission",
+        "--source-employee-code",
+        "E1001",
+        "--target-employee-code",
+        "E1002"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.action).toBe("preview");
+    expect(result.requested.functionalRoles.map((item: Record<string, unknown>) => item.id)).toEqual([
+      "feature-public",
+      "feature-1"
+    ]);
+    expect(result.skippedPublic.functionalRoles.map((item: Record<string, unknown>) => item.id)).toEqual([
+      "feature-public"
+    ]);
+    expect(result.alreadyAssigned.functionalRoles.map((item: Record<string, unknown>) => item.id)).toEqual([]);
+    expect(result.added).toMatchObject({
+      functionalRoles: [{ id: "feature-1" }],
+      dataRoles: [{ id: "data-1" }],
+      positions: [{ id: "position-1" }]
+    });
+    expect(result.counts).toMatchObject({
+      functionalRoles: { skippedPublic: 1, added: 1 },
+      dataRoles: { added: 1 },
+      positions: { alreadyAssigned: 1, added: 1 }
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("permission copy apply 只写入缺失关系、三类回查且重复执行 unchanged", async () => {
+    const assigned: Record<string, Set<string>> = {
+      "userFeatureRole:employee-1": new Set(["feature-1"]),
+      "userFeatureRole:employee-2": new Set(["feature-existing"]),
+      "userDataRole:employee-1": new Set(["data-1"]),
+      "userDataRole:employee-2": new Set([]),
+      "employeePosition:employee-1": new Set(["position-1"]),
+      "employeePosition:employee-2": new Set(["position-2"])
+    };
+    const writes: Array<{ resource: string; body: { parentId: string; childIds: string[] } }> = [];
+    const { store } = await createPermissionCopyFixtureServer(
+      async (request, response) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname.endsWith("/employee/findByCode")) {
+          respond(response, url.searchParams.get("code") === "E1001"
+            ? { id: "employee-1", code: "E1001", userName: "源员工", tenantCode: "tenant-a" }
+            : { id: "employee-2", code: "E1002", userName: "目标员工", tenantCode: "tenant-a" });
+          return;
+        }
+        const relation = ["userFeatureRole", "userDataRole", "employeePosition"].find((name) =>
+          url.pathname.endsWith(`/${name}/getChildrenFromParentId`)
+        );
+        if (relation) {
+          const parentId = url.searchParams.get("parentId")!;
+          respond(response, [...(assigned[`${relation}:${parentId}`] ?? new Set())].map((id) => ({
+            id,
+            ...(id === "feature-1" ? { code: "FUNC_1" } : {}),
+            ...(id === "data-1" ? { code: "DATA_1" } : {}),
+            ...(id.startsWith("position-") ? { code: id.toUpperCase() } : {})
+          })));
+          return;
+        }
+        if (url.pathname.endsWith("/insertRelations")) {
+          const resource = ["userFeatureRole", "userDataRole", "employeePosition"].find((name) =>
+            url.pathname.endsWith(`/${name}/insertRelations`)
+          )!;
+          const body = (await readBody(request)) as { parentId: string; childIds: string[] };
+          writes.push({ resource, body });
+          for (const id of body.childIds) assigned[`${resource}:${body.parentId}`]!.add(id);
+          respond(response, "ok");
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    );
+    const args = [
+      "assign",
+      "permission",
+      "--source-employee-code",
+      "E1001",
+      "--target-employee-code",
+      "E1002",
+      "--apply"
+    ];
+    const output = captureOutput();
+    await createProgram(store).parseAsync(args, { from: "user" });
+    const result = JSON.parse(output.text());
+    expect(result.action).toBe("assigned");
+    expect(result.verified).toBe(true);
+    expect(result.added).toMatchObject({
+      functionalRoles: [{ id: "feature-1" }],
+      dataRoles: [{ id: "data-1" }],
+      positions: [{ id: "position-1" }]
+    });
+    expect(writes).toEqual([
+      { resource: "userFeatureRole", body: { parentId: "employee-2", childIds: ["feature-1"] } },
+      { resource: "userDataRole", body: { parentId: "employee-2", childIds: ["data-1"] } },
+      { resource: "employeePosition", body: { parentId: "employee-2", childIds: ["position-1"] } }
+    ]);
+    expect(result.operationId).toEqual(expect.any(String));
+    await expect(new OperationLogStore(store.directory).load(result.operationId)).resolves.toMatchObject({
+      status: "completed",
+      actions: [
+        expect.objectContaining({ resource: "userFeatureRole" }),
+        expect.objectContaining({ resource: "userDataRole" }),
+        expect.objectContaining({ resource: "employeePosition" })
+      ]
+    });
+    vi.restoreAllMocks();
+
+    const unchangedOutput = captureOutput();
+    await createProgram(store).parseAsync(args, { from: "user" });
+    const unchanged = JSON.parse(unchangedOutput.text());
+    expect(unchanged.action).toBe("unchanged");
+    expect(unchanged.applied).toBe(false);
+    expect(unchanged.verified).toBe(true);
+    expect(writes).toHaveLength(3);
+  });
+
+  it("permission copy 拒绝相同员工", async () => {
+    const { store } = await createPermissionCopyFixtureServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/employee/findByCode")) {
+        respond(response, { id: "employee-1", code: "E1001", userName: "同一员工", tenantCode: "tenant-a" });
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "assign",
+          "permission",
+          "--source-employee-code",
+          "E1001",
+          "--target-employee-code",
+          "E1001"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("源员工和目标员工不能相同");
+  });
+
+  it("permission copy 拒绝重复的精确员工姓名", async () => {
+    const { store } = await createPermissionCopyFixtureServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/employee/quickSearch")) {
+        respond(response, {
+          rows: [
+            { id: "employee-1", code: "E1001", userName: "重名员工", userAccount: "one" },
+            { id: "employee-2", code: "E1002", userName: "重名员工", userAccount: "two" }
+          ]
+        });
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "assign",
+          "permission",
+          "--source-employee-name",
+          "重名员工",
+          "--target-employee-code",
+          "E1003"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("源员工姓名存在重名");
+  });
+
+  it("permission copy API 失败后不重试且不继续后续写入", async () => {
+    const calls: string[] = [];
+    const { store } = await createPermissionCopyFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      calls.push(`${request.method} ${url.pathname}`);
+      if (url.pathname.endsWith("/employee/findByCode")) {
+        respond(response, url.searchParams.get("code") === "E1001"
+          ? { id: "employee-1", code: "E1001", userName: "源员工", tenantCode: "tenant-a" }
+          : { id: "employee-2", code: "E1002", userName: "目标员工", tenantCode: "tenant-a" });
+        return;
+      }
+      if (url.pathname.endsWith("/userFeatureRole/getChildrenFromParentId")) {
+        respond(response, url.searchParams.get("parentId") === "employee-1"
+          ? [{ id: "feature-1", code: "FUNC_1" }]
+          : []);
+        return;
+      }
+      if (url.pathname.endsWith("/userDataRole/getChildrenFromParentId")) {
+        respond(response, url.searchParams.get("parentId") === "employee-1"
+          ? [{ id: "data-1", code: "DATA_1" }]
+          : []);
+        return;
+      }
+      if (url.pathname.endsWith("/employeePosition/getChildrenFromParentId")) {
+        respond(response, url.searchParams.get("parentId") === "employee-1"
+          ? [{ id: "position-1", code: "POSITION_1" }]
+          : []);
+        return;
+      }
+      if (url.pathname.endsWith("/userFeatureRole/insertRelations")) {
+        respond(response, "ok");
+        return;
+      }
+      if (url.pathname.endsWith("/userDataRole/insertRelations")) {
+        respond(response, undefined, 500);
+        return;
+      }
+      if (url.pathname.endsWith("/employeePosition/insertRelations")) {
+        respond(response, "unexpected", 500);
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await expect(
+      createProgram(store).parseAsync(
+        [
+          "assign",
+          "permission",
+          "--source-employee-code",
+          "E1001",
+          "--target-employee-code",
+          "E1002",
+          "--apply"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow(/HTTP 500.*；部分关系可能已新增，可使用 operation-id [0-9a-f-]+ 回滚/);
+    expect(calls.filter((call) => call.endsWith("/userFeatureRole/insertRelations"))).toHaveLength(1);
+    expect(calls.filter((call) => call.endsWith("/userDataRole/insertRelations"))).toHaveLength(1);
+    expect(calls.some((call) => call.endsWith("/employeePosition/insertRelations"))).toBe(false);
   });
 
   it("data apply 默认预览并幂等创建数据角色", async () => {
@@ -1103,6 +1567,15 @@ async function createFixtureServer(
     }
   });
   return { store };
+}
+
+async function createPermissionCopyFixtureServer(
+  handler: (
+    request: IncomingMessage,
+    response: ServerResponse
+  ) => void | Promise<void>
+): Promise<{ store: ConfigStore }> {
+  return createFixtureServer(handler);
 }
 
 function captureOutput(): { text: () => string } {

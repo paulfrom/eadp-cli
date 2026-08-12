@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -38,6 +38,22 @@ try {
       : join(installationDirectory, "node_modules", ".bin", "eadp");
   await access(executable);
   const executableDirectory = join(installationDirectory, "node_modules", ".bin");
+  const alternateNodeModules = process.platform === "win32"
+    ? join(installationDirectory, "alternate-node_modules")
+    : null;
+  const alternateExecutableDirectory = alternateNodeModules
+    ? join(alternateNodeModules, ".bin")
+    : null;
+  if (alternateNodeModules && alternateExecutableDirectory) {
+    // npm's Windows shim resolves its target relative to %~dp0. Running the
+    // generated shim through a junction keeps that relative path valid while
+    // exercising the alternate-path case that previously skipped main().
+    await symlink(
+      join(installationDirectory, "node_modules"),
+      alternateNodeModules,
+      "junction"
+    );
+  }
   const codexHome = join(installationDirectory, "codex-home");
   const workbuddyHome = join(installationDirectory, "workbuddy-home");
   const claudeHome = join(installationDirectory, "claude-home");
@@ -53,6 +69,10 @@ try {
     )
   );
   const helpCases = [
+    {
+      args: ["--version"],
+      expected: [packageJson.version]
+    },
     {
       args: ["--help"],
       expected: [
@@ -125,6 +145,17 @@ try {
       expected: ["授权主体类型", "--role-type"]
     },
     {
+      args: ["assign", "permission", "--help"],
+      expected: [
+        "复制用户权限",
+        "--source-employee-code",
+        "--target-employee-code",
+        "只新增",
+        "公共角色",
+        "--apply"
+      ]
+    },
+    {
       args: ["revoke", "role", "--help"],
       expected: ["授权主体类型", "--role-type"]
     },
@@ -179,6 +210,111 @@ try {
       throw new Error(
         `npm 命令入口验证失败：eadp ${helpCase.args.join(" ")}\n${
           help.stderr || help.stdout
+        }`
+      );
+    }
+  }
+
+  if (alternateExecutableDirectory) {
+    const alternateExecutable = join(alternateExecutableDirectory, "eadp.cmd");
+    const result = spawnSync(alternateExecutable, ["--version"], {
+      cwd: alternateExecutableDirectory,
+      encoding: "utf8",
+      shell: true
+    });
+    if (result.status !== 0 || !result.stdout.includes(packageJson.version)) {
+      throw new Error(
+        `junction npm 命令入口验证失败：eadp --version\n${
+          result.stderr || result.stdout || result.error?.message || ""
+        }`
+      );
+    }
+  }
+
+  if (process.platform === "win32") {
+    // Generate a genuine npm Windows shim for the legacy bin target.
+    // This exercises upgrades from installations whose shim still invokes
+    // dist/cli.js directly, rather than hand-writing a .cmd fixture.
+    const legacyPackageDirectory = join(installationDirectory, "legacy-package");
+    const legacyInstallationDirectory = join(
+      installationDirectory,
+      "legacy-install"
+    );
+    const installedPackageDirectory = join(
+      installationDirectory,
+      "node_modules",
+      "eadp-cli"
+    );
+    await cp(installedPackageDirectory, legacyPackageDirectory, {
+      recursive: true
+    });
+    const legacyManifestPath = join(legacyPackageDirectory, "package.json");
+    const legacyManifest = JSON.parse(await readFile(legacyManifestPath, "utf8"));
+    legacyManifest.bin = { eadp: "dist/cli.js" };
+    await writeFile(
+      legacyManifestPath,
+      `${JSON.stringify(legacyManifest, null, 2)}\n`,
+      "utf8"
+    );
+
+    const legacyInstallation = spawnSync(
+      process.execPath,
+      [
+        npmCliPath,
+        "install",
+        "--prefix",
+        legacyInstallationDirectory,
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        legacyPackageDirectory
+      ],
+      { encoding: "utf8" }
+    );
+    if (legacyInstallation.status !== 0) {
+      throw new Error(
+        `安装旧版 npm shim 测试包失败：${
+          legacyInstallation.stderr || legacyInstallation.stdout
+        }`
+      );
+    }
+
+    const legacyAlternateNodeModules = join(
+      legacyInstallationDirectory,
+      "alternate-node_modules"
+    );
+    await symlink(
+      join(legacyInstallationDirectory, "node_modules"),
+      legacyAlternateNodeModules,
+      "junction"
+    );
+    const legacyExecutable = join(
+      legacyAlternateNodeModules,
+      ".bin",
+      "eadp.cmd"
+    );
+    await access(legacyExecutable);
+    const legacyShim = await readFile(legacyExecutable, "utf8");
+    if (!/dist[\\/]cli\.js/i.test(legacyShim)) {
+      throw new Error(
+        `旧版 npm shim 未指向 dist/cli.js：${legacyExecutable}\n${legacyShim}`
+      );
+    }
+    const legacyResult = spawnSync(legacyExecutable, ["--version"], {
+      cwd: join(legacyAlternateNodeModules, ".bin"),
+      encoding: "utf8",
+      shell: true
+    });
+    if (
+      legacyResult.status !== 0 ||
+      !legacyResult.stdout.includes(packageJson.version)
+    ) {
+      throw new Error(
+        `旧版 junction npm 命令入口验证失败：eadp --version\n${
+          legacyResult.stderr ||
+          legacyResult.stdout ||
+          legacyResult.error?.message ||
+          ""
         }`
       );
     }

@@ -2,7 +2,7 @@ import { readFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 
 const temporaryDirectories: string[] = [];
 

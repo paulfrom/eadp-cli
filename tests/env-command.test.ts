@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
 
 const temporaryDirectories: string[] = [];

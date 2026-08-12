@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { BpmClient } from "../src/bpm/client.js";
 import { configureBpmProject } from "../src/bpm/configure.js";
 import { ConfigStore } from "../src/config/store.js";

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 
 describe("统一命令面", () => {
   it("只暴露动词优先的业务命令和全局运行参数", () => {
@@ -21,6 +21,8 @@ describe("统一命令面", () => {
 
     expect(help).toContain("--timeout <ms>");
     expect(help).toContain("--compact");
+    expect(help).toContain("--output <format>");
+    expect(help).toContain("compact-ndjson");
     for (const legacyCommand of [
       "request",
       "resource",
@@ -87,6 +89,29 @@ describe("统一命令面", () => {
     expect(lines).toHaveLength(2);
     expect(lines.every((line) => line.startsWith("{") && line.endsWith("}"))).toBe(true);
     expect(text).not.toContain("\n  ");
+    output.mockRestore();
+  });
+
+  it("在业务命令前后都接受 --output compact-ndjson 并输出 meta/row", async () => {
+    const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await createProgram().parseAsync(["--output", "compact-ndjson", "inspect", "resource"], {
+      from: "user"
+    });
+    await createProgram().parseAsync(["inspect", "resource", "--output", "compact-ndjson"], {
+      from: "user"
+    });
+
+    const lines = output.mock.calls
+      .map(([value]) => String(value))
+      .join("")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.filter((line) => line.type === "meta")).toHaveLength(2);
+    expect(lines.every((line) =>
+      line.type === "row" || (line.type === "meta" && Array.isArray(line.schema))
+    )).toBe(true);
     output.mockRestore();
   });
 });

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
 import { OperationLogStore } from "../src/operations/store.js";
 

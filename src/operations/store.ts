@@ -232,7 +232,7 @@ const bpmEntities = new Set([
 ]);
 const basicRelations = new Set([
   "featureRoleFeature", "userFeatureRole", "userDataRole", "positionFeatureRole",
-  "positionDataRole", "positionCategoryFeatureRole"
+  "positionDataRole", "positionCategoryFeatureRole", "employeePosition"
 ]);
 const bpmRelations = new Set(["conEntityPage", "conEntityInterface"]);
 

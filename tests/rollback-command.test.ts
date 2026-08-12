@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProgram } from "../src/cli.js";
+import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
 import { OperationLogStore } from "../src/operations/store.js";
 
@@ -16,6 +16,49 @@ afterEach(async () => {
 });
 
 describe("rollback 命令", () => {
+  it("支持回滚权限复制新增的员工岗位关系", async () => {
+    const assigned = new Set(["position-1"]);
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/employeePosition/getChildrenFromParentId")) {
+        return respond(response, [...assigned].map((id) => ({ id })));
+      }
+      if (url.pathname.endsWith("/employeePosition/removeRelations")) {
+        request.on("data", () => undefined);
+        request.on("end", () => {
+          assigned.delete("position-1");
+          respond(response, true);
+        });
+        return;
+      }
+      respond(response, null, 404);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-position-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "dev", environments: {
+      dev: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "tenant-a" }
+    }});
+    await new OperationLogStore(directory).save({
+      version: 1, id: "copy-permission", command: "eadp assign permission",
+      environment: "dev", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: "completed", actions: [{ id: "position-action", type: "assign-relations",
+        service: "sei-basic", resource: "employeePosition", parentId: "employee-2",
+        childIds: ["position-1"], status: "applied" }]
+    });
+
+    await createProgram(configStore).parseAsync(["rollback", "copy-permission"], { from: "user" });
+
+    expect(assigned.size).toBe(0);
+    await expect(new OperationLogStore(directory).load("copy-permission")).resolves.toMatchObject({
+      status: "rolled-back"
+    });
+  });
+
   it("多个 operationId 按成功完成时间倒序回滚", async () => {
     const entities = new Map([
       ["featureGroup/group-1", { id: "group-1", code: "GROUP" }],
@@ -85,6 +128,7 @@ describe("rollback 命令", () => {
         return respond(response, true);
       }
       if (url.pathname.endsWith("/feature/findOne")) return respond(response, { id: "feature-1", code: "MODIFIED" });
+      if (url.pathname.endsWith("/feature/delete/feature-1")) return respond(response, undefined, 500);
       if (url.pathname.endsWith("/featureGroup/findOne")) return respond(response, { id: "group-1", code: "GROUP" });
       if (url.pathname.includes("/delete/")) deleted.push(url.pathname);
       respond(response, null, 404);
@@ -115,7 +159,7 @@ describe("rollback 命令", () => {
 
     await expect(createProgram(configStore).parseAsync([
       "rollback", "old-group", "new-menu", "middle-feature"
-    ], { from: "user" })).rejects.toThrow("已被后续修改");
+    ], { from: "user" })).rejects.toThrow("HTTP 500");
     expect(deleted).toEqual(["menu"]);
     await expect(logs.load("old-group")).resolves.toMatchObject({ status: "completed" });
   });
@@ -393,14 +437,20 @@ describe("rollback 命令", () => {
     expect(methods).toEqual(["POST"]);
   });
 
-  it("新增记录被后续修改时停止且不调用删除接口", async () => {
+  it("新增记录字段被后续修改时仍删除并回查确认已删除", async () => {
+    let present = true;
     let deleteCalled = false;
+    const requested: string[] = [];
     const server = createServer((request, response) => {
       const path = request.url ?? "";
+      requested.push(`${request.method ?? ""} ${path}`);
       if (path.includes("featureRole/findOne")) {
-        respond(response, { id: "role-1", code: "TEST_ROLE", name: "后续修改" });
+        respond(response, present
+          ? { id: "role-1", code: "TEST_ROLE", name: "后续修改" }
+          : null);
       } else if (path.includes("featureRole/delete")) {
         deleteCalled = true;
+        present = false;
         respond(response, true);
       } else {
         respond(response, null, 404);
@@ -424,12 +474,53 @@ describe("rollback 命令", () => {
         deleteMethod: "DELETE", status: "applied" }]
     });
 
-    await expect(
-      createProgram(configStore).parseAsync(["rollback", "conflict-operation"], { from: "user" })
-    ).rejects.toThrow("已被后续修改");
-    expect(deleteCalled).toBe(false);
+    await createProgram(configStore).parseAsync(["rollback", "conflict-operation"], { from: "user" });
+    expect(deleteCalled).toBe(true);
+    expect(requested.filter((item) => item.includes("featureRole/findOne"))).toHaveLength(2);
+    expect(requested.some((item) => item.startsWith("DELETE ") && item.includes("featureRole/delete/role-1"))).toBe(true);
     await expect(new OperationLogStore(directory).load("conflict-operation")).resolves.toMatchObject({
-      status: "rollback-failed"
+      status: "rolled-back"
+    });
+  });
+
+  it("删除接口返回成功但记录仍存在时回滚失败", async () => {
+    let deleteCalls = 0;
+    const server = createServer((request, response) => {
+      const path = request.url ?? "";
+      if (path.includes("feature/findOne")) {
+        respond(response, { id: "feature-1", code: "FEATURE_1" });
+      } else if (path.includes("feature/delete/feature-1")) {
+        deleteCalls += 1;
+        respond(response, true);
+      } else {
+        respond(response, null, 404);
+      }
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-verify-delete-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+    await new OperationLogStore(directory).save({
+      version: 1, id: "verify-delete-operation", command: "eadp apply feature",
+      environment: "global", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: "completed", actions: [{ id: "create-feature", type: "create-entity", service: "sei-basic",
+        resource: "feature", entityId: "feature-1", expected: { code: "FEATURE_1" },
+        deleteMethod: "DELETE", status: "applied" }]
+    });
+
+    await expect(
+      createProgram(configStore).parseAsync(["rollback", "verify-delete-operation"], { from: "user" })
+    ).rejects.toThrow("回滚后回查失败：feature/feature-1 仍然存在");
+    expect(deleteCalls).toBe(1);
+    await expect(new OperationLogStore(directory).load("verify-delete-operation")).resolves.toMatchObject({
+      status: "rollback-failed",
+      actions: [expect.objectContaining({ status: "applied" })]
     });
   });
 });

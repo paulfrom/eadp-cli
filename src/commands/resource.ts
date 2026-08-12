@@ -4,7 +4,7 @@ import { syncBpmFlow } from "../bpm/sync.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError } from "../errors.js";
-import { printJsonLine, printValue } from "../io.js";
+import { formatCompactNdjson, printJsonLine, printValue } from "../io.js";
 import {
   assertCanBeParent,
   filterMenus,
@@ -258,7 +258,8 @@ publicFlag=true（fieldType=java.lang.Boolean）；sync serial-number 不受此�
 configType 仅作为查询/同步筛选条件，不参与业务唯一键。选择 --entity-class 时，summary.identity
 输出全部匹配记录的复合键 values；缺少任一键字段会明确失败。
 
-输出：NDJSON；依次输出 meta、逐条 item 和最终 summary。`
+输出：默认 NDJSON（meta、逐条 item、summary）；使用 --output compact-ndjson 时首行是
+含 type/schema 的 meta，后续每条是含 type/key/v 的 schema 对齐 row。`
     )
     .action(async (resourceName: string, options: QueryOptions) => {
       const resolved = resolveEnvironment(await store.load(), options.env);
@@ -297,13 +298,17 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
         }
       }
       const client = createClient(resolved, options.service, runtime.timeoutMs);
-      await printJsonLine({
-        kind: "eadp.resource.query.meta.v1",
-        environment: resolved.name,
-        service: options.service,
-        resource: resourceName,
-        filters
-      });
+      const compactNdjson = runtime.output === "compact-ndjson";
+      const compactRows: ResourceRecord[] = [];
+      if (!compactNdjson) {
+        await printJsonLine({
+          kind: "eadp.resource.query.meta.v1",
+          environment: resolved.name,
+          service: options.service,
+          resource: resourceName,
+          filters
+        });
+      }
       const serialIdentities = serialQuery
         ? { keys: new Set<string>(), values: [] as SerialNumberIdentityValue[] }
         : undefined;
@@ -313,9 +318,25 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
         const menus = filterMenus(await loadMenus(client), filters, options.quick);
         for (const item of menus) {
           total += 1;
-          await printJsonLine({ kind: "eadp.resource.query.item.v1", index: total, item });
+          if (compactNdjson) {
+            compactRows.push(item);
+          } else {
+            await printJsonLine({ kind: "eadp.resource.query.item.v1", index: total, item });
+          }
         }
-        await printJsonLine({ kind: "eadp.resource.query.summary.v1", total });
+        if (compactNdjson) {
+          process.stdout.write(formatCompactNdjson(compactRows, {
+            meta: {
+              environment: resolved.name,
+              service: options.service,
+              resource: resourceName,
+              filters
+            },
+            count: total
+          }));
+        } else {
+          await printJsonLine({ kind: "eadp.resource.query.summary.v1", total });
+        }
         return;
       }
       if (queryResource.findAll) {
@@ -329,20 +350,37 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
             validateSerialNumberIdentityItem(serialIdentities, item);
           }
           total += 1;
-          await printJsonLine({
-            kind: "eadp.resource.query.item.v1",
-            index: total,
-            item
-          });
+          if (compactNdjson) {
+            compactRows.push(item);
+          } else {
+            await printJsonLine({
+              kind: "eadp.resource.query.item.v1",
+              index: total,
+              item
+            });
+          }
         }
         const identity = serialQuery
           ? buildSerialNumberIdentity(serialIdentities?.values ?? [], options.entityClass)
           : undefined;
-        await printJsonLine({
-          kind: "eadp.resource.query.summary.v1",
-          total,
-          ...(identity === undefined ? {} : { identity })
-        });
+        if (compactNdjson) {
+          process.stdout.write(formatCompactNdjson(compactRows, {
+            meta: {
+              environment: resolved.name,
+              service: options.service,
+              resource: resourceName,
+              filters,
+              ...(identity === undefined ? {} : { identity })
+            },
+            count: total
+          }));
+        } else {
+          await printJsonLine({
+            kind: "eadp.resource.query.summary.v1",
+            total,
+            ...(identity === undefined ? {} : { identity })
+          });
+        }
         return;
       }
       for await (const page of client.iterateByPage(queryResource.endpoint, {
@@ -354,21 +392,38 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
             validateSerialNumberIdentityItem(serialIdentities, item);
           }
           total += 1;
-          await printJsonLine({
-            kind: "eadp.resource.query.item.v1",
-            index: total,
-            item
-          });
+          if (compactNdjson) {
+            compactRows.push(item);
+          } else {
+            await printJsonLine({
+              kind: "eadp.resource.query.item.v1",
+              index: total,
+              item
+            });
+          }
         }
       }
       const identity = serialQuery
         ? buildSerialNumberIdentity(serialIdentities?.values ?? [], options.entityClass)
         : undefined;
-      await printJsonLine({
-        kind: "eadp.resource.query.summary.v1",
-        total,
-        ...(identity === undefined ? {} : { identity })
-      });
+      if (compactNdjson) {
+        process.stdout.write(formatCompactNdjson(compactRows, {
+          meta: {
+            environment: resolved.name,
+            service: options.service,
+            resource: resourceName,
+            filters,
+            ...(identity === undefined ? {} : { identity })
+          },
+          count: total
+        }));
+      } else {
+        await printJsonLine({
+          kind: "eadp.resource.query.summary.v1",
+          total,
+          ...(identity === undefined ? {} : { identity })
+        });
+      }
     });
 
   commands.sync
@@ -622,6 +677,15 @@ async function executeSync(
         desired.returnStrategy = targetRecord.returnStrategy;
       } else {
         delete desired.returnStrategy;
+      }
+    }
+    if (spec.name === "feature" && (desired.tenantCanUse === undefined || desired.tenantCanUse === null)) {
+      if (targetRecord === undefined) {
+        desired.tenantCanUse = true;
+      } else if ("tenantCanUse" in targetRecord) {
+        desired.tenantCanUse = targetRecord.tenantCanUse;
+      } else {
+        delete desired.tenantCanUse;
       }
     }
     if (targetRecord && typeof targetRecord.id === "string") {

@@ -12,9 +12,10 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 1. Run `eadp --help`.
 2. Run `eadp env list` and use only environment names configured there.
 3. Run the relevant subcommand help before constructing a command.
-4. Commands output JSON by default. `eadp query` streams NDJSON (`meta`, one `item` per record,
-   then `summary`); consume it line by line. For other commands, use root-level `--compact` when a
-   single-line result is needed: `eadp --compact <verb> ...`.
+4. Commands output JSON by default; `eadp query` defaults to NDJSON and streams (`meta`, one `item`
+   per record, then `summary`); consume it line by line. For a single-line result, use `--output compact`:
+   `eadp --output compact <verb> ...`. For query results where low-token NDJSON is useful, use
+   `--output compact-ndjson`.
 5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
 
 `env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
@@ -115,8 +116,7 @@ Load only the selected workflow unless the request combines workflows.
 - For cross-environment operations, preserve source/target direction exactly as requested.
 - Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
   Use it for every remote operation on CLI resources `app-module`, `menu`, `feature`, `feature-group`,
-  and `serial-number`, including query, apply, sync, generic `call`, and rollback. Their real backend
-  paths (`appModule`, `featureGroup`, and `serialNumberConfig`) are also covered by the same check.
+  and `serial-number`, including query, apply, sync, generic `call`, and rollback.
   Use a non-`global` environment for permission and position configuration/assignment, user queries,
   BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.
@@ -136,7 +136,7 @@ Load only the selected workflow unless the request combines workflows.
   never retry a failed request.
 - Never copy source database IDs into another environment. Use CLI-registered dependency mappings.
 - Never display Token values. Redact them if an external command exposes them unexpectedly.
-- Successful creates and assignments return an `operationId` and keep a local operation log for 30 days.
+- Successful creates and assignments return an `operationId` and keep a local operation log for 1 day.
   Run `eadp rollback <operation-id>` only when the user explicitly requests that rollback. It executes
   directly without `--apply`; never invent an operation ID or substitute raw delete/remove calls.
 

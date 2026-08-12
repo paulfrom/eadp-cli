@@ -101,6 +101,9 @@ const featureSpec: ResourceSpec = {
         desired[field] = source[field];
       }
     }
+    if (typeof desired.url === "string") {
+      desired.url = normalizeFeatureUrl(desired.url);
+    }
     desired.appModuleId = recordId(appModule, "目标环境应用模块");
     if (featureGroupId === undefined) {
       delete desired.featureGroupId;
@@ -108,6 +111,11 @@ const featureSpec: ResourceSpec = {
       desired.featureGroupId = featureGroupId;
     }
     return desired;
+  },
+  compareValue(record, field) {
+    return field === "url" && typeof record.url === "string"
+      ? normalizeFeatureUrl(record.url)
+      : record[field];
   }
 };
 
@@ -210,6 +218,12 @@ export function getResourceSpec(name: string): ResourceSpec {
 
 export function listResourceSpecs(): string[] {
   return [featureSpec.name, featureGroupSpec.name, menuSpec.name, serialNumberSpec.name];
+}
+
+function normalizeFeatureUrl(value: string): string {
+  const trimmed = value.trim();
+  const withoutBoundarySlashes = trimmed.replace(/^\/+|\/+$/g, "");
+  return withoutBoundarySlashes ? `/${withoutBoundarySlashes}` : "/";
 }
 
 function normalizeConfigItems(value: unknown): ResourceRecord[] {
