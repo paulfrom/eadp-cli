@@ -150,7 +150,7 @@ async function getDataValues(action: AssignDataValuesAction, env: ResolvedEnviro
 
 async function call(env: ResolvedEnvironment, timeoutMs: number, method: string, path: string,
   body?: unknown, query?: Record<string, string[]>): Promise<unknown> {
-  const response = await sendRequest({ baseUrl: env.config.baseUrl, token: env.token, method, path, timeoutMs,
+  const response = await sendRequest({ baseUrl: env.config.baseUrl, token: env.token, authorization: env.authorization, method, path, timeoutMs,
     ...(body === undefined ? {} : { body }), ...(query === undefined ? {} : { query }) });
   const envelope = response.data;
   if (!isRecord(envelope) || envelope.success !== true || !("data" in envelope)) {

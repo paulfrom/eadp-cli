@@ -22,7 +22,8 @@ export class ResourceClient {
   constructor(
     private readonly options: {
       baseUrl: string;
-      token: string;
+      token?: string | undefined;
+      authorization?: string | undefined;
       service: string;
       timeoutMs?: number;
     }
@@ -116,6 +117,7 @@ export class ResourceClient {
     const result = await sendRequest({
       baseUrl: this.options.baseUrl,
       token: this.options.token,
+      authorization: this.options.authorization,
       method,
       path: `/api-gateway/${this.options.service}/${path}`,
       ...(body === undefined ? {} : { body }),

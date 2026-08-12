@@ -141,7 +141,10 @@ async function callCatalog(
         method: endpoint.method,
         url: buildUrl(environment.config.baseUrl, endpoint.path, query).toString(),
         environment: environment.name,
-        headers: { "x-api-token": "***", "content-type": "application/json" },
+        headers: {
+          ...redactedAuthHeaders(environment.authorization),
+          "content-type": "application/json"
+        },
         body
       },
       runtime.compact
@@ -154,6 +157,7 @@ async function callCatalog(
     path: endpoint.path,
     method: endpoint.method,
     token: environment.token,
+    authorization: environment.authorization,
     query,
     body,
     timeoutMs: runtime.timeoutMs
@@ -186,7 +190,7 @@ async function callRaw(
         method: method.toUpperCase(),
         url: buildUrl(environment.config.baseUrl, path, query).toString(),
         environment: environment.name,
-        headers: { ...headers, "x-api-token": "***" },
+        headers: redactedAuthHeaders(environment.authorization, headers),
         body
       },
       runtime.compact
@@ -199,6 +203,7 @@ async function callRaw(
     path,
     method,
     token: environment.token,
+    authorization: environment.authorization,
     headers,
     query,
     body,
@@ -222,6 +227,23 @@ function bindEnvironmentTenantCode(
     throw new CliError("给号配置保存请求体必须是 JSON 对象");
   }
   return { ...(body as Record<string, unknown>), tenantCode };
+}
+
+function redactedAuthHeaders(
+  authorization: string | undefined,
+  headers: Record<string, string> = {}
+): Record<string, string> {
+  const redacted = Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) => !["authorization", "x-api-token"].includes(name.toLocaleLowerCase())
+    )
+  );
+  if (authorization) {
+    redacted.Authorization = "***";
+  } else {
+    redacted["x-api-token"] = "***";
+  }
+  return redacted;
 }
 
 function toApiSummary(endpoint: EndpointDefinition): Record<string, unknown> {

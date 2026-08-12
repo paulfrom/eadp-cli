@@ -4,7 +4,8 @@ import { readAllPages } from "../http/pagination.js";
 
 export interface BpmClientOptions {
   baseUrl: string;
-  token: string;
+  token?: string | undefined;
+  authorization?: string | undefined;
   timeoutMs?: number;
 }
 
@@ -71,6 +72,7 @@ export class BpmClient {
     const result = await sendRequest({
       baseUrl: this.options.baseUrl,
       token: this.options.token,
+      authorization: this.options.authorization,
       method,
       path: `/api-gateway/sei-bpm/${path}`,
       ...(body === undefined ? {} : { body }),

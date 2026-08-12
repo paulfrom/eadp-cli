@@ -79,6 +79,7 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       const client = new BpmClient({
         baseUrl: resolved.config.baseUrl,
         token: resolved.token,
+        authorization: resolved.authorization,
         timeoutMs: runtime.timeoutMs
       });
       const remote = {

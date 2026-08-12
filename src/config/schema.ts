@@ -5,10 +5,11 @@ export const environmentSchema = z
     baseUrl: z.url(),
     token: z.string().min(1).optional(),
     tokenEnv: z.string().min(1).optional(),
+    authorization: z.string().min(1).optional(),
     tenantCode: z.string().min(1).optional()
   })
-  .refine((environment) => Boolean(environment.token) !== Boolean(environment.tokenEnv), {
-    message: "环境必须且只能配置 token 或 tokenEnv"
+  .refine((environment) => !(environment.token && environment.tokenEnv), {
+    message: "环境不能同时配置 token 和 tokenEnv"
   });
 
 export const configSchema = z.object({

@@ -38,6 +38,28 @@ describe("sendRequest", () => {
     expect(result.data).toEqual({ success: true, data: { id: "ok" } });
   });
 
+  it("Authorization 优先于 Token，并移除 x-api-token", async () => {
+    let capturedAuthorization = "";
+    let capturedToken: string | undefined;
+    const baseUrl = await listen(async (request) => {
+      capturedAuthorization = String(request.headers.authorization);
+      capturedToken = request.headers["x-api-token"];
+      return { success: true, data: { id: "ok" } };
+    });
+
+    await sendRequest({
+      baseUrl,
+      path: "/api/implicit",
+      method: "GET",
+      token: "display-token",
+      authorization: "Bearer implicit-secret",
+      headers: { "x-api-token": "stale-token" }
+    });
+
+    expect(capturedAuthorization).toBe("Bearer implicit-secret");
+    expect(capturedToken).toBeUndefined();
+  });
+
   it("EADP success=false 时返回失败且不泄露 Token", async () => {
     const baseUrl = await listen(async () => ({
       success: false,

@@ -68,6 +68,45 @@ describe("call 原始请求", () => {
     expect(JSON.parse(capturedBody)).toEqual({ name: "岗位类别" });
   });
 
+  it("Authorization-only 环境发送 Authorization 且不发送 x-api-token", async () => {
+    let capturedAuthorization: string | undefined;
+    let capturedToken: string | undefined;
+    const server = createServer((_request, response) => {
+      capturedAuthorization = _request.headers.authorization;
+      capturedToken = _request.headers["x-api-token"];
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"success":true}');
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("测试服务器启动失败");
+    }
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-request-auth-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(join(directory, "config"));
+    await store.save({
+      currentEnvironment: "implicit",
+      environments: {
+        implicit: {
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          tenantCode: "tenant-a",
+          authorization: "Bearer implicit-secret"
+        }
+      }
+    });
+
+    await createProgram(store).parseAsync(
+      ["call", "GET", "/api/save"],
+      { from: "user" }
+    );
+
+    expect(capturedAuthorization).toBe("Bearer implicit-secret");
+    expect(capturedToken).toBeUndefined();
+  });
+
   it("非 global 环境不能通过原始 call 绕过功能项的 global 限制", async () => {
     let requestCount = 0;
     const server = createServer((_request, response) => {

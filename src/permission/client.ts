@@ -4,7 +4,8 @@ import { readAllPages } from "../http/pagination.js";
 
 export interface PermissionClientOptions {
   baseUrl: string;
-  token: string;
+  token?: string | undefined;
+  authorization?: string | undefined;
   timeoutMs?: number;
 }
 
@@ -392,6 +393,7 @@ export class PermissionClient {
     const result = await sendRequest({
       baseUrl: this.options.baseUrl,
       token: this.options.token,
+      authorization: this.options.authorization,
       method,
       path: `/api-gateway/sei-basic/${path}`,
       ...(body === undefined ? {} : { body }),

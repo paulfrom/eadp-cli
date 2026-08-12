@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
 
@@ -149,6 +149,32 @@ describe("env add", () => {
       })
     ).rejects.toThrow("环境不存在：missing");
     expect((await store.load()).currentEnvironment).toBe("dev");
+  });
+
+  it("env list 显示 Authorization 认证来源且不泄露凭证", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-list-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "implicit",
+      environments: {
+        implicit: {
+          baseUrl: "http://implicit.example.com",
+          tenantCode: "tenant-a",
+          authorization: "Bearer should-not-leak"
+        }
+      }
+    });
+
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await createProgram(store).parseAsync(["env", "list"], { from: "user" });
+      const output = write.mock.calls.map(([value]) => String(value)).join("");
+      expect(output).toContain('"tokenSource": "config:authorization"');
+      expect(output).not.toContain("should-not-leak");
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 

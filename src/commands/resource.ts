@@ -533,11 +533,13 @@ async function executeSync(
       sourceClient: new BpmClient({
         baseUrl: source.config.baseUrl,
         token: source.token,
+        authorization: source.authorization,
         timeoutMs: runtime.timeoutMs
       }),
       targetClient: new BpmClient({
         baseUrl: target.config.baseUrl,
         token: target.token,
+        authorization: target.authorization,
         timeoutMs: runtime.timeoutMs
       }),
       sourceEnvironment: source.name,
@@ -860,6 +862,7 @@ function createClient(
   return new ResourceClient({
     baseUrl: environment.config.baseUrl,
     token: environment.token,
+    authorization: environment.authorization,
     service,
     timeoutMs
   });

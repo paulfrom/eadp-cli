@@ -4,7 +4,8 @@ import type { EadpConfig, EnvironmentConfig } from "./schema.js";
 export interface ResolvedEnvironment {
   name: string;
   config: EnvironmentConfig;
-  token: string;
+  token?: string;
+  authorization?: string;
 }
 
 export function resolveEnvironment(
@@ -20,12 +21,19 @@ export function resolveEnvironment(
   if (!environment) {
     throw new CliError(`环境不存在：${name}`);
   }
+
+  // Authorization is the implicit credential and takes precedence over a
+  // configured token (or tokenEnv) when both are present.
+  if (environment.authorization) {
+    return { name, config: environment, authorization: environment.authorization };
+  }
+
   const token = environment.token ?? environmentVariables[environment.tokenEnv!];
   if (!token) {
     throw new CliError(
       environment.tokenEnv
         ? `环境 ${name} 引用的环境变量未设置：${environment.tokenEnv}`
-        : `环境 ${name} 没有可用 Token`
+        : `环境 ${name} 未配置可用认证，请在配置文件中设置 authorization，或配置 token/tokenEnv`
     );
   }
   return { name, config: environment, token };

@@ -4,7 +4,8 @@ export interface RequestOptions {
   baseUrl: string;
   path: string;
   method: string;
-  token: string;
+  token?: string | undefined;
+  authorization?: string | undefined;
   headers?: Record<string, string>;
   query?: Record<string, string[]>;
   body?: unknown;
@@ -36,7 +37,14 @@ export function buildUrl(
 export async function sendRequest(options: RequestOptions): Promise<ResponseResult> {
   const url = buildUrl(options.baseUrl, options.path, options.query);
   const headers = new Headers(options.headers);
-  headers.set("x-api-token", options.token);
+  if (options.authorization) {
+    // Authorization is the implicit credential and must never be sent
+    // alongside the legacy x-api-token credential.
+    headers.delete("x-api-token");
+    headers.set("authorization", options.authorization);
+  } else if (options.token) {
+    headers.set("x-api-token", options.token);
+  }
   headers.set("accept", "application/json");
   if (options.body !== undefined && !headers.has("content-type")) {
     headers.set("content-type", "application/json");

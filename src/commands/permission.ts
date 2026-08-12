@@ -1551,6 +1551,7 @@ async function createContext(
     client: new PermissionClient({
       baseUrl: resolved.config.baseUrl,
       token: resolved.token,
+      authorization: resolved.authorization,
       timeoutMs: runtime.timeoutMs
     })
   };
@@ -1575,6 +1576,7 @@ async function createGlobalContext(
     client: new PermissionClient({
       baseUrl: resolved.config.baseUrl,
       token: resolved.token,
+      authorization: resolved.authorization,
       timeoutMs: runtime.timeoutMs
     })
   };

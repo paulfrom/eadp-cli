@@ -71,7 +71,13 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
           baseUrl: item.baseUrl,
           tenantCode: item.tenantCode ?? null,
           default: config.currentEnvironment === name,
-          tokenSource: item.tokenEnv ? `env:${item.tokenEnv}` : "config:***"
+          tokenSource: item.authorization
+            ? "config:authorization"
+            : item.tokenEnv
+              ? `env:${item.tokenEnv}`
+              : item.token
+                ? "config:token"
+                : "unconfigured"
         })),
         getRuntimeOptions(program).compact
       );
