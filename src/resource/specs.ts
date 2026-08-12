@@ -5,13 +5,8 @@ export interface ResourceSpec {
   name: string;
   service: string;
   endpoint: string;
-  /**
-   * Fields that together form the resource's business identity.  The
-   * legacy identityField is retained for single-field resources while
-   * identityFields allows composite keys such as serial-number configs.
-   */
-  identityField: string;
-  identityFields?: string[];
+  /** Fields that together form the resource's business identity. */
+  identityFields: string[];
   writableFields: string[];
   preserveTargetFields?: string[];
   toDesired(
@@ -71,7 +66,7 @@ const featureSpec: ResourceSpec = {
   name: "feature",
   service: "sei-basic",
   endpoint: "feature",
-  identityField: "code",
+  identityFields: ["code"],
   writableFields: featureWritableFields,
   preserveTargetFields: ["specialProjectId"],
   async toDesired(source, targetClient) {
@@ -122,7 +117,7 @@ const featureGroupSpec: ResourceSpec = {
   name: "feature-group",
   service: "sei-basic",
   endpoint: "featureGroup",
-  identityField: "code",
+  identityFields: ["code"],
   writableFields: featureGroupWritableFields,
   async toDesired(source, targetClient) {
     const appModuleCode = requiredString(
@@ -168,7 +163,6 @@ const serialNumberSpec: ResourceSpec = {
   name: "serial-number",
   service: "sei-basic",
   endpoint: "serialNumberConfig",
-  identityField: "entityClassName",
   identityFields: ["entityClassName", "tenantCode"],
   writableFields: serialNumberWritableFields,
   async toDesired(source, _targetClient, context) {
@@ -190,7 +184,7 @@ const menuSpec: ResourceSpec = {
   name: "menu",
   service: "sei-basic",
   endpoint: "menu",
-  identityField: "code",
+  identityFields: ["code"],
   writableFields: ["name", "rank", "iconCls", "parentCode", "featureCode"],
   async toDesired() {
     throw new CliError("menu 使用树形专用同步工作流");
@@ -200,9 +194,7 @@ const menuSpec: ResourceSpec = {
 const specs = new Map<string, ResourceSpec>([
   [featureSpec.name, featureSpec],
   [featureGroupSpec.name, featureGroupSpec],
-  ["featureGroup", featureGroupSpec],
   [serialNumberSpec.name, serialNumberSpec],
-  ["serialNumberConfig", serialNumberSpec],
   [menuSpec.name, menuSpec]
 ]);
 
@@ -210,7 +202,7 @@ export function getResourceSpec(name: string): ResourceSpec {
   const spec = specs.get(name);
   if (!spec) {
     throw new CliError(
-      `资源 ${name} 尚未注册同步规则；当前支持：${[...specs.keys()].join(", ")}`
+      `资源 ${name} 尚未注册同步规则；当前支持：${listResourceSpecs().join(", ")}`
     );
   }
   return spec;

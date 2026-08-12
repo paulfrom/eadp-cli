@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("apply feature-group 与 appModule", () => {
-  it("query appModule/app-module 仅允许 global，且按 code 过滤", async () => {
+  it("query app-module 仅允许 global，且按 code 过滤", async () => {
     const requests: string[] = [];
     const fixture = await createFixture({
       onRequest: async (request, response) => {
@@ -48,54 +48,60 @@ describe("apply feature-group 与 appModule", () => {
       .toEqual(["ams"]);
     expect(events.at(-1)).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
 
-    await fixture.store.update((config) => {
-      config.environments.global!.tenantCode = "tenant-a";
-    });
     requests.length = 0;
     await expect(
       createProgram(fixture.store).parseAsync(
         ["query", "appModule", "--env", "global", "--filter", "code:EQ:ams"],
         { from: "user" }
       )
+    ).rejects.toThrow("app-module");
+    expect(requests).toHaveLength(0);
+
+    await fixture.store.update((config) => {
+      config.environments.global!.tenantCode = "tenant-a";
+    });
+    requests.length = 0;
+    await expect(
+      createProgram(fixture.store).parseAsync(
+        ["query", "app-module", "--env", "global", "--filter", "code:EQ:ams"],
+        { from: "user" }
+      )
     ).rejects.toThrow("必须使用 global 租户");
     expect(requests).toHaveLength(0);
   });
 
-  it.each(["feature-group", "featureGroup"])(
-    "query %s uses findAll and applies LIKE/quick filters locally",
-    async (resource) => {
-      const requests: string[] = [];
-      const fixture = await createFixture({
-        onRequest: async (request, response) => {
-          requests.push(request.url ?? "");
-          if ((request.url ?? "").includes("/featureGroup/findAll")) {
-            respond(response, [
-              { id: "group-1", code: "AMS_ORDER", name: "采购订单" },
-              { id: "group-2", code: "AMS_OTHER", name: "其他功能" }
-            ]);
-            return;
-          }
-          respond(response, undefined, 404);
+  it("query feature-group uses findAll and applies LIKE/quick filters locally", async () => {
+    const requests: string[] = [];
+    const fixture = await createFixture({
+      onRequest: async (request, response) => {
+        requests.push(request.url ?? "");
+        if ((request.url ?? "").includes("/featureGroup/findAll")) {
+          respond(response, [
+            { id: "group-1", code: "AMS_ORDER", name: "采购订单" },
+            { id: "group-2", code: "AMS_OTHER", name: "其他功能" }
+          ]);
+          return;
         }
-      });
-      const output = captureOutput();
+        respond(response, undefined, 404);
+      }
+    });
+    const output = captureOutput();
 
-      await createProgram(fixture.store).parseAsync(
-        [
-          "query", resource, "--env", "global",
-          "--filter", "code:LIKE:ams", "--quick", "采购"
-        ],
-        { from: "user" }
-      );
+    await createProgram(fixture.store).parseAsync(
+      [
+        "query", "feature-group", "--env", "global",
+        "--filter", "code:LIKE:ams", "--quick", "采购"
+      ],
+      { from: "user" }
+    );
 
-      expect(requests).toHaveLength(1);
-      expect(requests[0]).toContain("/featureGroup/findAll");
-      const events = output.text().trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-      expect(events.filter((event) => event.kind === "eadp.resource.query.item.v1").map((event) => event.item.code))
-        .toEqual(["AMS_ORDER"]);
-      expect(events.at(-1)).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
-    }
-  );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain("/featureGroup/findAll");
+    const events = output.text().trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    expect(events.filter((event) => event.kind === "eadp.resource.query.item.v1").map((event) => event.item.code))
+      .toEqual(["AMS_ORDER"]);
+    expect(events.at(-1)).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
+  });
 
   it("缺失模块时预览显示 create、推断名称和默认 rank，且不写入", async () => {
     let saveCount = 0;
@@ -402,16 +408,20 @@ function respond(response: ServerResponse, data: unknown, status = 200): void {
 }
 
 async function loadOperationRecords(directory: string): Promise<import("../src/operations/store.js").OperationRecord[]> {
-  const values: import("../src/operations/store.js").OperationRecord[] = [];
+  const values = new Map<string, import("../src/operations/store.js").OperationRecord>();
   const operationsDirectory = join(directory, "operations");
   let names: string[];
   try {
     names = await readdir(operationsDirectory);
   } catch {
-    return values;
+    return [];
   }
-  for (const name of names.filter((item) => item.endsWith(".json"))) {
-    values.push(JSON.parse(await readFile(join(operationsDirectory, name), "utf8")));
+  for (const name of names.filter((item) => item.endsWith(".jsonl")).sort()) {
+    const contents = await readFile(join(operationsDirectory, name), "utf8");
+    for (const line of contents.split("\n").filter(Boolean)) {
+      const record = JSON.parse(line) as import("../src/operations/store.js").OperationRecord;
+      values.set(record.id, record);
+    }
   }
-  return values;
+  return [...values.values()];
 }

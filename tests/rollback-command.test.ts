@@ -16,6 +16,201 @@ afterEach(async () => {
 });
 
 describe("rollback 命令", () => {
+  it("多个 operationId 按成功完成时间倒序回滚", async () => {
+    const entities = new Map([
+      ["featureGroup/group-1", { id: "group-1", code: "GROUP" }],
+      ["feature/feature-1", { id: "feature-1", code: "FEATURE" }],
+      ["menu/menu-1", { id: "menu-1", code: "MENU" }]
+    ]);
+    const deleted: string[] = [];
+    const server = createServer((request, response) => {
+      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      const match = path.match(/\/(featureGroup|feature|menu)\/(findOne|delete\/([^/]+))$/);
+      if (!match) return respond(response, null, 404);
+      const resource = match[1]!;
+      if (match[2] === "findOne") {
+        const id = new URL(request.url ?? "/", "http://localhost").searchParams.get("id")!;
+        return respond(response, entities.get(`${resource}/${id}`) ?? null);
+      }
+      const id = match[3]!;
+      deleted.push(`${resource}/${id}`);
+      entities.delete(`${resource}/${id}`);
+      respond(response, true);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-batch-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+    const logs = new OperationLogStore(directory);
+    for (const operation of [
+      { id: "group-operation", resource: "featureGroup", entityId: "group-1", completedAt: "2026-08-12T01:00:00.000Z" },
+      { id: "feature-operation", resource: "feature", entityId: "feature-1", completedAt: "2026-08-12T01:01:00.000Z" },
+      { id: "menu-operation", resource: "menu", entityId: "menu-1", completedAt: "2026-08-12T01:02:00.000Z" }
+    ] as const) {
+      await logs.save({
+        version: 1, id: operation.id, command: `eadp apply ${operation.resource}`,
+        environment: "global", createdAt: "2026-08-12T00:00:00.000Z",
+        updatedAt: operation.completedAt, completedAt: operation.completedAt, status: "completed",
+        actions: [{ id: `${operation.id}-create`, type: "create-entity", service: "sei-basic",
+          resource: operation.resource, entityId: operation.entityId, expected: { code: entities.get(`${operation.resource}/${operation.entityId}`)!.code },
+          deleteMethod: "DELETE", status: "applied" }]
+      });
+    }
+
+    await createProgram(configStore).parseAsync([
+      "rollback", "feature-operation", "group-operation", "menu-operation"
+    ], { from: "user" });
+
+    expect(deleted).toEqual(["menu/menu-1", "feature/feature-1", "featureGroup/group-1"]);
+  });
+
+  it("批量回滚任一 operation 失败后不再回滚更早完成的操作", async () => {
+    const deleted: string[] = [];
+    let menuExists = true;
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/menu/findOne")) {
+        return respond(response, menuExists ? { id: "menu-1", code: "MENU" } : null);
+      }
+      if (url.pathname.endsWith("/menu/delete/menu-1")) {
+        deleted.push("menu");
+        menuExists = false;
+        return respond(response, true);
+      }
+      if (url.pathname.endsWith("/feature/findOne")) return respond(response, { id: "feature-1", code: "MODIFIED" });
+      if (url.pathname.endsWith("/featureGroup/findOne")) return respond(response, { id: "group-1", code: "GROUP" });
+      if (url.pathname.includes("/delete/")) deleted.push(url.pathname);
+      respond(response, null, 404);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-batch-stop-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+    const logs = new OperationLogStore(directory);
+    for (const operation of [
+      { id: "old-group", resource: "featureGroup", entityId: "group-1", code: "GROUP", completedAt: "2026-08-12T01:00:00.000Z" },
+      { id: "middle-feature", resource: "feature", entityId: "feature-1", code: "FEATURE", completedAt: "2026-08-12T01:01:00.000Z" },
+      { id: "new-menu", resource: "menu", entityId: "menu-1", code: "MENU", completedAt: "2026-08-12T01:02:00.000Z" }
+    ] as const) {
+      await logs.save({ version: 1, id: operation.id, command: "test", environment: "global",
+        createdAt: "2026-08-12T00:00:00.000Z", updatedAt: operation.completedAt,
+        completedAt: operation.completedAt, status: "completed", actions: [{ id: `${operation.id}-create`,
+          type: "create-entity", service: "sei-basic", resource: operation.resource,
+          entityId: operation.entityId, expected: { code: operation.code }, deleteMethod: "DELETE", status: "applied" }]
+      });
+    }
+
+    await expect(createProgram(configStore).parseAsync([
+      "rollback", "old-group", "new-menu", "middle-feature"
+    ], { from: "user" })).rejects.toThrow("已被后续修改");
+    expect(deleted).toEqual(["menu"]);
+    await expect(logs.load("old-group")).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("批量回滚拒绝重复 operationId 且不发起远端请求", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      respond(response, null);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-duplicate-id-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+
+    await expect(createProgram(configStore).parseAsync([
+      "rollback", "duplicate-operation", "duplicate-operation"
+    ], { from: "user" })).rejects.toThrow("重复 operation-id");
+    expect(requestCount).toBe(0);
+  });
+
+  it("批量回滚拒绝相同 completedAt 且不发起远端请求", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      respond(response, null);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-same-time-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+    const logs = new OperationLogStore(directory);
+    const completedAt = "2026-08-12T01:00:00.000Z";
+    for (const [id, entityId] of [["same-time-a", "feature-a"], ["same-time-b", "feature-b"]] as const) {
+      await logs.save({ version: 1, id, command: "test", environment: "global",
+        createdAt: "2026-08-12T00:00:00.000Z", updatedAt: completedAt, completedAt,
+        status: "completed", actions: [{ id: `${id}-create`, type: "create-entity", service: "sei-basic",
+          resource: "feature", entityId, expected: { code: entityId.toUpperCase() }, deleteMethod: "DELETE", status: "applied" }] });
+    }
+
+    await expect(createProgram(configStore).parseAsync([
+      "rollback", "same-time-a", "same-time-b"
+    ], { from: "user" })).rejects.toThrow("completedAt 唯一");
+    expect(requestCount).toBe(0);
+  });
+
+  it("批量回滚预检所有操作的租户范围，混合租户动作零远端请求", async () => {
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      respond(response, { id: "entity", code: "ENTITY" });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-mixed-tenant-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "global", environments: {
+      global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
+    }});
+    const logs = new OperationLogStore(directory);
+    await logs.save({ version: 1, id: "new-global", command: "test", environment: "global",
+      createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T01:02:00.000Z",
+      completedAt: "2026-08-12T01:02:00.000Z", status: "completed", actions: [{ id: "global-create",
+        type: "create-entity", service: "sei-basic", resource: "feature", entityId: "feature-1",
+        expected: { code: "FEATURE" }, deleteMethod: "DELETE", status: "applied" }] });
+    await logs.save({ version: 1, id: "old-non-global", command: "test", environment: "global",
+      createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T01:01:00.000Z",
+      completedAt: "2026-08-12T01:01:00.000Z", status: "completed", actions: [{ id: "non-global-create",
+        type: "create-entity", service: "sei-basic", resource: "featureRole", entityId: "role-1",
+        expected: { code: "ROLE" }, deleteMethod: "DELETE", status: "applied" }] });
+
+    await expect(createProgram(configStore).parseAsync([
+      "rollback", "old-non-global", "new-global"
+    ], { from: "user" })).rejects.toThrow("必须使用非 global 租户");
+    expect(requestCount).toBe(0);
+  });
+
   it("回滚全局资源时先校验 tenantCode，非 global 环境零远端请求", async () => {
     let requestCount = 0;
     const server = createServer((_request, response) => {

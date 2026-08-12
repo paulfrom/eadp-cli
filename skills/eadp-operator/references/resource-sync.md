@@ -9,8 +9,8 @@ Use this workflow for requests such as:
 
 Menu, feature, feature-group, and serial-number synchronization is a global-administrator
 operation: both source and target must record `tenantCode === "global"`. The CLI enforces this
-before any remote read, including the `feature-group`/`featureGroup` and
-`serial-number`/`serialNumberConfig` spellings.
+before any remote read. The canonical CLI names `feature-group` and `serial-number` map to the
+backend endpoints `featureGroup` and `serialNumberConfig`.
 
 1. Run `eadp inspect resource --help` and `eadp sync --help`.
 2. Confirm the source and target environment names are distinct.
@@ -128,6 +128,10 @@ eadp sync feature-group --source A --target B --code ISRM-PA-OLD-2 --apply
   changes parent, including when it moves to the root. Never change an existing parent through `save`.
 - Menu sync does not support creation-time filters because the authoritative read endpoint is the
   complete tree endpoint, not `findByPage`.
+- Preserve the project menu hierarchy during synchronization: one level-1 menu represents the
+  application, level-2 menus classify business modules, and only level-3 menus may bind a
+  `featureCode`. Reuse the target project's unique level-1 menu; never create a duplicate root or
+  attach a feature directly to a level-1 or level-2 menu.
 
 Preview and then apply a menu subtree:
 
@@ -135,6 +139,57 @@ Preview and then apply a menu subtree:
 eadp sync menu --source A --target B --code PURCHASE
 eadp sync menu --source A --target B --code PURCHASE --apply
 ```
+
+## Menu creation semantics
+
+New menu nodes must follow one explicit three-level hierarchy for each project:
+
+- Level 1 is the single application menu for that project. A project must not have a second
+  level-1 menu.
+- Level 2 contains business-module categories below that application menu. It has no
+  `featureCode`.
+- Level 3 contains the menu that matches/binds a feature item. Only this level may carry a
+  `featureCode`; a feature must never be attached directly to level 1 or level 2. Do not introduce
+  a deeper level for a new menu.
+
+Before constructing any write, perform these read-only checks in the selected global environment:
+
+The selected `<global-env>` must record `tenantCode === "global"`; if it does not, stop before
+reading menu or feature data.
+
+1. Run `eadp query menu --env <global-env>` and inspect the flattened `parentCode` tree. Resolve the
+   project's application menu by the project's known application identity and exact menu `code`.
+   If exactly one level-1 menu exists, reuse its code. If more than one candidate exists, stop and
+   ask the user to choose; if none exists, plan at most one new level-1 menu only after confirming
+   that the project has no application menu. Never create a duplicate root.
+2. Resolve the application/module identity with a read-only query such as
+   `eadp query app-module --env <global-env> --filter code:EQ:<app-code>`. Query the relevant feature
+   with `eadp query feature --env <global-env> --filter code:EQ:<feature-code>` (and verify its
+   application module when applicable). Stop on a missing or ambiguous identity; do not guess.
+3. Under the reused level-1 code, find the requested business-module category in the menu tree.
+   Reuse one exact level-2 `code`; if it is absent, plan one level-2 menu with that level-1
+   `--parent-code`. Confirm the level-2 candidate has no `featureCode` before using it as a parent.
+4. For a feature-bound menu, require the level-2 code as its explicit `--parent-code` and the
+   uniquely resolved feature code as `--feature-code`. Reject any plan that omits the parent or
+   puts the feature on the level-1/level-2 menu.
+
+Create only in parent-before-child order. Preview each planned command without `--apply`, review
+the complete create set, and add `--apply` only after explicit authorization:
+
+```text
+# Only when the read-only check proved that the project has no level-1 menu:
+eadp apply menu --env A --name <application> --code <application-menu-code>
+
+# Only when the business-module category is missing:
+eadp apply menu --env A --name <module-category> --code <module-menu-code> --parent-code <application-menu-code>
+
+# A feature-bound menu is always level 3:
+eadp apply menu --env A --name <feature-menu> --code <feature-menu-code> --parent-code <module-menu-code> --feature-code <feature-code>
+```
+
+If any read-only query or CLI call fails, stop immediately and report the failure; do not retry or
+continue to a child write. Successful creates remain preview/apply operations, require post-write
+verification, and return an `operationId`.
 
 To create one menu, preview and then apply the dedicated command:
 

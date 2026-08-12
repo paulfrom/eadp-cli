@@ -104,11 +104,8 @@ interface ApplyFeatureOptions extends CommonOptions {
 interface ApplyFeatureGroupOptions extends CommonOptions {
   code: string;
   name: string;
-  app?: string;
-  appCode?: string;
-  moduleCode?: string;
+  appCode: string;
   project?: string;
-  projectPath?: string;
   rank: number;
   apply?: boolean;
 }
@@ -279,11 +276,8 @@ export function registerPermissionCommands(
     .description("只创建功能项组；同 code 已存在时跳过，默认只预览")
     .requiredOption("--code <code>", "功能项组代码")
     .requiredOption("--name <name>", "功能项组名称")
-    .option("--app-code <code>", "应用模块代码（必须明确指定）")
-    .option("--module-code <code>", "应用模块代码（--app-code 的别名）")
-    .option("--app <code>", "应用模块代码（--app-code 的兼容别名）")
+    .requiredOption("--app-code <code>", "应用模块代码")
     .option("--project <path>", "业务项目路径；用于推断新应用模块名称，默认当前路径")
-    .option("--project-path <path>", "业务项目路径（--project 的别名）")
     .option("--rank <number>", "新应用模块排序号", parsePositiveInteger, 1)
     .option("--env <name>", "global 环境名称；默认使用当前环境")
     .option("--apply", "执行创建；默认只预览")
@@ -1297,10 +1291,10 @@ async function applyFeatureGroup(
   const context = await createGlobalContext(store, options, root);
   const code = options.code.trim();
   const name = options.name.trim();
-  const appCode = resolveAppCode(options);
+  const appCode = options.appCode.trim();
   if (!code) throw new CliError("功能项组代码不能为空");
   if (!name) throw new CliError("功能项组名称不能为空");
-  if (!appCode) throw new CliError("必须明确指定应用模块 code（--app-code）");
+  if (!appCode) throw new CliError("应用模块 code 不能为空");
 
   // This is intentionally the first and only lookup on the unchanged path.
   // It prevents an existing group from causing any app-module read or write.
@@ -1340,7 +1334,7 @@ async function applyFeatureGroup(
   // and rank, and an unrelated/unreadable project must not block reuse.
   const inferred = appModule
     ? undefined
-    : await inferProjectModuleName(options.projectPath ?? options.project ?? process.cwd());
+    : await inferProjectModuleName(options.project ?? process.cwd());
   const moduleName = inferred?.name ?? (typeof appModule?.name === "string" ? appModule.name : "");
   const moduleRank = appModule?.rank ?? options.rank;
   const moduleDesired: PermissionRecord = {
@@ -1478,17 +1472,6 @@ async function applyFeatureGroup(
       : "";
     throw new CliError(`${error instanceof Error ? error.message : String(error)}${suffix}`);
   }
-}
-
-function resolveAppCode(options: ApplyFeatureGroupOptions): string {
-  const values = [options.appCode, options.moduleCode, options.app]
-    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-    .map((value) => value.trim());
-  const unique = [...new Set(values.map((value) => value.toLocaleLowerCase()))];
-  if (unique.length > 1) {
-    throw new CliError("--app-code、--module-code 和 --app 必须指定相同的应用模块 code");
-  }
-  return values[0] ?? "";
 }
 
 function sameFields(

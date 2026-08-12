@@ -28,7 +28,9 @@ export class OperationRecorder {
 
   async complete(): Promise<string | undefined> {
     if (!this.hasActions) return undefined;
+    const completedAt = new Date().toISOString();
     this.record.status = "completed";
+    this.record.completedAt = completedAt;
     delete this.record.error;
     await this.persist();
     return this.operationId;

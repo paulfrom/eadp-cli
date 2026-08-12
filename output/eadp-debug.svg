@@ -1,0 +1,481 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1640" width="1400" height="1640" data-generator="fireworks-tech-graph" data-schema-version="1" data-text-metrics="heuristic-v1" data-style-id="10" data-visual-theme="Cloud Fabric" data-diagram-type="deployment" data-motion-scene="" data-semantic-profile="cloud-fabric" data-semantic-valid="true" data-quality-profile="showcase" data-max-bends-per-edge="12" data-max-total-bends="120" data-max-route-stretch="4.0" data-max-bridged-crossings="30" data-min-node-gap="40.0" data-min-container-gutter="20.0" data-min-label-clearance="4.0" data-min-segment-length="0.0">
+  <defs>
+    <marker id="arrowA" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowB" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/>
+    </marker>
+    <marker id="arrowC" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#0891b2"/>
+    </marker>
+    <marker id="arrowE" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#059669"/>
+    </marker>
+    <marker id="arrowF" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#db2777"/>
+    </marker>
+    <marker id="arrowH" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <filter id="shadowSoft" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <filter id="shadowGlass" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+    <linearGradient id="cloudGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fcff"/>
+      <stop offset="100%" stop-color="#dfedf7"/>
+    </linearGradient>
+    <pattern id="cloudGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#7fa3c2" stroke-opacity="0.10" stroke-width="1"/>
+    </pattern>
+    <style>
+    text { font-family: Inter, 'Helvetica Neue', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 27px; font-weight: 700; fill: #102a43; }
+    .subtitle { font-size: 13px; font-weight: 500; fill: #52718d; }
+    .section { font-size: 13px; font-weight: 700; fill: #315d7e; letter-spacing: 1.4px; }
+    .section-sub { font-size: 12px; font-weight: 500; fill: #7892a8; }
+    .node-title { font-weight: 700; fill: #102a43; }
+    .node-sub { font-size: 12px; font-weight: 500; fill: #486581; }
+    .node-type { font-size: 10px; font-weight: 700; fill: #6b879d; letter-spacing: 0.08em; }
+    .arrow-label { font-size: 12px; font-weight: 600; fill: #334e68; }
+    .legend { font-size: 12px; font-weight: 500; fill: #486581; }
+    .footnote { font-size: 12px; font-weight: 500; fill: #829ab1; }
+    .metric-label { font-size: 8.5px; font-weight: 700; fill: #829ab1; text-transform: uppercase; }
+    .metric-value { font-size: 9.5px; font-weight: 700; fill: #102a43; }
+    </style>
+  </defs>
+  <rect data-graph-role="background" width="1400.0" height="1640.0" fill="url(#cloudGradient)"/>
+  <rect data-graph-role="decoration" width="1400.0" height="1640.0" fill="url(#cloudGrid)"/>
+  <text x="48.0" y="48" text-anchor="start" class="title">EADP CLI 架构与用户操作数据流</text>
+  <text x="48.0" y="72" text-anchor="start" class="subtitle">本地命令工具 → EADP 远端环境 · Cloud Fabric 风格 · ①—⑨ 为查询类操作的数据流顺序</text>
+  <g id="style-signature" data-graph-role="decoration" data-style-signature="cloud-ownership-map">
+    <rect x="1176.0" y="22.0" width="176.0" height="34.0" rx="9" fill="#ffffff" fill-opacity="0.82" stroke="#7fa3c2" stroke-width="1.1"/>
+    <rect x="1187.0" y="31.0" width="14" height="14" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1"/>
+    <rect x="1196.0" y="35.0" width="14" height="14" rx="4" fill="#dcfce7" stroke="#059669" stroke-width="1"/>
+    <text data-full-text="PROVIDER-NEUTRAL · 7 REGIONS" x="1219.0" y="36.0" font-size="7.43" font-weight="800" fill="#315d7e">PROVIDER-NEUTRAL · 7 REGIONS</text>
+    <text data-full-text="CLI → EADP 多环境" x="1219.0" y="49.0" font-size="8" font-weight="700" fill="#52718d">CLI → EADP 多环境</text>
+  </g>
+  <g id="c-ingress" data-graph-role="container" data-container-id="c-ingress" data-semantic-role="global" data-graph-bounds="150,4,1130,88">
+  <rect data-graph-role="container" x="150.0" y="4.0" width="980.0" height="84.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1062.0" y="14.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1089.0" y="26.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">GLOBAL</text>
+  <line data-graph-role="decoration" x1="158.0" y1="46.0" x2="158.0" y2="74.0" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="168.0" y="28.0" class="section">使用入口</text>
+  <text x="168.0" y="48.0" class="section-sub">INGRESS · 终端 + AI</text>
+    <rect id="c-ingress-header" data-graph-role="reserved" data-reserved-kind="container-header" x="158" y="10" width="141.6" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="g-local" data-graph-role="container" data-container-id="g-local" data-semantic-role="global" data-graph-bounds="20,108,1380,1348">
+  <rect data-graph-role="container" x="20.0" y="108.0" width="1360.0" height="1240.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1312.0" y="118.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1339.0" y="130.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">GLOBAL</text>
+  <line data-graph-role="decoration" x1="28.0" y1="150.0" x2="28.0" y2="1334.0" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="38.0" y="132.0" class="section">本地 EADP CLI</text>
+  <text x="38.0" y="152.0" class="section-sub">LOCAL CLI · 多环境命令工具</text>
+    <rect id="g-local-header" data-graph-role="reserved" data-reserved-kind="container-header" x="28" y="114" width="186.48" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-entry" data-graph-role="container" data-container-id="c-entry" data-semantic-role="region" data-graph-bounds="45,138,1345,264">
+  <rect data-graph-role="container" x="45.0" y="138.0" width="1300.0" height="126.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="148.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="160.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="180.0" x2="53.0" y2="250.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="162.0" class="section">命令入口层</text>
+  <text x="63.0" y="182.0" class="section-sub">ENTRY</text>
+    <rect id="c-entry-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="144" width="95" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-reg" data-graph-role="container" data-container-id="c-reg" data-semantic-role="region" data-graph-bounds="45,282,1345,556">
+  <rect data-graph-role="container" x="45.0" y="282.0" width="1300.0" height="274.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="292.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="304.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="324.0" x2="53.0" y2="542.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="306.0" class="section">命令注册器层</text>
+  <text x="63.0" y="326.0" class="section-sub">COMMAND REGISTRARS</text>
+    <rect id="c-reg-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="288" width="155.28" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-domain" data-graph-role="container" data-container-id="c-domain" data-semantic-role="region" data-graph-bounds="45,580,1345,714">
+  <rect data-graph-role="container" x="45.0" y="580.0" width="1300.0" height="134.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="590.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="602.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="622.0" x2="53.0" y2="700.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="604.0" class="section">领域服务层</text>
+  <text x="63.0" y="624.0" class="section-sub">DOMAIN CLIENTS</text>
+    <rect id="c-domain-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="586" width="121.44" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-support" data-graph-role="container" data-container-id="c-support" data-semantic-role="region" data-graph-bounds="45,738,1345,872">
+  <rect data-graph-role="container" x="45.0" y="738.0" width="1300.0" height="134.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="748.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="760.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="780.0" x2="53.0" y2="858.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="762.0" class="section">BPM / 目录支持层</text>
+  <text x="63.0" y="782.0" class="section-sub">DISCOVERY · CATALOG</text>
+    <rect id="c-support-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="744" width="153.84" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-core" data-graph-role="container" data-container-id="c-core" data-semantic-role="region" data-graph-bounds="45,896,1345,1170">
+  <rect data-graph-role="container" x="45.0" y="896.0" width="1300.0" height="274.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="906.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="918.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="938.0" x2="53.0" y2="1156.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="920.0" class="section">核心基础设施层</text>
+  <text x="63.0" y="940.0" class="section-sub">CORE INFRASTRUCTURE</text>
+    <rect id="c-core-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="902" width="156.48" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-ops" data-graph-role="container" data-container-id="c-ops" data-semantic-role="region" data-graph-bounds="45,1194,1345,1328">
+  <rect data-graph-role="container" x="45.0" y="1194.0" width="1300.0" height="134.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1277.0" y="1204.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1304.0" y="1216.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="53.0" y1="1236.0" x2="53.0" y2="1314.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="63.0" y="1218.0" class="section">操作记录层</text>
+  <text x="63.0" y="1238.0" class="section-sub">OPERATIONS · ROLLBACK</text>
+    <rect id="c-ops-header" data-graph-role="reserved" data-reserved-kind="container-header" x="53" y="1200" width="167.76" height="54" fill="none" stroke="none"/>
+  </g>
+  <g id="c-remote" data-graph-role="container" data-container-id="c-remote" data-semantic-role="region" data-graph-bounds="20,1372,1380,1512">
+  <rect data-graph-role="container" x="20.0" y="1372.0" width="1360.0" height="140.0" rx="16.0" fill="rgba(255,255,255,0.54)" stroke="#7fa3c2" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect data-graph-role="decoration" x="1312.0" y="1382.0" width="54.0" height="18" rx="9" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.8"/>
+  <text data-graph-role="decoration" x="1339.0" y="1394.5" text-anchor="middle" font-size="9" font-weight="700" fill="#315d7e">REGION</text>
+  <line data-graph-role="decoration" x1="28.0" y1="1414.0" x2="28.0" y2="1498.0" stroke="#0891b2" stroke-width="2.2" stroke-linecap="round" opacity="0.72"/>
+  <text x="38.0" y="1396.0" class="section">EADP 远端环境</text>
+  <text x="38.0" y="1416.0" class="section-sub">REMOTE EADP · sei-basic / sei-bpm</text>
+    <rect id="c-remote-header" data-graph-role="reserved" data-reserved-kind="container-header" x="28" y="1378" width="240" height="54" fill="none" stroke="none"/>
+  </g>
+  <path id="e1" data-graph-role="edge" data-edge-id="e1" data-source="a-terminal" data-target="n-cli" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="终端命令" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="2" data-route-stretch="1.0" data-bridges="" d="M 301,68 L 301,88.4 L 376,88.4 L 376,184" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e2" data-graph-role="edge" data-edge-id="e2" data-source="a-ai" data-target="n-cli" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="Skill 调用" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="2" data-route-stretch="1.0" data-bridges="" d="M 840,68 L 840,92 L 394,92 L 394,184" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e3" data-graph-role="edge" data-edge-id="e3" data-source="n-cli" data-target="n-verbs" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="commander" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 510,214 L 570,214" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e4" data-graph-role="edge" data-edge-id="e4" data-source="n-verbs" data-target="n-resource" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="动词组" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="2" data-route-stretch="1.0" data-bridges="" d="M 695,244 L 695,268 L 530,268 L 530,332" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e5" data-graph-role="edge" data-edge-id="e5" data-source="n-resource" data-target="n-cfgresolve" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="配置解析" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="4" data-route-stretch="1.383" data-bridges="" d="M 494,392 L 494,412.4 L 381,412.4 L 381,925.6 L 530,925.6 L 530,946" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e6" data-graph-role="edge" data-edge-id="e6" data-source="n-resource" data-target="n-tenant" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="租户校验" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="4" data-route-stretch="1.0" data-bridges="" d="M 512,392 L 512,412.4 L 679,412.4 L 679,1065.6 L 860,1065.6 L 860,1086" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e7-bridge-mask" data-graph-role="bridge-mask" data-owner="e7" d="M 530,392 L 517,392 A 5 5 0 0 1 507,392 L 499,392 A 5 5 0 0 1 489,392 L 349,392 L 349,416 L 51,416 L 51,562 L 200,562 L 200,630" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="e7" data-graph-role="edge" data-edge-id="e7" data-source="n-resource" data-target="n-resclient" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="资源客户端" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="5" data-route-stretch="1.525" data-bridges="494,392;512,392" d="M 530,392 L 517,392 A 5 5 0 0 1 507,392 L 499,392 A 5 5 0 0 1 489,392 L 349,392 L 349,416 L 51,416 L 51,562 L 200,562 L 200,630" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e8" data-graph-role="edge" data-edge-id="e8" data-source="n-resclient" data-target="n-http" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="HTTP 客户端" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="6" data-route-stretch="1.831" data-bridges="" d="M 200,690 L 200,710.4 L 349,710.4 L 349,1170 L 1009,1170 L 1009,925.6 L 869,925.6 L 869,946" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="e9" data-graph-role="edge" data-edge-id="e9" data-source="n-http" data-target="n-gw" data-edge-kind="flow" data-topic-id="" data-flow="async" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="HTTP · x-api-token" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="8" data-route-stretch="1.806" data-bridges="" d="M 851,1006 L 851,1026.4 L 735,1026.4 L 735,922 L 1019,922 L 1019,1201 L 534,1201 L 534,1409.6 L 311,1409.6 L 311,1430" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowF)"/>
+  <path id="e10" data-graph-role="edge" data-edge-id="e10" data-source="n-gw" data-target="n-seibasic" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="网关路由" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 440,1451 L 560,1451" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="r1" data-graph-role="edge" data-edge-id="r1" data-source="n-seibasic" data-target="n-gw" data-edge-kind="flow" data-topic-id="" data-flow="data" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="网关路由" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 560,1469 L 440,1469" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowE)" stroke-dasharray="6,4"/>
+  <path id="r2-bridge-mask" data-graph-role="bridge-mask" data-owner="r2" d="M 329,1430 L 440,1430 L 440,1446 A 5 5 0 0 1 440,1456 L 440,1464 A 5 5 0 0 1 440,1474 L 440,1514 L 1154,1514 L 1154,1220 L 1029,1220 L 1029,915.6 L 725,915.6 L 725,1030 L 869,1030 L 869,1006" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="r2" data-graph-role="edge" data-edge-id="r2" data-source="n-gw" data-target="n-http" data-edge-kind="flow" data-topic-id="" data-flow="data" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="HTTP 响应" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="9" data-route-stretch="2.302" data-bridges="440,1451;440,1469" d="M 329,1430 L 440,1430 L 440,1446 A 5 5 0 0 1 440,1456 L 440,1464 A 5 5 0 0 1 440,1474 L 440,1514 L 1154,1514 L 1154,1220 L 1029,1220 L 1029,915.6 L 725,915.6 L 725,1030 L 869,1030 L 869,1006" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowE)" stroke-dasharray="6,4"/>
+  <path id="r3-bridge-mask" data-graph-role="bridge-mask" data-owner="r3" d="M 548,392 L 655,392 L 655,332 L 535,332 A 5 5 0 0 1 525,332 L 349,332 L 349,308 L 233.48,308 L 233.48,264 L 29,264 L 29,1065.6 L 191,1065.6 L 191,1086" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="r3" data-graph-role="edge" data-edge-id="r3" data-source="n-resource" data-target="n-io" data-edge-kind="flow" data-topic-id="" data-flow="data" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="输出管线" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="9" data-route-stretch="1.755" data-bridges="530,332" d="M 548,392 L 655,392 L 655,332 L 535,332 A 5 5 0 0 1 525,332 L 349,332 L 349,308 L 233.48,308 L 233.48,264 L 29,264 L 29,1065.6 L 191,1065.6 L 191,1086" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowE)"/>
+  <path id="r4-bridge-mask" data-graph-role="bridge-mask" data-owner="r4" d="M 209,1086 L 196,1086 A 5 5 0 0 1 186,1086 L 4,1086 L 4,90 L 319,90 L 319,68" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="r4" data-graph-role="edge" data-edge-id="r4" data-source="n-io" data-target="a-terminal" data-edge-kind="flow" data-topic-id="" data-flow="data" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="stdout" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="3" data-route-stretch="1.363" data-bridges="319,88.4;191,1086" d="M 209,1086 L 196,1086 A 5 5 0 0 1 186,1086 L 4,1086 L 4,90 L 319,90 L 319,68" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowE)"/>
+  <path id="w1-bridge-mask" data-graph-role="bridge-mask" data-owner="w1" d="M 566,392 L 566,406 L 700,406 L 700,1030 L 684,1030 A 5 5 0 0 1 674,1030 L 381,1030 L 381,1165 A 5 5 0 0 1 381,1175 L 381,1223.6 L 385,1223.6 L 385,1244" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="w1" data-graph-role="edge" data-edge-id="w1" data-source="n-resource" data-target="n-oprec" data-edge-kind="flow" data-topic-id="" data-flow="write" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="操作记录" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="6" data-route-stretch="1.267" data-bridges="679,1030;381,1170;566,392" d="M 566,392 L 566,406 L 700,406 L 700,1030 L 684,1030 A 5 5 0 0 1 674,1030 L 381,1030 L 381,1165 A 5 5 0 0 1 381,1175 L 381,1223.6 L 385,1223.6 L 385,1244" fill="none" stroke="#ea580c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowB)"/>
+  <path id="w3-bridge-mask" data-graph-role="bridge-mask" data-owner="w3" d="M 530,532 L 530,606 L 674,606 A 5 5 0 0 0 684,606 L 695,606 A 5 5 0 0 0 705,606 L 1039,606 L 1039,1223.6 L 996,1223.6 L 996,1244" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="w3" data-graph-role="edge" data-edge-id="w3" data-source="n-rollback" data-target="n-oproll" data-edge-kind="flow" data-topic-id="" data-flow="write" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="回滚" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="4" data-route-stretch="1.073" data-bridges="679,606;1039,1220;700,606" d="M 530,532 L 530,606 L 674,606 A 5 5 0 0 0 684,606 L 695,606 A 5 5 0 0 0 705,606 L 1039,606 L 1039,1223.6 L 996,1223.6 L 996,1244" fill="none" stroke="#ea580c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowB)"/>
+  <path id="w4-bridge-mask" data-graph-role="bridge-mask" data-owner="w4" d="M 1014,1244 L 1001,1244 A 5 5 0 0 1 991,1244 L 844,1244 L 844,1328 L 539,1328 A 5 5 0 0 1 529,1328 L 29,1328 L 29,1176 L 359,1176 L 359,701 L 218,701 L 218,690" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="w4" data-graph-role="edge" data-edge-id="w4" data-source="n-oproll" data-target="n-resclient" data-edge-kind="flow" data-topic-id="" data-flow="write" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="撤销调用" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="7" data-route-stretch="1.613" data-bridges="359,1170;534,1328;996,1244" d="M 1014,1244 L 1001,1244 A 5 5 0 0 1 991,1244 L 844,1244 L 844,1328 L 539,1328 A 5 5 0 0 1 529,1328 L 29,1328 L 29,1176 L 359,1176 L 359,701 L 218,701 L 218,690" fill="none" stroke="#ea580c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowB)"/>
+  <path id="d2-bridge-mask" data-graph-role="bridge-mask" data-owner="d2" d="M 1190,392 L 1190,410 L 705,410 L 705,318 L 535,318 A 5 5 0 0 1 525,318 L 415.68,318 L 415.68,274 L 238.48,274 A 5 5 0 0 1 228.48,274 L 39,274 L 39,866 L 200,866 L 200,848" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="d2" data-graph-role="edge" data-edge-id="d2" data-source="n-bpm" data-target="n-bpmdisc" data-edge-kind="flow" data-topic-id="" data-flow="neutral" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="源码" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="8" data-route-stretch="1.436" data-bridges="530,318;233.48,274" d="M 1190,392 L 1190,410 L 705,410 L 705,318 L 535,318 A 5 5 0 0 1 525,318 L 415.68,318 L 415.68,274 L 238.48,274 A 5 5 0 0 1 228.48,274 L 39,274 L 39,866 L 200,866 L 200,848" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowH)" stroke-dasharray="6,4"/>
+  <path id="d7-bridge-mask" data-graph-role="bridge-mask" data-owner="d7" d="M 200,532 L 200,550 L 201,550 L 201,612 L 376,612 A 5 5 0 0 0 386,612 L 530,612 L 530,630" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="d7" data-graph-role="edge" data-edge-id="d7" data-source="n-permission" data-target="n-permclient" data-edge-kind="flow" data-topic-id="" data-flow="neutral" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="客户端" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="4" data-route-stretch="1.0" data-bridges="381,612" d="M 200,532 L 200,550 L 201,550 L 201,612 L 376,612 A 5 5 0 0 0 386,612 L 530,612 L 530,630" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowH)" stroke-dasharray="6,4"/>
+  <path id="d14-bridge-mask" data-graph-role="bridge-mask" data-owner="d14" d="M 860,392 L 860,405 A 5 5 0 0 1 860,415 L 860,454 L 1003,454 L 1003,601 A 5 5 0 0 1 1003,611 L 1003,742 L 717,742 L 717,1036.4 L 985,1036.4 L 985,946 L 874,946 A 5 5 0 0 1 864,946 L 851,946 L 851,946" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="d14" data-graph-role="edge" data-edge-id="d14" data-source="n-api" data-target="n-http" data-edge-kind="flow" data-topic-id="" data-flow="neutral" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="HTTP" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="7" data-route-stretch="2.781" data-bridges="869,946;1003,606;860,410" d="M 860,392 L 860,405 A 5 5 0 0 1 860,415 L 860,454 L 1003,454 L 1003,601 A 5 5 0 0 1 1003,611 L 1003,742 L 717,742 L 717,1036.4 L 985,1036.4 L 985,946 L 874,946 A 5 5 0 0 1 864,946 L 851,946 L 851,946" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowH)" stroke-dasharray="6,4"/>
+  <path id="d12-bridge-mask" data-graph-role="bridge-mask" data-owner="d12" d="M 182,690 L 182,726 L 343,726 L 343,1164 L 24,1164 L 24,1353 L 529,1353 A 5 5 0 0 0 539,1353 L 1148,1353 L 1148,1226 L 1065,1226 L 1065,928 L 1190,928 L 1190,946" fill="none" stroke="#edf5fb" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path id="d12" data-graph-role="edge" data-edge-id="d12" data-source="n-resclient" data-target="n-pag" data-edge-kind="flow" data-topic-id="" data-flow="neutral" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="分页" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="10" data-route-stretch="2.309" data-bridges="534,1353;1065,1220" d="M 182,690 L 182,726 L 343,726 L 343,1164 L 24,1164 L 24,1353 L 529,1353 A 5 5 0 0 0 539,1353 L 1148,1353 L 1148,1226 L 1065,1226 L 1065,928 L 1190,928 L 1190,946" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowH)" stroke-dasharray="6,4"/>
+  <g id="node-a-terminal" data-graph-role="node" data-node-id="a-terminal" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-ingress" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="180,24,440,68">
+  <rect x="180.0" y="24.0" width="260.0" height="44.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="310.0" y="42.0" text-anchor="middle" class="node-type">USER</text>
+  <text x="310.0" y="52.0" text-anchor="middle" class="node-title" font-size="18.0">终端用户</text>
+  <text x="310.0" y="74.0" text-anchor="middle" class="node-sub">手动执行 eadp 命令</text>
+  </g>
+  <g id="node-a-ai" data-graph-role="node" data-node-id="a-ai" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-ingress" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="650,24,1030,68">
+  <rect x="650.0" y="24.0" width="380.0" height="44.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="840.0" y="42.0" text-anchor="middle" class="node-type">AI</text>
+  <text x="840.0" y="52.0" text-anchor="middle" class="node-title" font-size="18.0">AI 助手</text>
+  <text x="840.0" y="74.0" text-anchor="middle" class="node-sub">eadp-operator Skill（Claude/Codex）</text>
+  </g>
+  <g id="node-n-cli" data-graph-role="node" data-node-id="n-cli" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-entry" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="260,184,510,244">
+  <rect x="260.0" y="184.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="385.0" y="202.0" text-anchor="middle" class="node-type">入口</text>
+  <text x="385.0" y="220.0" text-anchor="middle" class="node-title" font-size="18.0">cli.ts</text>
+  <text x="385.0" y="242.0" text-anchor="middle" class="node-sub">组装命令树 · 解析 argv · 统一错误出口</text>
+  </g>
+  <g id="node-n-verbs" data-graph-role="node" data-node-id="n-verbs" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-entry" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="570,184,820,244">
+  <rect x="570.0" y="184.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="695.0" y="202.0" text-anchor="middle" class="node-type">入口</text>
+  <text x="695.0" y="220.0" text-anchor="middle" class="node-title" font-size="18.0">commands/verbs.ts</text>
+  <text x="695.0" y="242.0" text-anchor="middle" class="node-sub">8 个动词组：inspect/query/call/apply/assign/revoke/sync/verify</text>
+  </g>
+  <g id="node-n-rtopt" data-graph-role="node" data-node-id="n-rtopt" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-entry" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="880,184,1130,244">
+  <rect x="880.0" y="184.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1005.0" y="202.0" text-anchor="middle" class="node-type">入口</text>
+  <text x="1005.0" y="220.0" text-anchor="middle" class="node-title" font-size="18.0">runtime-options.ts</text>
+  <text x="1005.0" y="242.0" text-anchor="middle" class="node-sub">全局参数 --env / --timeout / --compact</text>
+  </g>
+  <g id="node-n-env" data-graph-role="node" data-node-id="n-env" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,332,325,392">
+  <rect x="75.0" y="332.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="350.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="200.0" y="368.0" text-anchor="middle" class="node-title" font-size="18.0">env.ts</text>
+  <text x="200.0" y="390.0" text-anchor="middle" class="node-sub">环境 add / list / remove</text>
+  </g>
+  <g id="node-n-resource" data-graph-role="node" data-node-id="n-resource" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,332,655,392">
+  <rect x="405.0" y="332.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="350.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="530.0" y="368.0" text-anchor="middle" class="node-title" font-size="18.0">resource.ts</text>
+  <text x="530.0" y="390.0" text-anchor="middle" class="node-sub">资源 query / apply / sync / assign</text>
+  </g>
+  <g id="node-n-api" data-graph-role="node" data-node-id="n-api" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,332,985,392">
+  <rect x="735.0" y="332.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="350.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="860.0" y="368.0" text-anchor="middle" class="node-title" font-size="18.0">api.ts</text>
+  <text x="860.0" y="390.0" text-anchor="middle" class="node-sub">call 已登记接口 · inspect api</text>
+  </g>
+  <g id="node-n-bpm" data-graph-role="node" data-node-id="n-bpm" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1065,332,1315,392">
+  <rect x="1065.0" y="332.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1190.0" y="350.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="1190.0" y="368.0" text-anchor="middle" class="node-title" font-size="18.0">bpm.ts</text>
+  <text x="1190.0" y="390.0" text-anchor="middle" class="node-sub">BPM inspect / apply / sync</text>
+  </g>
+  <g id="node-n-permission" data-graph-role="node" data-node-id="n-permission" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,472,325,532">
+  <rect x="75.0" y="472.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="490.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="200.0" y="508.0" text-anchor="middle" class="node-title" font-size="18.0">permission.ts</text>
+  <text x="200.0" y="530.0" text-anchor="middle" class="node-sub">权限 inspect / apply / assign / revoke</text>
+  </g>
+  <g id="node-n-rollback" data-graph-role="node" data-node-id="n-rollback" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,472,655,532">
+  <rect x="405.0" y="472.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="490.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="530.0" y="508.0" text-anchor="middle" class="node-title" font-size="18.0">rollback.ts</text>
+  <text x="530.0" y="530.0" text-anchor="middle" class="node-sub">按 operationId 逆序回滚</text>
+  </g>
+  <g id="node-n-skill" data-graph-role="node" data-node-id="n-skill" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,472,985,532">
+  <rect x="735.0" y="472.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="490.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="860.0" y="508.0" text-anchor="middle" class="node-title" font-size="18.0">skill.ts</text>
+  <text x="860.0" y="530.0" text-anchor="middle" class="node-sub">skill install / upgrade 多平台</text>
+  </g>
+  <g id="node-n-update" data-graph-role="node" data-node-id="n-update" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-reg" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1065,472,1315,532">
+  <rect x="1065.0" y="472.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1190.0" y="490.0" text-anchor="middle" class="node-type">命令</text>
+  <text x="1190.0" y="508.0" text-anchor="middle" class="node-title" font-size="18.0">update.ts</text>
+  <text x="1190.0" y="530.0" text-anchor="middle" class="node-sub">npm 全局自更新 + Skill 同步</text>
+  </g>
+  <g id="node-n-resclient" data-graph-role="node" data-node-id="n-resclient" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-domain" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,630,325,690">
+  <rect x="75.0" y="630.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="648.0" text-anchor="middle" class="node-type">客户端</text>
+  <text x="200.0" y="666.0" text-anchor="middle" class="node-title" font-size="18.0">resource/client.ts</text>
+  <text x="200.0" y="688.0" text-anchor="middle" class="node-sub">通用资源客户端：findByPage / save / getTree / move</text>
+  </g>
+  <g id="node-n-permclient" data-graph-role="node" data-node-id="n-permclient" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-domain" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,630,655,690">
+  <rect x="405.0" y="630.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="648.0" text-anchor="middle" class="node-type">客户端</text>
+  <text x="530.0" y="666.0" text-anchor="middle" class="node-title" font-size="18.0">permission/client.ts</text>
+  <text x="530.0" y="688.0" text-anchor="middle" class="node-sub">sei-basic：权限/角色/菜单/用户/授权</text>
+  </g>
+  <g id="node-n-bpmclient" data-graph-role="node" data-node-id="n-bpmclient" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-domain" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,630,985,690">
+  <rect x="735.0" y="630.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="648.0" text-anchor="middle" class="node-type">客户端</text>
+  <text x="860.0" y="666.0" text-anchor="middle" class="node-title" font-size="18.0">bpm/client.ts</text>
+  <text x="860.0" y="688.0" text-anchor="middle" class="node-sub">sei-bpm 流程客户端</text>
+  </g>
+  <g id="node-n-menu" data-graph-role="node" data-node-id="n-menu" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-domain" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1065,630,1315,690">
+  <rect x="1065.0" y="630.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1190.0" y="648.0" text-anchor="middle" class="node-type">客户端</text>
+  <text x="1190.0" y="666.0" text-anchor="middle" class="node-title" font-size="18.0">menu/service.ts</text>
+  <text x="1190.0" y="688.0" text-anchor="middle" class="node-sub">菜单树扁平化 · 可见性判断</text>
+  </g>
+  <g id="node-n-bpmdisc" data-graph-role="node" data-node-id="n-bpmdisc" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-support" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,788,325,848">
+  <rect x="75.0" y="788.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="806.0" text-anchor="middle" class="node-type">支持</text>
+  <text x="200.0" y="824.0" text-anchor="middle" class="node-title" font-size="18.0">bpm/discovery.ts</text>
+  <text x="200.0" y="846.0" text-anchor="middle" class="node-sub">从源码发现 BPM 流程骨架</text>
+  </g>
+  <g id="node-n-bpmcfg" data-graph-role="node" data-node-id="n-bpmcfg" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-support" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,788,655,848">
+  <rect x="405.0" y="788.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="806.0" text-anchor="middle" class="node-type">支持</text>
+  <text x="530.0" y="824.0" text-anchor="middle" class="node-title" font-size="18.0">bpm/configure.ts</text>
+  <text x="530.0" y="846.0" text-anchor="middle" class="node-sub">幂等组装 BPM 基础配置</text>
+  </g>
+  <g id="node-n-bpmsync" data-graph-role="node" data-node-id="n-bpmsync" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-support" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,788,985,848">
+  <rect x="735.0" y="788.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="806.0" text-anchor="middle" class="node-type">支持</text>
+  <text x="860.0" y="824.0" text-anchor="middle" class="node-title" font-size="18.0">bpm/sync.ts</text>
+  <text x="860.0" y="846.0" text-anchor="middle" class="node-sub">BPM 跨环境同步映射</text>
+  </g>
+  <g id="node-n-catalog" data-graph-role="node" data-node-id="n-catalog" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-support" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1065,788,1315,848">
+  <rect x="1065.0" y="788.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1190.0" y="806.0" text-anchor="middle" class="node-type">支持</text>
+  <text x="1190.0" y="824.0" text-anchor="middle" class="node-title" font-size="18.0">catalog/loader.ts</text>
+  <text x="1190.0" y="846.0" text-anchor="middle" class="node-sub">接口目录加载 · 端点查找</text>
+  </g>
+  <g id="node-n-cfgstore" data-graph-role="node" data-node-id="n-cfgstore" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,946,325,1006">
+  <rect x="75.0" y="946.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="964.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="200.0" y="982.0" text-anchor="middle" class="node-title" font-size="18.0">config/store.ts</text>
+  <text x="200.0" y="1004.0" text-anchor="middle" class="node-sub">读写 ~/.eadp-cli/config.yaml</text>
+  </g>
+  <g id="node-n-cfgresolve" data-graph-role="node" data-node-id="n-cfgresolve" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,946,655,1006">
+  <rect x="405.0" y="946.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="964.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="530.0" y="982.0" text-anchor="middle" class="node-title" font-size="18.0">config/resolve.ts</text>
+  <text x="530.0" y="1004.0" text-anchor="middle" class="node-sub">环境 → URL/Token/tenantCode</text>
+  </g>
+  <g id="node-n-http" data-graph-role="node" data-node-id="n-http" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,946,985,1006">
+  <rect x="735.0" y="946.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="964.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="860.0" y="982.0" text-anchor="middle" class="node-title" font-size="18.0">http/client.ts</text>
+  <text x="860.0" y="1004.0" text-anchor="middle" class="node-sub">统一 fetch · x-api-token · 信封校验</text>
+  </g>
+  <g id="node-n-pag" data-graph-role="node" data-node-id="n-pag" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="1065,946,1315,1006">
+  <rect x="1065.0" y="946.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1190.0" y="964.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="1190.0" y="982.0" text-anchor="middle" class="node-title" font-size="18.0">http/pagination.ts</text>
+  <text x="1190.0" y="1004.0" text-anchor="middle" class="node-sub">findByPage 分页迭代</text>
+  </g>
+  <g id="node-n-io" data-graph-role="node" data-node-id="n-io" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="75,1086,325,1146">
+  <rect x="75.0" y="1086.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="200.0" y="1104.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="200.0" y="1122.0" text-anchor="middle" class="node-title" font-size="18.0">io.ts</text>
+  <text x="200.0" y="1144.0" text-anchor="middle" class="node-sub">JSON 输出 / NDJSON 流式</text>
+  </g>
+  <g id="node-n-err" data-graph-role="node" data-node-id="n-err" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="405,1086,655,1146">
+  <rect x="405.0" y="1086.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="530.0" y="1104.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="530.0" y="1122.0" text-anchor="middle" class="node-title" font-size="18.0">errors.ts</text>
+  <text x="530.0" y="1144.0" text-anchor="middle" class="node-sub">CliError 统一错误 · 退出码</text>
+  </g>
+  <g id="node-n-tenant" data-graph-role="node" data-node-id="n-tenant" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-core" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="735,1086,985,1146">
+  <rect x="735.0" y="1086.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="860.0" y="1104.0" text-anchor="middle" class="node-type">核心</text>
+  <text x="860.0" y="1122.0" text-anchor="middle" class="node-title" font-size="18.0">tenant.ts</text>
+  <text x="860.0" y="1144.0" text-anchor="middle" class="node-sub">租户隔离校验 global/非global</text>
+  </g>
+  <g id="node-n-oprec" data-graph-role="node" data-node-id="n-oprec" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-ops" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="260,1244,510,1304">
+  <rect x="260.0" y="1244.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="385.0" y="1262.0" text-anchor="middle" class="node-type">操作</text>
+  <text x="385.0" y="1280.0" text-anchor="middle" class="node-title" font-size="17.09">operations/recorder.ts</text>
+  <text x="385.0" y="1302.0" text-anchor="middle" class="node-sub">operationId · 动作记录</text>
+  </g>
+  <g id="node-n-opstore" data-graph-role="node" data-node-id="n-opstore" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-ops" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="570,1244,820,1304">
+  <rect x="570.0" y="1244.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="695.0" y="1262.0" text-anchor="middle" class="node-type">操作</text>
+  <text x="695.0" y="1280.0" text-anchor="middle" class="node-title" font-size="18.0">operations/store.ts</text>
+  <text x="695.0" y="1302.0" text-anchor="middle" class="node-sub">30 天本地操作日志</text>
+  </g>
+  <g id="node-n-oproll" data-graph-role="node" data-node-id="n-oproll" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-ops" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="880,1244,1130,1304">
+  <rect x="880.0" y="1244.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="1005.0" y="1262.0" text-anchor="middle" class="node-type">操作</text>
+  <text x="1005.0" y="1280.0" text-anchor="middle" class="node-title" font-size="17.85">operations/rollback.ts</text>
+  <text x="1005.0" y="1302.0" text-anchor="middle" class="node-sub">回查比对 · 逆序撤销</text>
+  </g>
+  <g id="node-n-gw" data-graph-role="node" data-node-id="n-gw" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-remote" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="200,1430,440,1490">
+  <rect x="200.0" y="1430.0" width="240.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="320.0" y="1448.0" text-anchor="middle" class="node-type">外部</text>
+  <text x="320.0" y="1466.0" text-anchor="middle" class="node-title" font-size="18.0">api-gateway</text>
+  <text x="320.0" y="1488.0" text-anchor="middle" class="node-sub">统一网关 /api-gateway/*</text>
+  </g>
+  <g id="node-n-seibasic" data-graph-role="node" data-node-id="n-seibasic" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-remote" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="560,1430,810,1490">
+  <rect x="560.0" y="1430.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="685.0" y="1448.0" text-anchor="middle" class="node-type">外部</text>
+  <text x="685.0" y="1466.0" text-anchor="middle" class="node-title" font-size="18.0">sei-basic</text>
+  <text x="685.0" y="1488.0" text-anchor="middle" class="node-sub">权限/资源/菜单/用户/给号</text>
+  </g>
+  <g id="node-n-seibpm" data-graph-role="node" data-node-id="n-seibpm" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="c-remote" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="870,1430,1120,1490">
+  <rect x="870.0" y="1430.0" width="250.0" height="60.0" rx="12.0" fill="#ffffff" stroke="#9bb7cf" stroke-width="1.8" filter="url(#shadowSoft)"/>
+  <text x="995.0" y="1448.0" text-anchor="middle" class="node-type">外部</text>
+  <text x="995.0" y="1466.0" text-anchor="middle" class="node-title" font-size="18.0">sei-bpm</text>
+  <text x="995.0" y="1488.0" text-anchor="middle" class="node-sub">BPM 流程/流程类型/集成接口</text>
+  </g>
+  <g id="e1-label" data-graph-role="label" data-owner="e1" data-graph-bounds="256.28,122.2,373,142.2">
+  <rect x="256.28" y="122.2" width="116.72" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="314.64" y="136.2" text-anchor="middle" class="arrow-label">① 输入命令 eadp …</text>
+  </g>
+  <g id="e2-label" data-graph-role="label" data-owner="e2" data-graph-bounds="565.48,79,668.52,99">
+  <rect x="565.48" y="79.0" width="103.03999999999999" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="617.0" y="93.0" text-anchor="middle" class="arrow-label">① Skill 编排命令</text>
+  </g>
+  <g id="e3-label" data-graph-role="label" data-owner="e3" data-graph-bounds="497.36,160,582.64,180">
+  <rect x="497.36" y="160.0" width="85.28" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="540.0" y="174.0" text-anchor="middle" class="arrow-label">② 分发动词组</text>
+  </g>
+  <g id="e4-label" data-graph-role="label" data-owner="e4" data-graph-bounds="569.86,255,655.14,275">
+  <rect x="569.86" y="255.0" width="85.28" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="612.5" y="269.0" text-anchor="middle" class="arrow-label">③ 执行子命令</text>
+  </g>
+  <g id="e5-label" data-graph-role="label" data-owner="e5" data-graph-bounds="237.76,552.36,378,572.36">
+  <rect x="237.76" y="552.36" width="140.24" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="307.88" y="566.36" text-anchor="middle" class="arrow-label">④ 解析环境 URL/Token</text>
+  </g>
+  <g id="e6-label" data-graph-role="label" data-owner="e6" data-graph-bounds="602.72,725,676,745">
+  <rect x="602.72" y="725.0" width="73.28" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="639.36" y="739.0" text-anchor="middle" class="arrow-label">⑤ 租户校验</text>
+  </g>
+  <g id="e7-label" data-graph-role="label" data-owner="e7" data-graph-bounds="151.36,403,248.64,423">
+  <rect x="151.36" y="403.0" width="97.28" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="200.0" y="417.0" text-anchor="middle" class="arrow-label">⑥ 构造资源请求</text>
+  </g>
+  <g id="e8-label" data-graph-role="label" data-owner="e8" data-graph-bounds="628.08,1157,729.92,1177">
+  <rect x="628.08" y="1157.0" width="101.84" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="679.0" y="1171.0" text-anchor="middle" class="arrow-label">⑦ sendRequest</text>
+  </g>
+  <g id="e9-label" data-graph-role="label" data-owner="e9" data-graph-bounds="709.5,1188,843.5,1208">
+  <rect x="709.5" y="1188.0" width="134.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="776.5" y="1202.0" text-anchor="middle" class="arrow-label">⑧ 请求 /api-gateway</text>
+  </g>
+  <g id="e10-label" data-graph-role="label" data-owner="e10" data-graph-bounds="481,1420,519,1440">
+  <rect x="481.0" y="1420.0" width="38.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="500.0" y="1434.0" text-anchor="middle" class="arrow-label">转发</text>
+  </g>
+  <g id="r1-label" data-graph-role="label" data-owner="r1" data-graph-bounds="481,1456,519,1476">
+  <rect x="481.0" y="1456.0" width="38.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="500.0" y="1470.0" text-anchor="middle" class="arrow-label">响应</text>
+  </g>
+  <g id="r2-label" data-graph-role="label" data-owner="r2" data-graph-bounds="766,1501,828,1521">
+  <rect x="766.0" y="1501.0" width="62.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="797.0" y="1515.0" text-anchor="middle" class="arrow-label">响应数据</text>
+  </g>
+  <g id="r3-label" data-graph-role="label" data-owner="r3" data-graph-bounds="282.32,301,401.68,321">
+  <rect x="282.32" y="301.0" width="119.36000000000001" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="342.0" y="315.0" text-anchor="middle" class="arrow-label">⑨ NDJSON 流式输出</text>
+  </g>
+  <g id="r4-label" data-graph-role="label" data-owner="r4" data-graph-bounds="102.06,77,220.94,97">
+  <rect x="102.06" y="77.0" width="118.88" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="161.5" y="91.0" text-anchor="middle" class="arrow-label">输出 JSON/NDJSON</text>
+  </g>
+  <g id="w1-label" data-graph-role="label" data-owner="w1" data-graph-bounds="703,704,814.92,724">
+  <rect x="703.0" y="704.0" width="111.92" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="758.96" y="718.0" text-anchor="middle" class="arrow-label">--apply 写入记录</text>
+  </g>
+  <g id="w3-label" data-graph-role="label" data-owner="w3" data-graph-bounds="974,890.8,1036,910.8">
+  <rect x="974.0" y="890.8" width="62.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="1005.0" y="904.8" text-anchor="middle" class="arrow-label">实施回滚</text>
+  </g>
+  <g id="w4-label" data-graph-role="label" data-owner="w4" data-graph-bounds="393.5,1315,479.5,1335">
+  <rect x="393.5" y="1315.0" width="86.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="436.5" y="1329.0" text-anchor="middle" class="arrow-label">逆序撤销调用</text>
+  </g>
+  <g id="d2-label" data-graph-role="label" data-owner="d2" data-graph-bounds="60,437.6,98,457.6">
+  <rect x="60.0" y="437.6" width="38.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="79.0" y="451.6" text-anchor="middle" class="arrow-label">源码</text>
+  </g>
+  <g id="d7-label" data-graph-role="label" data-owner="d7" data-graph-bounds="322.5,581,372.5,601">
+  <rect x="322.5" y="581.0" width="50.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="347.5" y="595.0" text-anchor="middle" class="arrow-label">客户端</text>
+  </g>
+  <g id="d14-label" data-graph-role="label" data-owner="d14" data-graph-bounds="704.16,879.2,746,899.2">
+  <rect x="704.16" y="879.2" width="41.839999999999996" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="725.08" y="893.2" text-anchor="middle" class="arrow-label">HTTP</text>
+  </g>
+  <g id="d12-label" data-graph-role="label" data-owner="d12" data-graph-bounds="567,1340,605,1360">
+  <rect x="567.0" y="1340.0" width="38.0" height="20" rx="6" fill="#f7fbfe" opacity="0.96"/>
+  <text x="586.0" y="1354.0" text-anchor="middle" class="arrow-label">分页</text>
+  </g>
+  <g id="legend" data-graph-role="legend">
+    <rect id="legend-zone" data-graph-role="reserved" data-reserved-kind="legend" x="32" y="1544" width="921.36" height="46" rx="10" fill="none" stroke="none"/>
+    <line data-graph-role="decoration" x1="42.0" y1="1558.0" x2="72.0" y2="1558.0" stroke="#2563eb" stroke-width="2.2" marker-end="url(#arrowA)"/>
+    <text data-graph-role="decoration" x="82.0" y="1562.0" class="legend">用户操作数据流（顺序 ①→⑨）</text>
+    <line data-graph-role="decoration" x1="267.2" y1="1558.0" x2="297.2" y2="1558.0" stroke="#7c3aed" stroke-width="2.2" marker-end="url(#arrowF)"/>
+    <text data-graph-role="decoration" x="307.2" y="1562.0" class="legend">跨边界请求 → EADP 网关</text>
+    <line data-graph-role="decoration" x1="466.96" y1="1558.0" x2="496.96" y2="1558.0" stroke="#ea580c" stroke-width="2.2" marker-end="url(#arrowB)"/>
+    <text data-graph-role="decoration" x="506.96" y="1562.0" class="legend">写操作 / 回滚</text>
+    <line data-graph-role="decoration" x1="610.56" y1="1558.0" x2="640.56" y2="1558.0" stroke="#059669" stroke-width="2.2" marker-end="url(#arrowE)"/>
+    <text data-graph-role="decoration" x="650.56" y="1562.0" class="legend">数据 / 日志 / 输出</text>
+    <line data-graph-role="decoration" x1="781.76" y1="1558.0" x2="811.76" y2="1558.0" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowH)"/>
+    <text data-graph-role="decoration" x="821.76" y="1562.0" class="legend">模块依赖 / 委托调用</text>
+  </g>
+  <g id="footer" data-graph-role="reserved" data-graph-bounds="42,1612,791,1628">
+  <text x="42.0" y="1624.0" class="footnote">Cloud Fabric · eadp-cli · 数据流顺序 ① 输入 → ② 分发 → ③ 执行 → ④ 环境解析 → ⑤ 租户校验 → ⑥ 领域请求 → ⑦ HTTP → ⑧ 网关 → ⑨ NDJSON 输出</text>
+  </g>
+</svg>

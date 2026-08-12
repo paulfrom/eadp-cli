@@ -68,7 +68,7 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 ## 回滚新增与分配
 
 成功产生新增记录或新增分配关系的高层写命令会返回 `operationId`，并在配置目录的
-`operations` 子目录保存本地 JSON 操作日志。日志不包含 URL 或 Token，保留 30 天；到期后在
+`operations` 子目录按 UTC 日期聚合保存本地 JSONL 操作日志。日志不包含 URL 或 Token，保留 1 天；到期后在
 后续记录或回滚操作时自动清理。
 
 ```powershell
@@ -82,9 +82,9 @@ eadp rollback <operation-id>
 
 租户隔离规则：
 
-- 只有 `tenantCode === "global"` 的环境才表示全局管理员；应用模块（`appModule`/`app-module`）、菜单（`menu`）、功能项（`feature`）、
-  功能项组（`feature-group`/`featureGroup`）和给号配置（`serial-number`/`serialNumberConfig`）
-  的全部远端增删改查只能使用该环境；别名不会改变租户校验；
+- 只有 `tenantCode === "global"` 的环境才表示全局管理员；CLI 资源名应用模块（`app-module`）、菜单（`menu`）、功能项（`feature`）、
+  功能项组（`feature-group`）和给号配置（`serial-number`）的全部远端增删改查只能使用该环境；对应的真实后端路径
+  `appModule`、`featureGroup`、`serialNumberConfig` 同样受租户校验；
 - 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
 - `call` 也执行同样的路径租户校验，不能通过通用接口绕过规则。
 
@@ -407,11 +407,10 @@ eadp query feature \
   --created-in 2026-07
 ```
 
-应用模块是 global 资源，可使用 `appModule` 或 `app-module` 别名按代码查询；远端是否存在
+应用模块是 global 资源，使用 CLI 资源名 `app-module` 按代码查询；远端是否存在
 必须以查询结果为准，不能把 `sei.application.code` 配置值当作已注册结论：
 
 ```bash
-eadp query appModule --env global-dev --filter code:EQ:ams
 eadp query app-module --env global-dev --filter code:EQ:ams
 ```
 
@@ -427,7 +426,7 @@ CLI 按 `entityClassName + tenantCode` 复合键逐条判重；同一实体在�
 记录的 `fields` 和 `values`，并以规范化后的键判断 `exists`：
 
 ```bash
-eadp query serialNumberConfig \
+eadp query serial-number \
   --env global \
   --entity-class com.example.Order
 ```

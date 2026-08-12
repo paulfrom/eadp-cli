@@ -17,12 +17,7 @@ export class ConfigStore {
   async load(): Promise<EadpConfig> {
     try {
       const source = await readFile(this.filePath, "utf8");
-      const migration = migrateLegacyConfig(parse(source));
-      const config = configSchema.parse(migration.value);
-      if (migration.changed) {
-        await this.save(config);
-      }
-      return config;
+      return configSchema.parse(parse(source));
     } catch (error) {
       const nodeError = error as NodeJS.ErrnoException;
       if (nodeError.code === "ENOENT") {
@@ -53,68 +48,4 @@ export class ConfigStore {
     await this.save(config);
     return config;
   }
-}
-
-function migrateLegacyConfig(value: unknown): { value: unknown; changed: boolean } {
-  if (!isRecord(value) || !isRecord(value.environments)) {
-    return { value, changed: false };
-  }
-
-  let changed = false;
-  const environments: Record<string, unknown> = {};
-  for (const [environmentName, rawEnvironment] of Object.entries(value.environments)) {
-    if (!isRecord(rawEnvironment) || !isRecord(rawEnvironment.accounts)) {
-      environments[environmentName] = rawEnvironment;
-      continue;
-    }
-
-    const accounts = Object.entries(rawEnvironment.accounts).filter((entry) =>
-      isRecord(entry[1])
-    ) as [string, Record<string, unknown>][];
-    const preferredName =
-      typeof rawEnvironment.defaultAccount === "string" &&
-      accounts.some(([name]) => name === rawEnvironment.defaultAccount)
-        ? rawEnvironment.defaultAccount
-        : accounts[0]?.[0];
-
-    if (!preferredName) {
-      environments[environmentName] = rawEnvironment;
-      continue;
-    }
-
-    changed = true;
-    for (const [accountName, legacyAccount] of accounts) {
-      const baseName =
-        accountName === preferredName ? environmentName : `${environmentName}-${accountName}`;
-      const migratedName = uniqueEnvironmentName(baseName, environments, value.environments);
-      environments[migratedName] = {
-        baseUrl: rawEnvironment.baseUrl,
-        ...(typeof legacyAccount.token === "string"
-          ? { token: legacyAccount.token }
-          : { tokenEnv: legacyAccount.tokenEnv })
-      };
-    }
-  }
-
-  return {
-    value: changed ? { ...value, environments } : value,
-    changed
-  };
-}
-
-function uniqueEnvironmentName(
-  requestedName: string,
-  migrated: Record<string, unknown>,
-  original: Record<string, unknown>
-): string {
-  let candidate = requestedName;
-  let suffix = 2;
-  while (candidate in migrated || (candidate !== requestedName && candidate in original)) {
-    candidate = `${requestedName}-${suffix++}`;
-  }
-  return candidate;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

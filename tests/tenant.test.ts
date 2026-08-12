@@ -8,11 +8,9 @@ import {
 describe("tenant operation policy", () => {
   it("功能项、菜单和给号配置路径属于 global 操作", () => {
     expect(scopeForPath("/api-gateway/sei-basic/feature/findByPage")).toBe("global");
-    expect(scopeForPath("/api-gateway/sei-basic/feature-group/findByPage")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/appModule/findAll")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/featureGroup/findAll")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/menu/getMenuTree")).toBe("global");
-    expect(scopeForPath("/api-gateway/sei-basic/serial-number/findByPage")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/serialNumberConfig/save")).toBe("global");
   });
 

@@ -8,14 +8,13 @@ Use this workflow for requests such as:
 
 ## Resource query
 
-Remote queries for application modules (`appModule`/`app-module`), menus (`menu`), features (`feature`), feature groups
-(`feature-group`/`featureGroup`), and serial-number configurations
-(`serial-number`/`serialNumberConfig`) require an environment whose recorded
-`tenantCode === "global"` (the global administrator). Resource aliases are normalized before
-the tenant check and cannot bypass it.
+Remote queries for CLI resources `app-module`, `menu`, `feature`, `feature-group`, and
+`serial-number` require an environment whose recorded `tenantCode === "global"` (the global
+administrator). Their real backend paths (`appModule`, `featureGroup`, and `serialNumberConfig`)
+are covered by the same tenant check.
 
 1. Run `eadp query --help`.
-2. Resolve the environment name and resource endpoint name.
+2. Resolve the environment name and canonical CLI resource name.
 3. For “某月新增”, use an explicit `YYYY-MM` with `--created-in`.
 4. For a custom time range, use `--from`, `--to`, and the correct `--time-field`.
 5. Add exact filters with `--filter field:operator:value`.
@@ -27,16 +26,16 @@ Examples:
 eadp query feature --env A --created-in 2026-07
 eadp query feature --env A --from "2026-07-01 00:00:00" --to "2026-08-01 00:00:00"
 eadp query feature --env A --filter appModuleCode:EQ:BASIC
-eadp query appModule --env GLOBAL --filter code:EQ:ams
 eadp query app-module --env GLOBAL --filter code:EQ:ams
-eadp query serialNumberConfig --env GLOBAL --entity-class com.example.Order
+eadp query serial-number --env GLOBAL --entity-class com.example.Order
 ```
 
 `--to` is exclusive. For a full month, prefer `--created-in` to avoid end-of-month mistakes.
 
 The generic query command requires the resource to expose `findByPage`. If the server rejects the field or resource, inspect the corresponding backend controller rather than guessing another field.
 
-For `serialNumberConfig`, use a `global` environment. `--config-type` defaults to `CODE_TYPE` and
+For `serial-number`, use a `global` environment. Its backend endpoint is `serialNumberConfig`.
+`--config-type` defaults to `CODE_TYPE` and
 is only a filter; it is not part of the business key. The CLI uses the composite key
 `entityClassName + tenantCode`, normalizing case and surrounding whitespace consistently. Stop if
 the CLI reports a duplicate composite key or a record is missing either key field. With

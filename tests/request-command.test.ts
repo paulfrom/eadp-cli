@@ -106,11 +106,9 @@ describe("call 原始请求", () => {
   });
 
   it.each([
-    "feature-group",
     "featureGroup",
-    "serial-number",
     "serialNumberConfig"
-  ])("非 global 环境不能通过原始 call 绕过 %s 别名的 global 限制", async (resource) => {
+  ])("非 global 环境不能通过原始 call 绕过真实 %s 后端路径的 global 限制", async (resource) => {
     let requestCount = 0;
     const server = createServer((_request, response) => {
       requestCount += 1;
@@ -124,7 +122,7 @@ describe("call 原始请求", () => {
       throw new Error("测试服务器启动失败");
     }
 
-    const directory = await mkdtemp(join(tmpdir(), "eadp-request-alias-"));
+    const directory = await mkdtemp(join(tmpdir(), "eadp-request-backend-path-"));
     temporaryDirectories.push(directory);
     const store = new ConfigStore(join(directory, "config"));
     await store.save({

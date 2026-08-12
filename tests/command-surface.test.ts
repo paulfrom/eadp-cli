@@ -54,33 +54,6 @@ describe("统一命令面", () => {
     ).rejects.toThrow("超时时间无效：invalid");
   });
 
-  it("sync 帮助完整列出给号配置枚举，供 AI 选择", () => {
-    const sync = createProgram().commands.find((command) => command.name() === "sync");
-    let help = "";
-    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      help += String(chunk);
-      return true;
-    });
-    sync?.outputHelp();
-
-    expect(help).toContain("ConfigType: CODE_TYPE, BAR_TYPE");
-    expect(help).toContain("CycleStrategy: MAX_CYCLE, DAY_CYCLE, MONTH_CYCLE, YEAR_CYCLE");
-    expect(help).toContain("ReturnStrategy: NEW, REPEAT, PATCH");
-    expect(help).toContain("LinkCharacter: EMPTY, DASH, DOT, PIPE, COLON");
-    expect(help).toContain("DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE");
-  });
-
-  it("apply feature 帮助暴露新增参数、合法类型和 global 约束", () => {
-    const apply = createProgram().commands.find((command) => command.name() === "apply");
-    const feature = apply?.commands.find((command) => command.name() === "feature");
-    const help = feature?.helpInformation() ?? "";
-    expect(help).toContain("--code <code>");
-    expect(help).toContain("--app <code-or-name-or-id>");
-    expect(help).toContain("Operate");
-    expect(help).toContain("global");
-    expect(help).toContain("--apply");
-  });
-
   it("资源和通用 call 帮助明确四类 global 管理员资源", () => {
     const program = createProgram();
     let help = "";

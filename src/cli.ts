@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerApiCommands } from "./commands/api.js";
@@ -55,8 +54,8 @@ function isMainModule(): boolean {
   if (!process.argv[1]) {
     return false;
   }
-  const modulePath = realpathSync(fileURLToPath(import.meta.url));
-  const entryPath = realpathSync(resolve(process.argv[1]));
+  const modulePath = fileURLToPath(import.meta.url);
+  const entryPath = resolve(process.argv[1]);
   return process.platform === "win32"
     ? modulePath.toLowerCase() === entryPath.toLowerCase()
     : modulePath === entryPath;

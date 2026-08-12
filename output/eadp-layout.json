@@ -1,0 +1,1480 @@
+{
+  "canvas": {
+    "height": 1640.0,
+    "width": 1400.0
+  },
+  "composition": {
+    "limits": {
+      "max_bends_per_edge": 12,
+      "max_bridged_crossings": 30,
+      "max_route_stretch": 4.0,
+      "max_total_bends": 120,
+      "min_container_gutter": 20.0,
+      "min_label_clearance": 4.0,
+      "min_node_gap": 40.0,
+      "min_segment_length": 0.0,
+      "profile": "showcase"
+    },
+    "metrics": {
+      "bridged_crossings": 24,
+      "max_route_stretch": 2.781,
+      "minimum_container_gutter": 20.0,
+      "minimum_node_gap": 60.0,
+      "shortest_segment": 1.0,
+      "total_bends": 100
+    },
+    "ok": true,
+    "profile": "showcase",
+    "score": 0,
+    "violations": []
+  },
+  "edges": [
+    {
+      "bends": 2,
+      "bridges": [],
+      "crossings": [],
+      "id": "e1",
+      "length": 191.0,
+      "route": [
+        [
+          301.0,
+          68.0
+        ],
+        [
+          301.0,
+          88.4
+        ],
+        [
+          376.0,
+          88.4
+        ],
+        [
+          376.0,
+          184.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "a-terminal",
+      "source_port": [
+        301.0,
+        68.0
+      ],
+      "target": "n-cli",
+      "target_port": [
+        376.0,
+        184.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 2,
+      "bridges": [],
+      "crossings": [],
+      "id": "e2",
+      "length": 562.0,
+      "route": [
+        [
+          840.0,
+          68.0
+        ],
+        [
+          840.0,
+          92.0
+        ],
+        [
+          394.0,
+          92.0
+        ],
+        [
+          394.0,
+          184.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "a-ai",
+      "source_port": [
+        840.0,
+        68.0
+      ],
+      "target": "n-cli",
+      "target_port": [
+        394.0,
+        184.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "e3",
+      "length": 60.0,
+      "route": [
+        [
+          510.0,
+          214.0
+        ],
+        [
+          570.0,
+          214.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-cli",
+      "source_port": [
+        510.0,
+        214.0
+      ],
+      "target": "n-verbs",
+      "target_port": [
+        570.0,
+        214.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 2,
+      "bridges": [],
+      "crossings": [],
+      "id": "e4",
+      "length": 253.0,
+      "route": [
+        [
+          695.0,
+          244.0
+        ],
+        [
+          695.0,
+          268.0
+        ],
+        [
+          530.0,
+          268.0
+        ],
+        [
+          530.0,
+          332.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-verbs",
+      "source_port": [
+        695.0,
+        244.0
+      ],
+      "target": "n-resource",
+      "target_port": [
+        530.0,
+        332.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 4,
+      "bridges": [],
+      "crossings": [],
+      "id": "e5",
+      "length": 816.0,
+      "route": [
+        [
+          494.0,
+          392.0
+        ],
+        [
+          494.0,
+          412.4
+        ],
+        [
+          381.0,
+          412.4
+        ],
+        [
+          381.0,
+          925.6
+        ],
+        [
+          530.0,
+          925.6
+        ],
+        [
+          530.0,
+          946.0
+        ]
+      ],
+      "route_stretch": 1.383,
+      "source": "n-resource",
+      "source_port": [
+        494.0,
+        392.0
+      ],
+      "target": "n-cfgresolve",
+      "target_port": [
+        530.0,
+        946.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 4,
+      "bridges": [],
+      "crossings": [],
+      "id": "e6",
+      "length": 1042.0,
+      "route": [
+        [
+          512.0,
+          392.0
+        ],
+        [
+          512.0,
+          412.4
+        ],
+        [
+          679.0,
+          412.4
+        ],
+        [
+          679.0,
+          1065.6
+        ],
+        [
+          860.0,
+          1065.6
+        ],
+        [
+          860.0,
+          1086.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-resource",
+      "source_port": [
+        512.0,
+        392.0
+      ],
+      "target": "n-tenant",
+      "target_port": [
+        860.0,
+        1086.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 5,
+      "bridges": [
+        [
+          494.0,
+          392.0
+        ],
+        [
+          512.0,
+          392.0
+        ]
+      ],
+      "crossings": [
+        [
+          494.0,
+          392.0
+        ],
+        [
+          512.0,
+          392.0
+        ]
+      ],
+      "id": "e7",
+      "length": 866.0,
+      "route": [
+        [
+          530.0,
+          392.0
+        ],
+        [
+          349.0,
+          392.0
+        ],
+        [
+          349.0,
+          416.0
+        ],
+        [
+          51.0,
+          416.0
+        ],
+        [
+          51.0,
+          562.0
+        ],
+        [
+          200.0,
+          562.0
+        ],
+        [
+          200.0,
+          630.0
+        ]
+      ],
+      "route_stretch": 1.525,
+      "source": "n-resource",
+      "source_port": [
+        530.0,
+        392.0
+      ],
+      "target": "n-resclient",
+      "target_port": [
+        200.0,
+        630.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 6,
+      "bridges": [],
+      "crossings": [],
+      "id": "e8",
+      "length": 1693.8,
+      "route": [
+        [
+          200.0,
+          690.0
+        ],
+        [
+          200.0,
+          710.4
+        ],
+        [
+          349.0,
+          710.4
+        ],
+        [
+          349.0,
+          1170.0
+        ],
+        [
+          1009.0,
+          1170.0
+        ],
+        [
+          1009.0,
+          925.6
+        ],
+        [
+          869.0,
+          925.6
+        ],
+        [
+          869.0,
+          946.0
+        ]
+      ],
+      "route_stretch": 1.831,
+      "source": "n-resclient",
+      "source_port": [
+        200.0,
+        690.0
+      ],
+      "target": "n-http",
+      "target_port": [
+        869.0,
+        946.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 8,
+      "bridges": [],
+      "crossings": [],
+      "id": "e9",
+      "length": 1740.8,
+      "route": [
+        [
+          851.0,
+          1006.0
+        ],
+        [
+          851.0,
+          1026.4
+        ],
+        [
+          735.0,
+          1026.4
+        ],
+        [
+          735.0,
+          922.0
+        ],
+        [
+          1019.0,
+          922.0
+        ],
+        [
+          1019.0,
+          1201.0
+        ],
+        [
+          534.0,
+          1201.0
+        ],
+        [
+          534.0,
+          1409.6
+        ],
+        [
+          311.0,
+          1409.6
+        ],
+        [
+          311.0,
+          1430.0
+        ]
+      ],
+      "route_stretch": 1.806,
+      "source": "n-http",
+      "source_port": [
+        851.0,
+        1006.0
+      ],
+      "target": "n-gw",
+      "target_port": [
+        311.0,
+        1430.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "e10",
+      "length": 120.0,
+      "route": [
+        [
+          440.0,
+          1451.0
+        ],
+        [
+          560.0,
+          1451.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-gw",
+      "source_port": [
+        440.0,
+        1451.0
+      ],
+      "target": "n-seibasic",
+      "target_port": [
+        560.0,
+        1451.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "r1",
+      "length": 120.0,
+      "route": [
+        [
+          560.0,
+          1469.0
+        ],
+        [
+          440.0,
+          1469.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-seibasic",
+      "source_port": [
+        560.0,
+        1469.0
+      ],
+      "target": "n-gw",
+      "target_port": [
+        440.0,
+        1469.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 9,
+      "bridges": [
+        [
+          440.0,
+          1451.0
+        ],
+        [
+          440.0,
+          1469.0
+        ]
+      ],
+      "crossings": [
+        [
+          440.0,
+          1451.0
+        ],
+        [
+          440.0,
+          1469.0
+        ]
+      ],
+      "id": "r2",
+      "length": 2218.8,
+      "route": [
+        [
+          329.0,
+          1430.0
+        ],
+        [
+          440.0,
+          1430.0
+        ],
+        [
+          440.0,
+          1514.0
+        ],
+        [
+          1154.0,
+          1514.0
+        ],
+        [
+          1154.0,
+          1220.0
+        ],
+        [
+          1029.0,
+          1220.0
+        ],
+        [
+          1029.0,
+          915.6
+        ],
+        [
+          725.0,
+          915.6
+        ],
+        [
+          725.0,
+          1030.0
+        ],
+        [
+          869.0,
+          1030.0
+        ],
+        [
+          869.0,
+          1006.0
+        ]
+      ],
+      "route_stretch": 2.302,
+      "source": "n-gw",
+      "source_port": [
+        329.0,
+        1430.0
+      ],
+      "target": "n-http",
+      "target_port": [
+        869.0,
+        1006.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 9,
+      "bridges": [
+        [
+          530.0,
+          332.0
+        ]
+      ],
+      "crossings": [
+        [
+          530.0,
+          332.0
+        ]
+      ],
+      "id": "r3",
+      "length": 1845.0,
+      "route": [
+        [
+          548.0,
+          392.0
+        ],
+        [
+          655.0,
+          392.0
+        ],
+        [
+          655.0,
+          332.0
+        ],
+        [
+          349.0,
+          332.0
+        ],
+        [
+          349.0,
+          308.0
+        ],
+        [
+          233.48,
+          308.0
+        ],
+        [
+          233.48,
+          264.0
+        ],
+        [
+          29.0,
+          264.0
+        ],
+        [
+          29.0,
+          1065.6
+        ],
+        [
+          191.0,
+          1065.6
+        ],
+        [
+          191.0,
+          1086.0
+        ]
+      ],
+      "route_stretch": 1.755,
+      "source": "n-resource",
+      "source_port": [
+        548.0,
+        392.0
+      ],
+      "target": "n-io",
+      "target_port": [
+        191.0,
+        1086.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 3,
+      "bridges": [
+        [
+          319.0,
+          88.4
+        ],
+        [
+          191.0,
+          1086.0
+        ]
+      ],
+      "crossings": [
+        [
+          319.0,
+          88.4
+        ],
+        [
+          191.0,
+          1086.0
+        ]
+      ],
+      "id": "r4",
+      "length": 1538.0,
+      "route": [
+        [
+          209.0,
+          1086.0
+        ],
+        [
+          4.0,
+          1086.0
+        ],
+        [
+          4.0,
+          90.0
+        ],
+        [
+          319.0,
+          90.0
+        ],
+        [
+          319.0,
+          68.0
+        ]
+      ],
+      "route_stretch": 1.363,
+      "source": "n-io",
+      "source_port": [
+        209.0,
+        1086.0
+      ],
+      "target": "a-terminal",
+      "target_port": [
+        319.0,
+        68.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 6,
+      "bridges": [
+        [
+          679.0,
+          1030.0
+        ],
+        [
+          381.0,
+          1170.0
+        ],
+        [
+          566.0,
+          392.0
+        ]
+      ],
+      "crossings": [
+        [
+          679.0,
+          1030.0
+        ],
+        [
+          381.0,
+          1170.0
+        ],
+        [
+          566.0,
+          392.0
+        ]
+      ],
+      "id": "w1",
+      "length": 1309.0,
+      "route": [
+        [
+          566.0,
+          392.0
+        ],
+        [
+          566.0,
+          406.0
+        ],
+        [
+          700.0,
+          406.0
+        ],
+        [
+          700.0,
+          1030.0
+        ],
+        [
+          381.0,
+          1030.0
+        ],
+        [
+          381.0,
+          1223.6
+        ],
+        [
+          385.0,
+          1223.6
+        ],
+        [
+          385.0,
+          1244.0
+        ]
+      ],
+      "route_stretch": 1.267,
+      "source": "n-resource",
+      "source_port": [
+        566.0,
+        392.0
+      ],
+      "target": "n-oprec",
+      "target_port": [
+        385.0,
+        1244.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 4,
+      "bridges": [
+        [
+          679.0,
+          606.0
+        ],
+        [
+          1039.0,
+          1220.0
+        ],
+        [
+          700.0,
+          606.0
+        ]
+      ],
+      "crossings": [
+        [
+          679.0,
+          606.0
+        ],
+        [
+          1039.0,
+          1220.0
+        ],
+        [
+          700.0,
+          606.0
+        ]
+      ],
+      "id": "w3",
+      "length": 1264.0,
+      "route": [
+        [
+          530.0,
+          532.0
+        ],
+        [
+          530.0,
+          606.0
+        ],
+        [
+          1039.0,
+          606.0
+        ],
+        [
+          1039.0,
+          1223.6
+        ],
+        [
+          996.0,
+          1223.6
+        ],
+        [
+          996.0,
+          1244.0
+        ]
+      ],
+      "route_stretch": 1.073,
+      "source": "n-rollback",
+      "source_port": [
+        530.0,
+        532.0
+      ],
+      "target": "n-oproll",
+      "target_port": [
+        996.0,
+        1244.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 7,
+      "bridges": [
+        [
+          359.0,
+          1170.0
+        ],
+        [
+          534.0,
+          1328.0
+        ],
+        [
+          996.0,
+          1244.0
+        ]
+      ],
+      "crossings": [
+        [
+          359.0,
+          1170.0
+        ],
+        [
+          534.0,
+          1328.0
+        ],
+        [
+          996.0,
+          1244.0
+        ]
+      ],
+      "id": "w4",
+      "length": 2178.0,
+      "route": [
+        [
+          1014.0,
+          1244.0
+        ],
+        [
+          844.0,
+          1244.0
+        ],
+        [
+          844.0,
+          1328.0
+        ],
+        [
+          29.0,
+          1328.0
+        ],
+        [
+          29.0,
+          1176.0
+        ],
+        [
+          359.0,
+          1176.0
+        ],
+        [
+          359.0,
+          701.0
+        ],
+        [
+          218.0,
+          701.0
+        ],
+        [
+          218.0,
+          690.0
+        ]
+      ],
+      "route_stretch": 1.613,
+      "source": "n-oproll",
+      "source_port": [
+        1014.0,
+        1244.0
+      ],
+      "target": "n-resclient",
+      "target_port": [
+        218.0,
+        690.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 8,
+      "bridges": [
+        [
+          530.0,
+          318.0
+        ],
+        [
+          233.48,
+          274.0
+        ]
+      ],
+      "crossings": [
+        [
+          530.0,
+          318.0
+        ],
+        [
+          233.48,
+          274.0
+        ]
+      ],
+      "id": "d2",
+      "length": 2076.0,
+      "route": [
+        [
+          1190.0,
+          392.0
+        ],
+        [
+          1190.0,
+          410.0
+        ],
+        [
+          705.0,
+          410.0
+        ],
+        [
+          705.0,
+          318.0
+        ],
+        [
+          415.68,
+          318.0
+        ],
+        [
+          415.68,
+          274.0
+        ],
+        [
+          39.0,
+          274.0
+        ],
+        [
+          39.0,
+          866.0
+        ],
+        [
+          200.0,
+          866.0
+        ],
+        [
+          200.0,
+          848.0
+        ]
+      ],
+      "route_stretch": 1.436,
+      "source": "n-bpm",
+      "source_port": [
+        1190.0,
+        392.0
+      ],
+      "target": "n-bpmdisc",
+      "target_port": [
+        200.0,
+        848.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 4,
+      "bridges": [
+        [
+          381.0,
+          612.0
+        ]
+      ],
+      "crossings": [
+        [
+          381.0,
+          612.0
+        ]
+      ],
+      "id": "d7",
+      "length": 428.0,
+      "route": [
+        [
+          200.0,
+          532.0
+        ],
+        [
+          200.0,
+          550.0
+        ],
+        [
+          201.0,
+          550.0
+        ],
+        [
+          201.0,
+          612.0
+        ],
+        [
+          530.0,
+          612.0
+        ],
+        [
+          530.0,
+          630.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "n-permission",
+      "source_port": [
+        200.0,
+        532.0
+      ],
+      "target": "n-permclient",
+      "target_port": [
+        530.0,
+        630.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 7,
+      "bridges": [
+        [
+          869.0,
+          946.0
+        ],
+        [
+          1003.0,
+          606.0
+        ],
+        [
+          860.0,
+          410.0
+        ]
+      ],
+      "crossings": [
+        [
+          869.0,
+          946.0
+        ],
+        [
+          1003.0,
+          606.0
+        ],
+        [
+          860.0,
+          410.0
+        ]
+      ],
+      "id": "d14",
+      "length": 1565.8,
+      "route": [
+        [
+          860.0,
+          392.0
+        ],
+        [
+          860.0,
+          454.0
+        ],
+        [
+          1003.0,
+          454.0
+        ],
+        [
+          1003.0,
+          742.0
+        ],
+        [
+          717.0,
+          742.0
+        ],
+        [
+          717.0,
+          1036.4
+        ],
+        [
+          985.0,
+          1036.4
+        ],
+        [
+          985.0,
+          946.0
+        ],
+        [
+          851.0,
+          946.0
+        ],
+        [
+          851.0,
+          946.0
+        ]
+      ],
+      "route_stretch": 2.781,
+      "source": "n-api",
+      "source_port": [
+        860.0,
+        392.0
+      ],
+      "target": "n-http",
+      "target_port": [
+        851.0,
+        946.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 10,
+      "bridges": [
+        [
+          534.0,
+          1353.0
+        ],
+        [
+          1065.0,
+          1220.0
+        ]
+      ],
+      "crossings": [
+        [
+          534.0,
+          1353.0
+        ],
+        [
+          1065.0,
+          1220.0
+        ]
+      ],
+      "id": "d12",
+      "length": 2918.0,
+      "route": [
+        [
+          182.0,
+          690.0
+        ],
+        [
+          182.0,
+          726.0
+        ],
+        [
+          343.0,
+          726.0
+        ],
+        [
+          343.0,
+          1164.0
+        ],
+        [
+          24.0,
+          1164.0
+        ],
+        [
+          24.0,
+          1353.0
+        ],
+        [
+          1148.0,
+          1353.0
+        ],
+        [
+          1148.0,
+          1226.0
+        ],
+        [
+          1065.0,
+          1226.0
+        ],
+        [
+          1065.0,
+          928.0
+        ],
+        [
+          1190.0,
+          928.0
+        ],
+        [
+          1190.0,
+          946.0
+        ]
+      ],
+      "route_stretch": 2.309,
+      "source": "n-resclient",
+      "source_port": [
+        182.0,
+        690.0
+      ],
+      "target": "n-pag",
+      "target_port": [
+        1190.0,
+        946.0
+      ],
+      "waypoints": []
+    }
+  ],
+  "input_schema": "v1",
+  "issues": [
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          494.0,
+          392.0
+        ],
+        [
+          512.0,
+          392.0
+        ]
+      ],
+      "element": "e7",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          440.0,
+          1451.0
+        ],
+        [
+          440.0,
+          1469.0
+        ]
+      ],
+      "element": "r2",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          530.0,
+          332.0
+        ]
+      ],
+      "element": "r3",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          319.0,
+          88.4
+        ],
+        [
+          191.0,
+          1086.0
+        ]
+      ],
+      "element": "r4",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          679.0,
+          1030.0
+        ],
+        [
+          381.0,
+          1170.0
+        ],
+        [
+          566.0,
+          392.0
+        ]
+      ],
+      "element": "w1",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          679.0,
+          606.0
+        ],
+        [
+          1039.0,
+          1220.0
+        ],
+        [
+          700.0,
+          606.0
+        ]
+      ],
+      "element": "w3",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          359.0,
+          1170.0
+        ],
+        [
+          534.0,
+          1328.0
+        ],
+        [
+          996.0,
+          1244.0
+        ]
+      ],
+      "element": "w4",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          530.0,
+          318.0
+        ],
+        [
+          233.48,
+          274.0
+        ]
+      ],
+      "element": "d2",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          381.0,
+          612.0
+        ]
+      ],
+      "element": "d7",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          869.0,
+          946.0
+        ],
+        [
+          1003.0,
+          606.0
+        ],
+        [
+          860.0,
+          410.0
+        ]
+      ],
+      "element": "d14",
+      "severity": "info"
+    },
+    {
+      "code": "EDGE_CROSSING_BRIDGED",
+      "coordinates": [
+        [
+          534.0,
+          1353.0
+        ],
+        [
+          1065.0,
+          1220.0
+        ]
+      ],
+      "element": "d12",
+      "severity": "info"
+    }
+  ],
+  "mode": "architecture",
+  "ok": true,
+  "placements": {
+    "legend": {
+      "actual": [
+        42.0,
+        1558.0
+      ],
+      "bounds": [
+        32.0,
+        1544.0,
+        953.36,
+        1590.0
+      ],
+      "moved": false,
+      "requested": [
+        42.0,
+        1558.0
+      ]
+    }
+  },
+  "schema_version": 1,
+  "semantics": {
+    "details": {
+      "boundaries": 9,
+      "manifest_version": "2026.07-neutral.1",
+      "max_depth": 2,
+      "platform": "provider-neutral"
+    },
+    "ok": true,
+    "profile": "cloud-fabric",
+    "style": 10,
+    "visual_theme": "Cloud Fabric"
+  },
+  "style": {
+    "id": 10,
+    "name": "Cloud Fabric"
+  },
+  "summary": {
+    "bridged_crossings": 24,
+    "edges": 21,
+    "nodes": 34
+  },
+  "text_metrics": "heuristic-v1"
+}

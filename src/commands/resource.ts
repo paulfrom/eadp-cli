@@ -225,11 +225,11 @@ export function registerResourceCommands(
     });
 
   commands.query
-    .argument("<resource>", "资源接口名，例如 feature、dataRole")
+    .argument("<resource>", "资源接口名，例如 feature、feature-group、serial-number、dataRole")
     .option("--env <name>", "环境名称；默认使用当前环境")
     .option("--service <name>", "网关服务名", "sei-basic")
-    .option("--entity-class <name>", "给号配置实体完整类名；仅用于 serialNumberConfig")
-    .option("--config-type <type>", "给号配置类型；serialNumberConfig 默认为 CODE_TYPE")
+    .option("--entity-class <name>", "给号配置实体完整类名；仅用于 serial-number")
+    .option("--config-type <type>", "给号配置类型；serial-number 默认为 CODE_TYPE")
     .option("--created-in <yyyy-mm>", "按创建月份查询")
     .option("--from <datetime>", "起始时间，包含")
     .option("--to <datetime>", "结束时间，不包含")
@@ -246,15 +246,14 @@ export function registerResourceCommands(
 示例：
   eadp query feature --env dev --created-in 2026-07
   eadp query feature --env dev --filter appModuleCode:EQ:BASIC
-  eadp query appModule --env global --filter code:EQ:ams
   eadp query app-module --env global --filter code:EQ:ams
   eadp query menu --env global --quick 采购
-  eadp query serialNumberConfig --env global --entity-class com.example.Order
+  eadp query serial-number --env global --entity-class com.example.Order
 
-serialNumberConfig 在 global 租户查询时会在现有过滤条件后自动追加
+serial-number 在 global 租户查询时会在现有过滤条件后自动追加
 publicFlag=true（fieldType=java.lang.Boolean）；sync serial-number 不受此默认过滤器影响。
-应用模块（appModule/app-module）、菜单（menu）、功能项（feature）、功能项组（feature-group/featureGroup）和给号（serial-number/serialNumberConfig）
-只有 tenantCode === "global" 的环境才允许查询；别名会按同一资源归一化后再执行租户校验。
+应用模块（app-module）、菜单（menu）、功能项（feature）、功能项组（feature-group）和给号（serial-number）
+只有 tenantCode === "global" 的环境才允许查询。
 给号配置业务唯一键为 entityClassName + tenantCode（按记录实际值规范化判重）；
 configType 仅作为查询/同步筛选条件，不参与业务唯一键。选择 --entity-class 时，summary.identity
 输出全部匹配记录的复合键 values；缺少任一键字段会明确失败。
@@ -272,7 +271,7 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
       const runtime = getRuntimeOptions(root);
       const serialQuery = queryResource.serial;
       if (!serialQuery && (options.entityClass || options.configType)) {
-        throw new CliError("--entity-class 和 --config-type 仅适用于 serialNumberConfig");
+        throw new CliError("--entity-class 和 --config-type 仅适用于 serial-number");
       }
       const filters = buildFilters(options);
       if (serialQuery) {
@@ -422,24 +421,26 @@ interface QueryResource {
   findAll: boolean;
 }
 
-/**
- * Resolve query aliases to the endpoint spelling expected by sei-basic while
- * retaining the user's resource name in the streamed metadata. The tenant
- * guard uses the canonical endpoint, so aliases cannot avoid the global-only
- * check before the first remote request.
- */
 function normalizeQueryResource(resourceName: string): QueryResource {
   const trimmed = resourceName.trim();
-  const token = trimmed.replace(/[-_]/g, "").toLocaleLowerCase();
-  if (token === "appmodule") {
+  if (trimmed === "app-module") {
     return { endpoint: "appModule", menu: false, serial: false, findAll: true };
   }
-  if (token === "featuregroup") {
+  if (trimmed === "feature-group") {
     return { endpoint: "featureGroup", menu: false, serial: false, findAll: true };
   }
-  if (token === "serialnumber" || token === "serialnumberconfig") {
+  if (trimmed === "serial-number") {
     return { endpoint: "serialNumberConfig", menu: false, serial: true, findAll: false };
   }
+  if (trimmed === "appModule" || trimmed === "featureGroup" || trimmed === "serialNumberConfig") {
+    const canonical = trimmed === "appModule"
+      ? "app-module"
+      : trimmed === "featureGroup"
+        ? "feature-group"
+        : "serial-number";
+    throw new CliError(`资源 ${trimmed} 不是 CLI 资源名；请使用 ${canonical}`);
+  }
+  const token = trimmed.toLocaleLowerCase();
   return {
     endpoint: trimmed,
     menu: token === "menu",
@@ -916,7 +917,7 @@ function monthRange(source: string): { from: string; to: string } {
 }
 
 function resourceIdentityFields(spec: ResourceSpec): string[] {
-  return spec.identityFields ?? [spec.identityField];
+  return spec.identityFields;
 }
 
 function identityValue(

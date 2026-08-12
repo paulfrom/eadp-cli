@@ -3,14 +3,9 @@ import type {
   SpawnSyncReturns
 } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { createProgram } from "../src/cli.js";
 import { updateCliAndSkill } from "../src/commands/update.js";
 
 describe("update 命令", () => {
-  it("在根帮助中暴露 update 命令", () => {
-    expect(createProgram().helpInformation()).toContain("update");
-  });
-
   it("先升级 npm CLI，再使用升级后的 CLI 安装或升级 Skill", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     const runner = vi

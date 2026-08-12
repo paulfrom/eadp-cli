@@ -60,6 +60,7 @@ user to select one.
 ## Select one workflow
 
 - For resource/time queries or permission inspection, read [references/query-audit.md](references/query-audit.md).
+- For creating or synchronizing menus, read [references/resource-sync.md](references/resource-sync.md) first and follow its menu hierarchy and read-only discovery sequence.
 - For A-to-B comparisons or synchronization, read [references/resource-sync.md](references/resource-sync.md).
 - For granting or revoking user, position, or position-category roles, read [references/permission-management.md](references/permission-management.md).
 - For BPM discovery or configuration, read [references/bpm-configuration.md](references/bpm-configuration.md).
@@ -87,12 +88,11 @@ explicit `eadp rollback <operationId>`.
 ### Creating a feature group and its application module
 
 Use `eadp apply feature-group --help` before constructing this command. Provide the feature-group
-`--code`, `--name`, and an explicit application-module code through `--app-code` (the `--app` and
-`--module-code` spellings are compatibility aliases). The command is global-only and defaults to a
+`--code`, `--name`, and an explicit application-module code through `--app-code`. The command is global-only and defaults to a
 preview. It first queries the feature-group by code; an existing match returns `action: "unchanged"`
 without querying or creating an application module. For a missing group, the module code is matched
 uniquely. A missing module is planned as `action: "create"`; its name is inferred from the supplied
-`--project`/`--project-path` (default current project) Gradle/package metadata or business code
+`--project` (default current project) Gradle/package metadata or business code
 comments and is capped at eight characters. `rank` defaults to `1`. The preview reports both the
 module action/name/rank and the feature-group action, and never writes.
 
@@ -114,10 +114,10 @@ Load only the selected workflow unless the request combines workflows.
 - For a person, prefer employee number. Permit exact employee name only when it resolves to one employee; never choose among duplicates.
 - For cross-environment operations, preserve source/target direction exactly as requested.
 - Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
-  Use it for every remote operation on application modules (`appModule`/`app-module`), menus (`menu`), features (`feature`), feature groups
-  (`feature-group`/`featureGroup`), and serial-number configurations
-  (`serial-number`/`serialNumberConfig`), including query, apply, sync, generic `call`, and rollback;
-  aliases must not bypass this check. Use a non-`global` environment for permission and position configuration/assignment, user queries,
+  Use it for every remote operation on CLI resources `app-module`, `menu`, `feature`, `feature-group`,
+  and `serial-number`, including query, apply, sync, generic `call`, and rollback. Their real backend
+  paths (`appModule`, `featureGroup`, and `serialNumberConfig`) are also covered by the same check.
+  Use a non-`global` environment for permission and position configuration/assignment, user queries,
   BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.
 - When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and

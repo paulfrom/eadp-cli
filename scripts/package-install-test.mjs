@@ -151,7 +151,7 @@ try {
     },
     {
       args: ["rollback", "--help"],
-      expected: ["<operation-id>", "日志保留30天", "不要求 --apply"]
+      expected: ["<operation-id...>", "completedAt 从新到旧", "不要求 --apply"]
     },
     {
       args: ["inspect", "resource", "feature-group"],

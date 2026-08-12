@@ -29,10 +29,8 @@ afterEach(async () => {
 describe("query 和 sync 命令", () => {
   it.each([
     "feature-group",
-    "featureGroup",
-    "serial-number",
-    "serialNumberConfig"
-  ])("query %s 别名在非 global 环境先拒绝且不发请求", async (resource) => {
+    "serial-number"
+  ])("query canonical resource %s 在非 global 环境先拒绝且不发请求", async (resource) => {
     let requestCount = 0;
     const { store } = await createFixtureServer({
       source: (_request, response) => {
@@ -462,7 +460,7 @@ describe("query 和 sync 命令", () => {
     await createProgram(store).parseAsync(
       [
         "query",
-        "serialNumberConfig",
+         "serial-number",
         "--env",
         "source",
         "--entity-class",
@@ -521,7 +519,7 @@ describe("query 和 sync 命令", () => {
       createProgram(store).parseAsync(
         [
           "query",
-          "serialNumberConfig",
+          "serial-number",
           "--env",
           "source",
           "--entity-class",
@@ -561,7 +559,7 @@ describe("query 和 sync 命令", () => {
     await createProgram(store).parseAsync(
       [
         "query",
-        "serialNumberConfig",
+        "serial-number",
         "--env",
         "source",
         "--entity-class",
@@ -599,7 +597,7 @@ describe("query 和 sync 命令", () => {
       createProgram(store).parseAsync(
         [
           "query",
-          "serialNumberConfig",
+          "serial-number",
           "--env",
           "source",
           "--entity-class",

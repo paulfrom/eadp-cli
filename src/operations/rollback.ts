@@ -24,12 +24,7 @@ export async function rollbackOperation(options: {
   // findEntity/getChildren/getDataValues so a mixed operation cannot perform a
   // non-global request and only then discover that a global resource is being
   // rolled back from the wrong tenant.
-  for (const action of record.actions) {
-    if (action.status === "rolled-back" || action.status === "not-applied") {
-      continue;
-    }
-    assertRollbackActionTenantScope(action, options.environment);
-  }
+  preflightRollbackOperation(record, options.environment);
 
   record.status = "rolling-back";
   delete record.error;
@@ -55,6 +50,22 @@ export async function rollbackOperation(options: {
     record.error = errorMessage(error);
     await save(record, options.store);
     throw error;
+  }
+}
+
+/**
+ * Validate every active action in a record before any remote rollback request.
+ *
+ * This is intentionally synchronous and side-effect free so batch callers can
+ * preflight all selected records before the first operation is changed.
+ */
+export function preflightRollbackOperation(record: OperationRecord, environment: ResolvedEnvironment): void {
+  if (record.environment !== environment.name) {
+    throw new CliError(`操作 ${record.id} 绑定环境 ${record.environment}，不能使用 ${environment.name} 回滚`);
+  }
+  for (const action of record.actions) {
+    if (action.status === "rolled-back" || action.status === "not-applied") continue;
+    assertRollbackActionTenantScope(action, environment);
   }
 }
 

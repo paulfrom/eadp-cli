@@ -8,7 +8,6 @@ const GLOBAL_RESOURCE_SEGMENTS = new Set([
   "feature",
   "featuregroup",
   "menu",
-  "serialnumber",
   "serialnumberconfig"
 ]);
 
@@ -43,11 +42,7 @@ export function scopeForPath(path: string): TenantScope {
     .split(/[?#]/, 1)[0]!
     .split("/")
     .filter(Boolean)
-    // Resource aliases are accepted by the CLI in both kebab and camel case
-    // (for example, feature-group/featureGroup and serial-number/
-    // serialNumberConfig). Compare a separator-free token so a caller cannot
-    // bypass the global-only policy by choosing a different spelling.
-    .map((segment) => segment.replace(/[-_]/g, "").toLocaleLowerCase());
+    .map((segment) => segment.toLocaleLowerCase());
   return segments.some((segment) => GLOBAL_RESOURCE_SEGMENTS.has(segment))
     ? "global"
     : "non-global";
