@@ -60,6 +60,11 @@ user to select one.
 
 ## Select one workflow
 
+Before previewing any workflow that can create a record or relation (`apply`, `assign`, or `sync`,
+including `sync --apply`), read [references/write-contracts.md](references/write-contracts.md) and enforce
+its input and mapping gate. Then read the selected workflow reference; do not skip this gate for a
+sync that includes new records.
+
 - For resource/time queries or permission inspection, read [references/query-audit.md](references/query-audit.md).
 - For creating or synchronizing menus, read [references/resource-sync.md](references/resource-sync.md) first and follow its menu hierarchy and read-only discovery sequence.
 - For A-to-B comparisons or synchronization, read [references/resource-sync.md](references/resource-sync.md).

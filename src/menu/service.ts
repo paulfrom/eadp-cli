@@ -20,6 +20,16 @@ export interface MenuChange {
 }
 
 const logicalFields = ["name", "rank", "iconCls", "parentCode", "featureCode"];
+export const MENU_CODE_MAX_LENGTH = 20;
+
+export function assertMenuCodeLength(code: unknown): void {
+  if (code === undefined) return;
+  if (typeof code !== "string") throw new CliError("菜单 code 必须是字符串");
+  const length = Array.from(code).length;
+  if (length > MENU_CODE_MAX_LENGTH) {
+    throw new CliError(`菜单 code 最多${MENU_CODE_MAX_LENGTH}个字符：${code}（当前${length}个字符）`);
+  }
+}
 
 export async function loadMenus(client: ResourceClient): Promise<MenuRecord[]> {
   const result: MenuRecord[] = [];
@@ -95,6 +105,9 @@ export async function syncMenus(options: {
   apply: boolean;
   recorder?: OperationRecorder;
 }): Promise<Record<string, unknown>> {
+  // Validate an explicitly selected code before any remote reads. Source menu
+  // codes are validated again after selecting the complete synchronization set.
+  assertMenuCodeLength(options.code);
   const [allSource, initialTarget] = await Promise.all([
     loadMenus(options.sourceClient),
     loadMenus(options.targetClient)
@@ -102,6 +115,7 @@ export async function syncMenus(options: {
   assertUniqueCodes(allSource, "源环境");
   assertUniqueCodes(initialTarget, "目标环境");
   const source = selectSubtree(allSource, options.code);
+  for (const menu of source) assertMenuCodeLength(menu.code);
   const sourceByCode = codeMap(allSource);
   const targetByCode = codeMap(initialTarget);
   const featureCodes = [...new Set(source.map(featureCode).filter((value): value is string => Boolean(value)))];

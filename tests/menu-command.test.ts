@@ -49,6 +49,66 @@ describe("菜单命令", () => {
     expect(lines[2]).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
   });
 
+  it("apply menu 帮助明确菜单 code 最多20个字符", () => {
+    const apply = createProgram().commands.find((command) => command.name() === "apply");
+    const menu = apply?.commands.find((command) => command.name() === "menu");
+    let help = "";
+    const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+
+    menu?.outputHelp();
+
+    output.mockRestore();
+    expect(help).toContain("最多20个字符");
+  });
+
+  it("apply menu 接受恰好20个字符的 code 并继续预览", async () => {
+    const code = "ABCDEFGHIJKLMNOPQRST";
+    let sourceRequests = 0;
+    const { store } = await fixture({
+      source: (request, response) => {
+        sourceRequests += 1;
+        expect(pathOf(request)).toBe("/api-gateway/sei-basic/menu/getMenuTree");
+        respond(response, []);
+      },
+      target: (_request, response) => respond(response, [])
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync([
+      "--compact", "apply", "menu", "--env", "source", "--name", "边界菜单", "--code", code
+    ], { from: "user" });
+
+    expect(sourceRequests).toBe(1);
+    expect(JSON.parse(output.text())).toMatchObject({
+      action: "create",
+      desired: { code },
+      applied: false
+    });
+  });
+
+  it("apply menu 拒绝21个字符的 code 且不发起远端请求", async () => {
+    const code = "ABCDEFGHIJKLMNOPQRSTU";
+    let remoteRequests = 0;
+    const { store } = await fixture({
+      source: (_request, response) => {
+        remoteRequests += 1;
+        respond(response, []);
+      },
+      target: (_request, response) => {
+        remoteRequests += 1;
+        respond(response, []);
+      }
+    });
+
+    await expect(createProgram(store).parseAsync([
+      "--compact", "apply", "menu", "--env", "source", "--name", "超长菜单", "--code", code, "--apply"
+    ], { from: "user" })).rejects.toThrow("菜单 code 最多20个字符");
+    expect(remoteRequests).toBe(0);
+  });
+
   it("apply menu 按 code 解析依赖，新增后产生 operationId 并可直接回滚", async () => {
     const root = { id: "root-id", code: "PURCHASE", name: "采购管理", rank: 0, children: [] as unknown[] };
     let created: Record<string, unknown> | null = null;
@@ -234,6 +294,44 @@ describe("菜单命令", () => {
         missingDependencies: [{ resource: "feature", identityField: "code", value: "MISSING_FEATURE", reason: "missing" }]
       })
     ]));
+  });
+
+  it("sync menu 发现参与同步的菜单 code 超长时失败且不写入目标", async () => {
+    const overlongCode = "ABCDEFGHIJKLMNOPQRSTU";
+    let targetSaveRequests = 0;
+    const { store } = await fixture({
+      source: (request, response) => {
+        if (pathOf(request).endsWith("/menu/getMenuTree")) {
+          respond(response, [{
+            id: "source-root-id",
+            code: "SAFE",
+            name: "安全菜单",
+            rank: 0,
+            children: [{ id: "source-child-id", code: overlongCode, name: "超长菜单", rank: 1, children: [] }]
+          }]);
+          return;
+        }
+        respond(response, undefined, 404);
+      },
+      target: async (request, response) => {
+        const path = pathOf(request);
+        if (path.endsWith("/menu/getMenuTree")) {
+          respond(response, []);
+          return;
+        }
+        if (path.endsWith("/menu/save")) {
+          targetSaveRequests += 1;
+          respond(response, { id: "unexpected" });
+          return;
+        }
+        respond(response, undefined, 404);
+      }
+    });
+
+    await expect(createProgram(store).parseAsync([
+      "--compact", "sync", "menu", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" })).rejects.toThrow("菜单 code 最多20个字符");
+    expect(targetSaveRequests).toBe(0);
   });
 
   it("sync menu 更新字段并换父节点时先按原 parentId 保存，再调用 move", async () => {

@@ -12,7 +12,8 @@ import {
   logicalMenu,
   resolveFeatureId,
   selectMenuByCode,
-  syncMenus
+  syncMenus,
+  assertMenuCodeLength
 } from "../menu/service.js";
 import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
@@ -111,7 +112,7 @@ export function registerResourceCommands(
     .command("menu")
     .description("按菜单代码安全新增菜单；默认只预览；仅允许 tenantCode === \"global\" 的全局管理员环境")
     .requiredOption("--name <name>", "菜单名称")
-    .option("--code <code>", "菜单代码；省略时由服务端给号")
+    .option("--code <code>", "菜单代码；最多20个字符；省略时由服务端给号")
     .option("--parent-code <code>", "父菜单代码；省略时新增根菜单")
     .option("--feature-code <code>", "绑定的功能项代码")
     .option("--rank <number>", "菜单顺序", parseNonNegativeInteger, 0)
@@ -127,9 +128,11 @@ export function registerResourceCommands(
     --parent-code PURCHASING --feature-code PURCHASE_APPLY --rank 10 --apply
 
 父菜单和功能项均按 code 唯一解析；不会接受或复制其他环境的 ID。新增成功会返回 operationId。
+菜单 code 最多20个字符；超长代码会在任何远端请求前拒绝。
 菜单、功能项、功能项组和给号配置的远端操作均要求 tenantCode === "global"。`
     )
     .action(async (options: ApplyMenuOptions) => {
+      assertMenuCodeLength(options.code);
       const resolved = resolveEnvironment(await store.load(), options.env);
       assertPathTenantScope(resolved.config.tenantCode, "/api-gateway/sei-basic/menu", resolved.name);
       const runtime = getRuntimeOptions(root);
@@ -436,7 +439,7 @@ configType 仅作为查询/同步筛选条件，不参与业务唯一键。选�
     .option("--time-field <name>", "时间字段", "createdDate")
     .option("--entity-class <name>", "给号配置实体完整类名；仅用于 serial-number")
     .option("--config-type <type>", "给号配置类型；serial-number 默认为 CODE_TYPE")
-    .option("--code <code>", "按业务代码筛选；仅用于 feature-group")
+    .option("--code <code>", "按业务代码筛选；用于 feature-group 或 menu；菜单 code 最多20个字符")
     .option("--flow <code-or-name>", "BPM 流程代码、名称或实体代码；仅用于 bpm")
     .option("--apply", "执行目标环境写入；默认只预览")
     .addHelpText(

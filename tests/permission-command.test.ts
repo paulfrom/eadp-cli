@@ -401,8 +401,6 @@ describe("统一权限命令", () => {
       "BASIC_DATA",
       "--feature-type",
       "Page",
-      "--group-code",
-      "/basic",
       "--url",
       "//basic/view///",
       "--can-menu"
@@ -419,9 +417,10 @@ describe("统一权限命令", () => {
       featureType: "Page",
       canMenu: true,
       tenantCanUse: true,
-      mobileUse: false
+      mobileUse: false,
+      groupCode: "/basic/view"
     });
-    expect(preview.desired.url).toBe("/basic/view");
+    expect(preview.desired).not.toHaveProperty("url");
     expect(saveCount).toBe(0);
     vi.restoreAllMocks();
 
@@ -439,9 +438,10 @@ describe("统一权限命令", () => {
     expect(applied.verified).toBe(true);
     expect(applied.operationId).toEqual(expect.any(String));
     expect(savedPayload).toMatchObject({
-      url: "/basic/view",
+      groupCode: "/basic/view",
       tenantCanUse: true
     });
+    expect(savedPayload).not.toHaveProperty("url");
     await expect(new OperationLogStore(store.directory).load(applied.operationId)).resolves.toMatchObject({
       environment: "dev",
       status: "completed",
@@ -450,7 +450,7 @@ describe("统一权限命令", () => {
         resource: "feature",
         entityId: "feature-1",
         expected: expect.objectContaining({
-          url: "/basic/view",
+          groupCode: "/basic/view",
           tenantCanUse: true
         })
       })]
@@ -472,7 +472,8 @@ describe("统一权限命令", () => {
       { from: "user" }
     );
     const rootUrlPreview = JSON.parse(rootUrlOutput.text());
-    expect(rootUrlPreview.desired.url).toBe("/");
+    expect(rootUrlPreview.desired.groupCode).toBe("/");
+    expect(rootUrlPreview.desired).not.toHaveProperty("url");
     expect(saveCount).toBe(1);
     vi.restoreAllMocks();
 
@@ -579,18 +580,189 @@ describe("统一权限命令", () => {
     expect(result.desired).toMatchObject({
       featureType: "Business",
       canMenu: false,
-      url: "/basic/export"
+      groupCode: "/basic/export"
     });
+    expect(result.desired).not.toHaveProperty("url");
     expect(savedPayload).toMatchObject({
       featureType: "Business",
       canMenu: false,
-      url: "/basic/export"
+      groupCode: "/basic/export"
     });
+    expect(savedPayload).not.toHaveProperty("url");
     expect(result.verifiedFeature).toMatchObject({
       featureType: "Business",
       canMenu: false,
-      url: "basic/export"
+      groupCode: "/basic/export"
     });
+  });
+
+  it("feature apply Business 未传 --url 时不写入 groupCode 或 url", async () => {
+    const { store } = await createFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/feature/findByCode")) {
+        respond(response, null);
+        return;
+      }
+      if (url.pathname.endsWith("/appModule/findAll")) {
+        respond(response, [{ id: "app-1", code: "BASIC", name: "基础应用" }]);
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    const output = captureOutput();
+    await createProgram(store).parseAsync(
+      [
+        "apply",
+        "feature",
+        "--code",
+        "BASIC_EXPORT_NO_URL",
+        "--name",
+        "导出基础数据",
+        "--app",
+        "BASIC",
+        "--feature-type",
+        "Business"
+      ],
+      { from: "user" }
+    );
+
+    const result = JSON.parse(output.text());
+    expect(result.desired).not.toHaveProperty("url");
+    expect(result.desired).not.toHaveProperty("groupCode");
+  });
+
+  it("feature apply Operate 即使传 --url 也不写入 url 或 groupCode", async () => {
+    let savedPayload: Record<string, unknown> | undefined;
+    const features: Array<Record<string, unknown>> = [];
+    const { store } = await createFixtureServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      if (url.pathname.endsWith("/feature/findByCode")) {
+        respond(
+          response,
+          features.find((feature) => feature.code === url.searchParams.get("code")) ?? null
+        );
+        return;
+      }
+      if (url.pathname.endsWith("/appModule/findAll")) {
+        respond(response, [{ id: "app-1", code: "BASIC", name: "基础应用" }]);
+        return;
+      }
+      if (url.pathname.endsWith("/feature/save")) {
+        savedPayload = (await readBody(request)) as Record<string, unknown>;
+        const saved = { ...savedPayload, id: "feature-operate-1" };
+        features.push(saved);
+        respond(response, saved);
+        return;
+      }
+      respond(response, undefined, 404);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    const previewOutput = captureOutput();
+    await createProgram(store).parseAsync(
+      [
+        "apply",
+        "feature",
+        "--code",
+        "BASIC_EXPORT_OPERATE",
+        "--name",
+        "导出基础数据",
+        "--app",
+        "BASIC",
+        "--feature-type",
+        "Operate",
+        "--url",
+        "//basic/export///"
+      ],
+      { from: "user" }
+    );
+    const preview = JSON.parse(previewOutput.text());
+    expect(preview.desired).not.toHaveProperty("url");
+    expect(preview.desired).not.toHaveProperty("groupCode");
+
+    vi.restoreAllMocks();
+    const applyOutput = captureOutput();
+    await createProgram(store).parseAsync(
+      [
+        "apply",
+        "feature",
+        "--code",
+        "BASIC_EXPORT_OPERATE",
+        "--name",
+        "导出基础数据",
+        "--app",
+        "BASIC",
+        "--feature-type",
+        "Operate",
+        "--url",
+        "//basic/export///",
+        "--apply"
+      ],
+      { from: "user" }
+    );
+    const applied = JSON.parse(applyOutput.text());
+    expect(applied.verified).toBe(true);
+    expect(savedPayload).not.toHaveProperty("url");
+    expect(savedPayload).not.toHaveProperty("groupCode");
+  });
+
+  it("feature apply 不再接受 --group-code 且未知参数不发起远端请求", async () => {
+    const requestedPaths: string[] = [];
+    const { store } = await createFixtureServer((request, response) => {
+      requestedPaths.push(new URL(request.url ?? "/", "http://localhost").pathname);
+      respond(response, undefined, 500);
+    });
+    await store.update((config) => {
+      config.environments.dev!.tenantCode = "global";
+    });
+
+    const program = createProgram(store).exitOverride();
+    const apply = program.commands.find((command) => command.name() === "apply");
+    apply?.commands.find((command) => command.name() === "feature")?.exitOverride();
+    await expect(
+      program.parseAsync(
+        [
+          "apply",
+          "feature",
+          "--code",
+          "BASIC_VIEW",
+          "--name",
+          "查看基础数据",
+          "--app",
+          "BASIC",
+          "--feature-type",
+          "Page",
+          "--url",
+          "/basic/view",
+          "--group-code",
+          "/basic"
+        ],
+        { from: "user" }
+      )
+    ).rejects.toThrow("unknown option '--group-code'");
+    expect(requestedPaths).toEqual([]);
+  });
+
+  it("feature apply 帮助只展示 Page 的 --url 示例并移除 --group-code", () => {
+    const apply = createProgram().commands.find((command) => command.name() === "apply");
+    const feature = apply?.commands.find((command) => command.name() === "feature");
+    let help = "";
+    const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    feature?.outputHelp();
+    output.mockRestore();
+
+    expect(help).not.toContain("--group-code");
+    expect(help).toContain("--feature-type Page --url");
+    expect(help).not.toMatch(/feature-type Operate[^\n]*--url/);
   });
 
   it("Page feature 缺少或传入空白 --url 时立即失败且不发起远端请求", async () => {

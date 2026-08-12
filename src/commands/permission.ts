@@ -101,7 +101,6 @@ interface ApplyFeatureOptions extends CommonOptions {
   app: string;
   featureType: "Operate" | "Business" | "Page";
   group?: string;
-  groupCode?: string;
   url?: string;
   canMenu?: boolean;
   tenantCanUse?: boolean;
@@ -255,8 +254,7 @@ export function registerPermissionCommands(
         .makeOptionMandatory()
     )
     .option("--group <code-or-name-or-id>", "功能项组代码、名称或 ID")
-    .option("--group-code <code>", "功能项分组代码（页面路由）")
-    .option("--url <url>", "功能项资源地址（操作接口 API）")
+    .option("--url <url>", "功能项地址")
     .option("--can-menu", "标记为菜单功能项")
     .addOption(
       new Option("--tenant-can-use", "标记为租户可用（默认启用）").default(true)
@@ -273,10 +271,9 @@ export function registerPermissionCommands(
     --name 查看基础数据 --app BASIC --feature-type Page --url /basic/view
   eadp apply feature --env global-dev --code BASIC_EXPORT \\
     --name 导出基础数据 --app BASIC --group BASIC_DATA \\
-    --feature-type Operate --url /basic/export --apply
+    --feature-type Operate --apply
 
-仅允许 tenantCode 为 global 的环境。Page 类型必须显式提供非空 --url；--url 未以 / 开头时自动补 /，
-且不会从 --group-code 推断。Operate、Business 类型不受此必填规则影响。
+仅允许 tenantCode 为 global 的环境。Page 类型必须显式提供非空 --url；--url 未以 / 开头时自动补 /。
 创建时 appModule 与可选 featureGroup 会按代码、名称或 ID 唯一解析，写入时只使用解析出的 ID；
 同 code 已存在时优先返回 unchanged，不调用 save。`
     )
@@ -1258,6 +1255,9 @@ async function applyFeature(
     assertFeatureGroupAppModule(featureGroup, appModule, appModuleId);
   }
 
+  // 默认约定：Page/Business 的 --url 映射到 groupCode，Operate 忽略 --url。
+  const normalizedUrl =
+    options.url === undefined ? undefined : normalizeFeatureUrl(options.url);
   const desired = normalizeFeatureDesired({
     code,
     name,
@@ -1269,8 +1269,9 @@ async function applyFeature(
     ...(featureGroup
       ? { featureGroupId: recordId(featureGroup, "功能项组") }
       : {}),
-    ...(options.groupCode === undefined ? {} : { groupCode: options.groupCode }),
-    ...(options.url === undefined ? {} : { url: normalizeFeatureUrl(options.url) })
+    ...(normalizedUrl !== undefined && options.featureType !== "Operate"
+      ? { groupCode: normalizedUrl }
+      : {})
   });
   if (!options.apply) {
     printValue(

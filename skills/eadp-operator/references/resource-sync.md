@@ -114,6 +114,9 @@ eadp sync feature-group --source A --target B --code ISRM-PA-2 --apply
 
 ## Menu synchronization semantics
 
+- Apply the shared field and ID checks from `references/write-contracts.md` via the SKILL.md
+  write-contracts gate; keep this
+  section focused on menu hierarchy, dependency resolution, and synchronization semantics.
 - Query menus with `eadp query menu --env <global-env>`; the CLI uses `getMenuTree`, flattens the
   tree, and emits `parentCode` for every item.
 - Match menus by exact `code`.
