@@ -56,6 +56,48 @@ describe("env add", () => {
     expect(config.environments.dev).not.toHaveProperty("accounts");
   });
 
+  it("NormalUser 禁止注册环境且不覆盖已有配置", async () => {
+    const baseUrl = await startTenantServer();
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-normal-user-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+    await store.save({
+      currentEnvironment: "dev",
+      environments: {
+        dev: { baseUrl, token: "old-token", tenantCode: "tenant-a" }
+      }
+    });
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["env", "add", "dev", "--url", baseUrl, "--token", "normal-token"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("NormalUser");
+
+    expect((await store.load()).environments.dev).toMatchObject({
+      baseUrl,
+      token: "old-token",
+      tenantCode: "tenant-a"
+    });
+  });
+
+  it("未知 authorityPolicy 也禁止注册环境", async () => {
+    const baseUrl = await startTenantServer();
+    const directory = await mkdtemp(join(tmpdir(), "eadp-env-unknown-policy-"));
+    temporaryDirectories.push(directory);
+    const store = new ConfigStore(directory);
+
+    await expect(
+      createProgram(store).parseAsync(
+        ["env", "add", "dev", "--url", baseUrl, "--token", "unknown-policy-token"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("UnknownPolicy");
+
+    expect((await store.load()).environments).not.toHaveProperty("dev");
+  });
+
   it("获取用户信息失败时不保存新 Token 或新 tenantCode", async () => {
     const baseUrl = await startTenantServer();
     const directory = await mkdtemp(join(tmpdir(), "eadp-env-"));
@@ -208,11 +250,22 @@ async function startTenantServer(): Promise<string> {
       );
       return;
     }
+    const authorityPolicy =
+      token === "admin-token"
+        ? "GlobalAdmin"
+        : token === "readonly-token"
+          ? "TenantAdmin"
+          : token === "unknown-policy-token"
+            ? "UnknownPolicy"
+            : "NormalUser";
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
         success: true,
-        data: { tenantCode: token === "admin-token" ? "global" : "tenant-a" }
+        data: {
+          tenantCode: token === "admin-token" ? "global" : "tenant-a",
+          authorityPolicy
+        }
       })
     );
   });

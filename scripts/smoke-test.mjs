@@ -204,7 +204,12 @@ async function startSmokeServer() {
         requestUrl.searchParams.get("apiKey") === "smoke-secret"
       ) {
         response.writeHead(200);
-        response.end(JSON.stringify({ success: true, data: { tenantCode: "global" } }));
+        response.end(
+          JSON.stringify({
+            success: true,
+            data: { tenantCode: "global", authorityPolicy: "GlobalAdmin" }
+          })
+        );
         return;
       }
       response.writeHead(404);

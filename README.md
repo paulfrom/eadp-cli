@@ -44,7 +44,7 @@ eadp env add dev \
 
 eadp env add dev2 \
   --url http://10.232.2.126 \
-  --token "<read Token>"
+  --token "<tenant-admin Token>"
 
 eadp env list
 eadp env remove dev2
@@ -52,7 +52,7 @@ eadp env remove dev2
 
 配置文件默认位于 `~/.eadp-cli/config.yaml`。也可使用 `--token-env <变量名>`，只保存环境变量名。
 
-`env add` 会先使用该 URL 和 Token 请求 `account/getByApiKey?apiKey=<token>`，读取并保存 `tenantCode`；验证失败时不会保存新的 Token。
+`env add` 会读取并保存 `tenantCode`；验证失败时不会保存新的 Token。
 Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env add`。
 后续命令只能读取这里保存的 `tenantCode`；调用参数不能自行指定或覆盖租户代码。
 

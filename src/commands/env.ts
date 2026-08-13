@@ -3,7 +3,7 @@ import { CliError } from "../errors.js";
 import { ConfigStore } from "../config/store.js";
 import { printValue } from "../io.js";
 import { getRuntimeOptions } from "../runtime-options.js";
-import { fetchTenantCode } from "../tenant.js";
+import { fetchTenantInfo } from "../tenant.js";
 
 export function registerEnvironmentCommands(program: Command, store: ConfigStore): void {
   const env = program.command("env").description("管理 EADP 环境");
@@ -15,7 +15,7 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
     .option("--token <token>", "该环境使用的 x-api-token")
     .option("--token-env <variable>", "从环境变量读取 Token")
     .option("--default", "添加后设为默认环境")
-    .description("新增或更新环境并验证 Token")
+    .description("新增或更新环境并验证管理员 Token（仅允许 GlobalAdmin 或 TenantAdmin）")
     .action(
       async (
         name: string,
@@ -39,11 +39,16 @@ export function registerEnvironmentCommands(program: Command, store: ConfigStore
         );
       }
       const runtime = getRuntimeOptions(program);
-      const tenantCode = await fetchTenantCode({
+      const { tenantCode, authorityPolicy } = await fetchTenantInfo({
         baseUrl,
         token,
         timeoutMs: runtime.timeoutMs
       });
+      if (authorityPolicy !== "GlobalAdmin" && authorityPolicy !== "TenantAdmin") {
+        throw new CliError(
+          `当前用户 authorityPolicy=${authorityPolicy} 不允许注册环境，仅允许 GlobalAdmin 或 TenantAdmin`
+        );
+      }
       await store.update((config) => {
         config.environments[name] = {
           baseUrl,

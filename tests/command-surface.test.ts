@@ -74,6 +74,13 @@ describe("统一命令面", () => {
     expect(help).toContain("serial-number");
   });
 
+  it("env add 帮助明确仅支持管理员权限策略", () => {
+    const env = createProgram().commands.find((command) => command.name() === "env");
+    const add = env?.commands.find((command) => command.name() === "add");
+    expect(add?.description()).toContain("GlobalAdmin");
+    expect(add?.description()).toContain("TenantAdmin");
+  });
+
   it("在业务命令前后都接受 --compact 并压缩只读输出", async () => {
     const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 

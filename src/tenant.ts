@@ -3,6 +3,11 @@ import { sendRequest } from "./http/client.js";
 
 export type TenantScope = "global" | "non-global";
 
+export interface TenantInfo {
+  tenantCode: string;
+  authorityPolicy: string;
+}
+
 const GLOBAL_RESOURCE_SEGMENTS = new Set([
   "appmodule",
   "feature",
@@ -12,14 +17,14 @@ const GLOBAL_RESOURCE_SEGMENTS = new Set([
 ]);
 
 /**
- * Validate the token against the current environment and return its tenant code.
+ * Validate the token against the current environment and return its tenant info.
  * The caller must persist the token only after this request succeeds.
  */
-export async function fetchTenantCode(options: {
+export async function fetchTenantInfo(options: {
   baseUrl: string;
   token: string;
   timeoutMs?: number;
-}): Promise<string> {
+}): Promise<TenantInfo> {
   const result = await sendRequest({
     baseUrl: options.baseUrl,
     token: options.token,
@@ -31,10 +36,14 @@ export async function fetchTenantCode(options: {
   const envelope = result.data;
   const data = isRecord(envelope) ? envelope.data : undefined;
   const tenantCode = isRecord(data) ? data.tenantCode : undefined;
+  const authorityPolicy = isRecord(data) ? data.authorityPolicy : undefined;
   if (typeof tenantCode !== "string" || tenantCode.trim() === "") {
     throw new CliError("account/getByApiKey 未返回有效 tenantCode");
   }
-  return tenantCode.trim();
+  if (typeof authorityPolicy !== "string" || authorityPolicy.trim() === "") {
+    throw new CliError("account/getByApiKey 未返回有效 authorityPolicy");
+  }
+  return { tenantCode: tenantCode.trim(), authorityPolicy: authorityPolicy.trim() };
 }
 
 export function scopeForPath(path: string): TenantScope {
