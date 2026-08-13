@@ -402,8 +402,7 @@ describe("统一权限命令", () => {
       "--feature-type",
       "Page",
       "--url",
-      "//basic/view///",
-      "--can-menu"
+      "//basic/view///"
     ];
     const previewOutput = captureOutput();
     await createProgram(store).parseAsync(args, { from: "user" });
@@ -438,6 +437,7 @@ describe("统一权限命令", () => {
     expect(applied.verified).toBe(true);
     expect(applied.operationId).toEqual(expect.any(String));
     expect(savedPayload).toMatchObject({
+      canMenu: true,
       groupCode: "/basic/view",
       tenantCanUse: true
     });
@@ -450,6 +450,7 @@ describe("统一权限命令", () => {
         resource: "feature",
         entityId: "feature-1",
         expected: expect.objectContaining({
+          canMenu: true,
           groupCode: "/basic/view",
           tenantCanUse: true
         })
@@ -512,7 +513,7 @@ describe("统一权限命令", () => {
     ).toBe(true);
   });
 
-  it("feature apply Business 类型的 --can-menu 会按后端规范化为 false 并通过回查", async () => {
+  it("feature apply Business 未传 --can-menu 时预览和创建均为菜单功能并通过回查", async () => {
     const features: Array<Record<string, unknown>> = [];
     let savedPayload: Record<string, unknown> | undefined;
     const { store } = await createFixtureServer(async (request, response) => {
@@ -530,7 +531,6 @@ describe("统一权限命令", () => {
         savedPayload = body;
         const saved = {
           ...body,
-          canMenu: body.featureType === "Business" ? false : body.canMenu,
           ...(typeof body.url === "string"
             ? { url: body.url.replace(/^\/+|\/+$/g, "") }
             : {}),
@@ -553,45 +553,55 @@ describe("统一权限命令", () => {
       config.environments.dev!.tenantCode = "global";
     });
 
+    const args = [
+      "apply",
+      "feature",
+      "--code",
+      "BASIC_EXPORT",
+      "--name",
+      "导出基础数据",
+      "--app",
+      "BASIC",
+      "--feature-type",
+      "Business",
+      "--url",
+      "/basic/export/"
+    ];
+
+    const previewOutput = captureOutput();
+    await createProgram(store).parseAsync(args, { from: "user" });
+    const preview = JSON.parse(previewOutput.text());
+    expect(preview.applied).toBe(false);
+    expect(preview.desired).toMatchObject({
+      featureType: "Business",
+      canMenu: true,
+      groupCode: "/basic/export"
+    });
+    expect(preview.desired).not.toHaveProperty("url");
+    expect(savedPayload).toBeUndefined();
+
+    vi.restoreAllMocks();
     const output = captureOutput();
-    await createProgram(store).parseAsync(
-      [
-        "apply",
-        "feature",
-        "--code",
-        "BASIC_EXPORT",
-        "--name",
-        "导出基础数据",
-        "--app",
-        "BASIC",
-        "--feature-type",
-        "Business",
-        "--url",
-        "/basic/export/",
-        "--can-menu",
-        "--apply"
-      ],
-      { from: "user" }
-    );
+    await createProgram(store).parseAsync([...args, "--apply"], { from: "user" });
 
     const result = JSON.parse(output.text());
     expect(result.applied).toBe(true);
     expect(result.verified).toBe(true);
     expect(result.desired).toMatchObject({
       featureType: "Business",
-      canMenu: false,
+      canMenu: true,
       groupCode: "/basic/export"
     });
     expect(result.desired).not.toHaveProperty("url");
     expect(savedPayload).toMatchObject({
       featureType: "Business",
-      canMenu: false,
+      canMenu: true,
       groupCode: "/basic/export"
     });
     expect(savedPayload).not.toHaveProperty("url");
     expect(result.verifiedFeature).toMatchObject({
       featureType: "Business",
-      canMenu: false,
+      canMenu: true,
       groupCode: "/basic/export"
     });
   });
@@ -683,6 +693,7 @@ describe("统一权限命令", () => {
       { from: "user" }
     );
     const preview = JSON.parse(previewOutput.text());
+    expect(preview.desired.canMenu).toBe(false);
     expect(preview.desired).not.toHaveProperty("url");
     expect(preview.desired).not.toHaveProperty("groupCode");
 
@@ -708,6 +719,8 @@ describe("统一权限命令", () => {
     );
     const applied = JSON.parse(applyOutput.text());
     expect(applied.verified).toBe(true);
+    expect(applied.desired.canMenu).toBe(false);
+    expect(savedPayload).toMatchObject({ canMenu: false });
     expect(savedPayload).not.toHaveProperty("url");
     expect(savedPayload).not.toHaveProperty("groupCode");
   });

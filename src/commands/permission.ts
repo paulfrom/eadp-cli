@@ -1263,7 +1263,7 @@ async function applyFeature(
     name,
     featureType: options.featureType,
     appModuleId,
-    canMenu: options.canMenu === true,
+    canMenu: options.canMenu ?? options.featureType !== "Operate",
     tenantCanUse: options.tenantCanUse !== false,
     mobileUse: options.mobileUse === true,
     ...(featureGroup
@@ -2259,9 +2259,6 @@ function normalizeFeatureDesired(desired: PermissionRecord): PermissionRecord {
   const normalized: PermissionRecord = { ...desired };
   if (typeof normalized.url === "string") {
     normalized.url = normalizeFeatureUrl(normalized.url);
-  }
-  if (normalized.featureType === "Business") {
-    normalized.canMenu = false;
   }
   return normalized;
 }
