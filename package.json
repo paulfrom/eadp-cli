@@ -1,14 +1,13 @@
 {
   "name": "eadp-cli",
   "version": "0.10.17",
-  "description": "面向 EADP 多环境与业务接口编排的命令行工具",
+  "description": "面向 EADP 多环境的资源与权限编排命令行工具",
   "type": "module",
   "bin": {
     "eadp": "dist/bin.js"
   },
   "files": [
     "dist",
-    "catalog",
     "skills",
     "README.md"
   ],
@@ -38,8 +37,6 @@
   ],
   "license": "UNLICENSED",
   "dependencies": {
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
     "commander": "^14.0.0",
     "yaml": "^2.8.1",
     "zod": "^4.1.5"

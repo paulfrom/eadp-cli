@@ -7,6 +7,7 @@ import type {
   BpmInterfaceDefinition,
   BpmProjectDefinition
 } from "./schema.js";
+import { assertBpmNameLength } from "./naming.js";
 
 interface JavaSource {
   path: string;
@@ -17,15 +18,30 @@ interface JavaSource {
 
 interface DiscoveredCallback {
   methodName: string;
+  name: string;
   interfaceType: BpmInterfaceDefinition["interfaceType"];
 }
 
-const EVENT_NAMES: Record<string, string> = {
-  beforeStartFlow: "流程启动前事件",
-  afterStartFlow: "流程启动后事件",
-  beforeEndFlow: "流程结束前事件",
-  afterEndFlow: "流程结束后事件"
-};
+interface RouteSource {
+  path: string;
+  source: string;
+}
+
+interface ParsedRoute {
+  start: number;
+  end: number;
+  path: string;
+  name?: string;
+  title?: string;
+  component?: string;
+  componentDefined: boolean;
+  source: string;
+}
+
+const ROUTE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
+const ROUTE_DIRECTORY_NAMES = new Set(["router", "routers", "route", "routes"]);
+const ROUTE_FILE_PATTERN = /^(?:router|routers|route|routes)(?:\.config)?$/u;
+const WORK_PAGE_TERMS = /(?:申请|审批|流程|办理|处理|提交|审核|表单|apply|approval|approve|workflow|flow|audit|review|handle|form)/iu;
 
 export async function discoverBpmProject(
   projectInput: string,
@@ -34,12 +50,13 @@ export async function discoverBpmProject(
   const projectPath = resolve(projectInput);
   await ensureDirectory(projectPath);
   const javaSources = await readJavaSources(projectPath);
-  const flows = discoverFlows(javaSources);
+  const routeSources = await readRouteSources(projectPath);
+  const flows = discoverFlows(javaSources, routeSources);
   if (
     requestedEntityCode &&
     !flows.some((flow) => sameText(flow.entity.code, requestedEntityCode))
   ) {
-    const selected = discoverSelectedEntity(javaSources, requestedEntityCode);
+    const selected = discoverSelectedEntity(javaSources, requestedEntityCode, routeSources);
     if (selected) flows.push(selected);
   }
   if (flows.length === 0) {
@@ -60,7 +77,9 @@ export async function discoverBpmProject(
     serviceName: moduleCode,
     ...(webBaseAddress ? { webBaseAddress } : {})
   };
-  return { projectPath, sourcePath: projectPath, businessModule, flows };
+  const definition = { projectPath, sourcePath: projectPath, businessModule, flows };
+  assertBpmNameLengths(definition);
+  return definition;
 }
 
 export function resolveBpmEntityCode(
@@ -187,7 +206,8 @@ function sameText(value: string | undefined, expected: string): boolean {
 
 function discoverSelectedEntity(
   sources: JavaSource[],
-  requestedEntityCode: string
+  requestedEntityCode: string,
+  routeSources: RouteSource[]
 ): BpmFlowDefinition | undefined {
   const matches = sources.filter(
     (source) =>
@@ -223,19 +243,20 @@ function discoverSelectedEntity(
   const serviceName = controller
     ? discoverServiceName(controller, types) ?? lowerCamel(simple)
     : lowerCamel(simple);
-  const name = controller ? discoverBusinessName(controller.source, simple) : simple;
+  const name = controller
+    ? discoverBusinessName(controller.source, simple)
+    : discoverEntityName(entity.source, simple);
+  const callbacks = controller ? discoverCallbacks(controller.source) : [];
   return {
     name,
     code: requestedEntityCode,
     entity: { name, code: requestedEntityCode, serviceName },
-    interfaces: controller
-      ? discoverCallbacks(controller.source).map((callback) => ({
-          name: `${name}-${EVENT_NAMES[callback.methodName] ?? callback.methodName}`,
-          url: `${serviceName}/${callback.methodName}`,
-          interfaceType: callback.interfaceType
-        }))
-      : [],
-    pages: []
+    interfaces: callbacks.map((callback) => ({
+      name: callback.name,
+      url: `${serviceName}/${callback.methodName}`,
+      interfaceType: callback.interfaceType
+    })),
+    pages: discoverPages(routeSources, { name, entityCode: requestedEntityCode, serviceName })
   };
 }
 
@@ -243,7 +264,7 @@ function lowerCamel(value: string): string {
   return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
-function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
+function discoverFlows(sources: JavaSource[], routeSources: RouteSource[]): BpmFlowDefinition[] {
   const types = new Map<string, JavaSource>();
   for (const item of sources) {
     if (item.typeName) {
@@ -265,8 +286,6 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
     }
     const entityType = declaration[2];
     const entityCode = resolveTypeName(controller, entityType);
-    const callbacks = discoverCallbacks(controller.source);
-
     const serviceName = discoverServiceName(controller, types);
     if (!serviceName) {
       continue;
@@ -276,16 +295,17 @@ function discoverFlows(sources: JavaSource[]): BpmFlowDefinition[] {
     }
     entityCodes.add(entityCode);
     const name = discoverBusinessName(controller.source, simpleName(entityType));
+    const interfaces = discoverCallbacks(controller.source).map((callback) => ({
+      name: callback.name,
+      url: `${serviceName}/${callback.methodName}`,
+      interfaceType: callback.interfaceType
+    }));
     flows.push({
       name,
       code: entityCode,
       entity: { name, code: entityCode, serviceName },
-      interfaces: callbacks.map((callback) => ({
-        name: `${name}-${EVENT_NAMES[callback.methodName] ?? callback.methodName}`,
-        url: `${serviceName}/${callback.methodName}`,
-        interfaceType: callback.interfaceType
-      })),
-      pages: []
+      interfaces,
+      pages: discoverPages(routeSources, { name, entityCode, serviceName })
     });
   }
   return flows.sort((left, right) => left.code.localeCompare(right.code));
@@ -300,8 +320,13 @@ function discoverCallbacks(source: string): DiscoveredCallback[] {
     if (body !== undefined && hasBusinessLogic(body)) {
       const returnType = match[1]!;
       const methodName = match[2]!;
+      const name = discoverCallbackName(source, match.index ?? 0, methodName);
+      if (!name) {
+        continue;
+      }
       methods.set(methodName, {
         methodName,
+        name,
         interfaceType: /\bExecutor\b/.test(returnType) ? "CUSTOM_PERSON" : "EVENT"
       });
     }
@@ -361,8 +386,470 @@ function normalizeServiceName(value: string): string {
 }
 
 function discoverBusinessName(source: string, fallback: string): string {
-  const description = source.match(/@Tag\s*\([^)]*description\s*=\s*"([^"]+)"/)?.[1]?.trim();
-  return description?.replace(/(?:服务|接口)$/u, "").trim() || fallback;
+  const classIndex = source.search(/\bclass\s+\w+Controller\b/u);
+  const beforeClass = classIndex >= 0 ? source.slice(0, classIndex) : source;
+  const comment = lastJavadocText(beforeClass);
+  if (comment) {
+    return comment;
+  }
+  const tag = lastAnnotationValue(beforeClass, "Tag", "description");
+  return tag?.replace(/(?:服务|接口)$/u, "").trim() || fallback;
+}
+
+function discoverEntityName(source: string, fallback: string): string {
+  const classIndex = source.search(/\bclass\s+\w+\b/u);
+  const beforeClass = classIndex >= 0 ? source.slice(0, classIndex) : source;
+  return lastJavadocText(beforeClass) ?? fallback;
+}
+
+function discoverCallbackName(
+  source: string,
+  methodIndex: number,
+  methodName: string
+): string | undefined {
+  const documentation = methodDocumentationRegion(source, methodIndex);
+  const javadoc = lastJavadocText(documentation);
+  if (javadoc && !sameText(javadoc, methodName)) {
+    return javadoc;
+  }
+
+  const operationSummary = lastAnnotationValue(documentation, "Operation", "summary");
+  if (operationSummary && !sameText(operationSummary, methodName)) {
+    return operationSummary;
+  }
+  const operationDescription = lastAnnotationValue(documentation, "Operation", "description");
+  if (operationDescription && !sameText(operationDescription, methodName)) {
+    return operationDescription;
+  }
+
+  const comment = lastInlineCommentText(documentation);
+  return comment && !sameText(comment, methodName) ? comment : undefined;
+}
+
+function methodDocumentationRegion(source: string, methodIndex: number): string {
+  const classIndex = source.search(/\bclass\s+\w+Controller\b/u);
+  const classBodyStart = classIndex >= 0 ? source.indexOf("{", classIndex) + 1 : 0;
+  const beforeMethod = source.slice(0, methodIndex);
+  const previousMethodEnd = beforeMethod.lastIndexOf("}");
+  const start = Math.max(classBodyStart, previousMethodEnd + 1);
+  return source.slice(start, methodIndex);
+}
+
+function lastJavadocText(source: string): string | undefined {
+  const matches = [...source.matchAll(/\/\*\*([\s\S]*?)\*\//gu)];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const text = cleanDocumentationText(matches[index]![1]!);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function lastInlineCommentText(source: string): string | undefined {
+  const matches = [...source.matchAll(/\/\*(?!\*)([\s\S]*?)\*\/|\/\/([^\r\n]*)/gu)];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const match = matches[index]!;
+    const text = cleanDocumentationText(match[1] ?? match[2] ?? "");
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function cleanDocumentationText(value: string): string | undefined {
+  const text = value
+    .replace(/\r/gu, "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*\*\s?/u, "").trim())
+    .filter((line) => line && !line.startsWith("@"))
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return text || undefined;
+}
+
+function lastAnnotationValue(
+  source: string,
+  annotation: string,
+  property: string
+): string | undefined {
+  const pattern = new RegExp(`@${escapeRegExp(annotation)}\\s*\\(([\\s\\S]*?)\\)`, "gu");
+  const matches = [...source.matchAll(pattern)];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const value = annotationStringValue(matches[index]![1]!, property);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function annotationStringValue(source: string, property: string): string | undefined {
+  const pattern = new RegExp(
+    `\\b${escapeRegExp(property)}\\s*=\\s*(["'])([\\s\\S]*?)\\1`,
+    "u"
+  );
+  const match = source.match(pattern);
+  return match?.[2]?.trim() || undefined;
+}
+
+interface FlowPageMatchContext {
+  name: string;
+  entityCode: string;
+  serviceName: string;
+}
+
+function discoverPages(
+  routeSources: RouteSource[],
+  flow: FlowPageMatchContext
+): BpmProjectDefinition["flows"][number]["pages"] {
+  const pages = new Map<string, BpmProjectDefinition["flows"][number]["pages"][number]>();
+  for (const routeSource of routeSources) {
+    for (const route of parseRouteObjects(routeSource.source)) {
+      if (!routeHasPageEvidence(route) || !routeMatchesFlow(route, flow)) {
+        continue;
+      }
+      const name = route.title ?? route.name ?? flow.name;
+      if (!pages.has(route.path)) {
+        pages.set(route.path, { name, pcUrl: route.path });
+      }
+    }
+  }
+  return [...pages.values()];
+}
+
+function routeHasPageEvidence(route: ParsedRoute): boolean {
+  return Boolean(
+    route.name ||
+    route.title ||
+    route.componentDefined
+  );
+}
+
+function routeMatchesFlow(route: ParsedRoute, flow: FlowPageMatchContext): boolean {
+  const businessText = [route.name, route.title].filter((value): value is string => Boolean(value));
+  const routeText = [route.path, route.name, route.title, route.component]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  const businessKeys = [
+    flow.name,
+    stripBusinessSuffix(flow.name),
+    simpleName(flow.entityCode),
+    stripBusinessSuffix(simpleName(flow.entityCode))
+  ];
+  if (businessKeys.some((key) => key.length >= 2 && includesRouteText(businessText.join(" "), key))) {
+    return true;
+  }
+
+  const technicalKeys = [flow.serviceName, simpleName(flow.entityCode)]
+    .map((value) => normalizeRouteText(value))
+    .filter((value) => value.length >= 2);
+  const normalizedRouteText = normalizeRouteText(routeText);
+  return technicalKeys.some((key) => normalizedRouteText.includes(key)) && WORK_PAGE_TERMS.test(routeText);
+}
+
+function stripBusinessSuffix(value: string): string {
+  return value.replace(/(?:流程|服务|接口|业务|申请单|页面|工作台)$/u, "").trim();
+}
+
+function includesRouteText(text: string, value: string): boolean {
+  return normalizeRouteText(text).includes(normalizeRouteText(value));
+}
+
+function normalizeRouteText(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s_./\\:-]+/gu, "");
+}
+
+function parseRouteObjects(source: string): ParsedRoute[] {
+  const spans = findObjectSpans(source);
+  const routes: ParsedRoute[] = [];
+  for (const span of spans) {
+    const path = readDirectStringProperty(source, span.start, span.end, "path");
+    if (!path) continue;
+    const routeSource = source.slice(span.start, span.end + 1);
+    const name = readDirectStringProperty(source, span.start, span.end, "name");
+    const title = readDirectStringProperty(source, span.start, span.end, "title");
+    const componentProperty = readDirectProperty(source, span.start, span.end, "component");
+    const component = componentProperty.value;
+    routes.push({
+      start: span.start,
+      end: span.end,
+      path,
+      ...(name ? { name } : {}),
+      ...(title ? { title } : {}),
+      ...(component ? { component } : {}),
+      componentDefined: componentProperty.found,
+      source: routeSource
+    });
+  }
+
+  const resolved = new Map<number, string | undefined>();
+  return routes
+    .map((route) => {
+      const path = resolveRoutePath(route, routes, resolved);
+      return path ? { ...route, path } : undefined;
+    })
+    .filter((route): route is ParsedRoute => route !== undefined);
+}
+
+function resolveRoutePath(
+  route: ParsedRoute,
+  routes: ParsedRoute[],
+  resolved: Map<number, string | undefined>
+): string | undefined {
+  if (resolved.has(route.start)) {
+    return resolved.get(route.start);
+  }
+  const parent = routes
+    .filter((candidate) => candidate.start < route.start && candidate.end > route.end)
+    .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
+  const parentPath = parent ? resolveRoutePath(parent, routes, resolved) : undefined;
+  const value = combineRoutePath(parentPath, route.path);
+  resolved.set(route.start, value);
+  return value;
+}
+
+function combineRoutePath(parent: string | undefined, child: string): string | undefined {
+  const value = child.trim();
+  if (!value) return undefined;
+  if (value.startsWith("/")) return normalizeRoutePath(value);
+  return normalizeRoutePath(parent ? `${parent}/${value}` : value);
+}
+
+function normalizeRoutePath(value: string): string | undefined {
+  const path = value.trim().split(/[?#]/u, 1)[0]!.trim();
+  if (!path || path === "*" || path === "/*" || /^https?:\/\//iu.test(path)) {
+    return undefined;
+  }
+  return `/${path.replace(/^\/+|\/+$/gu, "")}` || "/";
+}
+
+function findObjectSpans(source: string): Array<{ start: number; end: number }> {
+  const starts: number[] = [];
+  const spans: Array<{ start: number; end: number }> = [];
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index);
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+    if (isQuote(source[index])) {
+      index = readQuotedString(source, index)?.next ?? source.length;
+      continue;
+    }
+    if (source[index] === "{") {
+      starts.push(index);
+    } else if (source[index] === "}") {
+      const start = starts.pop();
+      if (start !== undefined) spans.push({ start, end: index });
+    }
+    index += 1;
+  }
+  return spans.sort((left, right) => left.start - right.start);
+}
+
+function readDirectStringProperty(
+  source: string,
+  start: number,
+  end: number,
+  property: string
+): string | undefined {
+  const result = readDirectProperty(source, start, end, property);
+  return result.value;
+}
+
+function readDirectProperty(
+  source: string,
+  start: number,
+  end: number,
+  property: string
+): { found: boolean; value?: string } {
+  let index = start + 1;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  while (index < end) {
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index);
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+    const character = source[index];
+    if (isQuote(character)) {
+      index = readQuotedString(source, index)?.next ?? end;
+      continue;
+    }
+    if (character === "{") {
+      braceDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (character === "}") {
+      braceDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      bracketDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (character === "]") {
+      bracketDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (character === "(") {
+      parenDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (character === ")") {
+      parenDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (braceDepth !== 0 || bracketDepth !== 0 || parenDepth !== 0) {
+      index += 1;
+      continue;
+    }
+    if (!isIdentifierStart(character)) {
+      index += 1;
+      continue;
+    }
+    const keyStart = index;
+    index += 1;
+    while (index < end && isIdentifierPart(source[index])) index += 1;
+    const key = source.slice(keyStart, index);
+    const colon = skipWhitespaceAndComments(source, index, end);
+    if (source[colon] !== ":") {
+      index = colon + 1;
+      continue;
+    }
+    const valueStart = skipWhitespaceAndComments(source, colon + 1, end);
+    const quoted = readQuotedString(source, valueStart);
+    if (key === property) {
+      return quoted ? { found: true, value: quoted.value.trim() } : { found: true };
+    }
+    index = skipPropertyValue(source, valueStart, end);
+  }
+  return { found: false };
+}
+
+function skipPropertyValue(source: string, start: number, end: number): number {
+  let index = start;
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  while (index < end) {
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index);
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+    const character = source[index];
+    if (isQuote(character)) {
+      index = readQuotedString(source, index)?.next ?? end;
+      continue;
+    }
+    if (character === "{") braces += 1;
+    else if (character === "}") braces -= 1;
+    else if (character === "[") brackets += 1;
+    else if (character === "]") brackets -= 1;
+    else if (character === "(") parentheses += 1;
+    else if (character === ")") parentheses -= 1;
+    else if (character === "," && braces === 0 && brackets === 0 && parentheses === 0) {
+      return index + 1;
+    }
+    index += 1;
+  }
+  return end;
+}
+
+function isIdentifierStart(value: string | undefined): boolean {
+  return value !== undefined && /[A-Za-z_$]/u.test(value);
+}
+
+function isIdentifierPart(value: string | undefined): boolean {
+  return value !== undefined && /[A-Za-z0-9_$]/u.test(value);
+}
+
+function isQuote(value: string | undefined): value is "'" | '"' | "`" {
+  return value === "'" || value === '"' || value === "`";
+}
+
+function readQuotedString(
+  source: string,
+  start: number
+): { value: string; next: number } | undefined {
+  const quote = source[start];
+  if (!isQuote(quote)) return undefined;
+  let value = "";
+  for (let index = start + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\") {
+      const next = source[index + 1];
+      if (next === undefined) return { value, next: source.length };
+      value += next === "n" ? "\n" : next === "r" ? "\r" : next === "t" ? "\t" : next;
+      index += 1;
+      continue;
+    }
+    if (character === quote) {
+      return { value, next: index + 1 };
+    }
+    value += character;
+  }
+  return { value, next: source.length };
+}
+
+function skipWhitespaceAndComments(source: string, start: number, end: number): number {
+  let index = start;
+  while (index < end) {
+    if (/\s/u.test(source[index]!)) {
+      index += 1;
+      continue;
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index);
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index);
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function skipLineComment(source: string, start: number): number {
+  const end = source.indexOf("\n", start + 2);
+  return end >= 0 ? end + 1 : source.length;
+}
+
+function skipBlockComment(source: string, start: number): number {
+  const end = source.indexOf("*/", start + 2);
+  return end >= 0 ? end + 2 : source.length;
+}
+
+function assertBpmNameLengths(definition: BpmProjectDefinition): void {
+  assertBpmNameLength("业务模块", definition.businessModule.name);
+  for (const flow of definition.flows) {
+    assertBpmNameLength("流程", flow.name);
+    assertBpmNameLength("业务实体", flow.entity.name);
+    for (const page of flow.pages) {
+      assertBpmNameLength("页面", page.name);
+    }
+    for (const item of flow.interfaces) {
+      assertBpmNameLength("接口", item.name);
+    }
+  }
 }
 
 function resolveTypeName(source: JavaSource, typeName: string): string {
@@ -392,6 +879,14 @@ async function readJavaSources(projectPath: string): Promise<JavaSource[]> {
   }));
 }
 
+async function readRouteSources(projectPath: string): Promise<RouteSource[]> {
+  const paths = await collectRouteFiles(projectPath);
+  return Promise.all(paths.map(async (path) => ({
+    path,
+    source: await readFile(path, "utf8")
+  })));
+}
+
 async function collectJavaFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const result: string[] = [];
@@ -407,6 +902,33 @@ async function collectJavaFiles(directory: string): Promise<string[]> {
     }
   }
   return result;
+}
+
+async function collectRouteFiles(
+  directory: string,
+  inRouteDirectory = false
+): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const result: string[] = [];
+  for (const entry of entries) {
+    if ([".git", "build", "dist", "node_modules", "target", ".next", ".nuxt", "coverage"].includes(entry.name)) {
+      continue;
+    }
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const routeDirectory = inRouteDirectory || ROUTE_DIRECTORY_NAMES.has(entry.name.toLowerCase());
+      result.push(...await collectRouteFiles(path, routeDirectory));
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const extension = entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase();
+    if (!ROUTE_EXTENSIONS.has(extension)) continue;
+    const stem = basename(entry.name, extension).toLowerCase();
+    if (inRouteDirectory || ROUTE_FILE_PATTERN.test(stem)) {
+      result.push(path);
+    }
+  }
+  return result.sort((left, right) => left.localeCompare(right));
 }
 
 async function discoverModuleCode(projectPath: string): Promise<string> {

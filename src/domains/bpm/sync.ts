@@ -11,6 +11,7 @@ import type {
   ResourcePlanChange,
   ResourceVerifyContext
 } from "../../resource/core/engine.js";
+import { assertBpmNameLength, bpmNameLengthError } from "./naming.js";
 
 type RecordValue = Record<string, unknown>;
 type SyncAction = "create" | "update" | "unchanged" | "blocked";
@@ -98,6 +99,9 @@ async function planBpmAggregate(context: ResourceAggregatePlanContext): Promise<
   const entityCode = requiredString(sourceEntity.code, "源 BPM 业务实体缺少代码");
   const flowCode = requiredString(sourceFlow.code, "源 BPM 流程类型缺少代码");
   const flowName = requiredString(sourceFlow.name, "源 BPM 流程类型缺少名称");
+  assertBpmNameLength("业务模块", requiredString(sourceModule.name, "源 BPM 业务模块缺少名称"));
+  assertBpmNameLength("业务实体", requiredString(sourceEntity.name, "源 BPM 业务实体缺少名称"));
+  assertBpmNameLength("流程", flowName);
   const module = planRecord({
     resource: "conBusinessModule",
     key: moduleCode,
@@ -151,6 +155,18 @@ async function planBpmAggregate(context: ResourceAggregatePlanContext): Promise<
       changes.push(blocked);
       continue;
     }
+    const pageName = optionalRequiredString(sourcePage.name);
+    const pageNameError = pageName ? bpmNameLengthError("页面", pageName) : undefined;
+    if (pageNameError) {
+      const blocked = blockedRecord(
+        "conPage",
+        pcUrl,
+        bpmBlockingIssue("conPage", "name", pageName!, "invalid", pageNameError)
+      );
+      pages.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
     const pageMatch = childMatch(
       targetPages,
       (item) => sameText(item.pcUrl, pcUrl),
@@ -190,6 +206,20 @@ async function planBpmAggregate(context: ResourceAggregatePlanContext): Promise<
         "源 BPM 接口缺少 url"
       );
       const blocked = blockedRecord("conInterface", `interface[${index}]`, issue);
+      interfaces.push(blocked);
+      changes.push(blocked);
+      continue;
+    }
+    const interfaceName = optionalRequiredString(sourceInterface.name);
+    const interfaceNameError = interfaceName
+      ? bpmNameLengthError("接口", interfaceName)
+      : undefined;
+    if (interfaceNameError) {
+      const blocked = blockedRecord(
+        "conInterface",
+        url,
+        bpmBlockingIssue("conInterface", "name", interfaceName!, "invalid", interfaceNameError)
+      );
       interfaces.push(blocked);
       changes.push(blocked);
       continue;

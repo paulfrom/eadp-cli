@@ -1,8 +1,7 @@
 /**
- * skill / update / call 必测矩阵：
+ * skill / update 必测矩阵：
  * - skill install/upgrade 覆盖 Codex、WorkBuddy、Claude、Qoder 四个平台
  * - update：npm 升级失败立即停止，不执行 Skill 操作
- * - call：接口目录参数校验、Token 脱敏、动态模板禁止绕过
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,13 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpawnSyncOptions, SpawnSyncReturns } from "node:child_process";
 import { createProgram } from "../src/program.js";
 import { updateCliAndSkill } from "../src/commands/update.js";
-import {
-  cleanupAll,
-  createFixture,
-  runCommand,
-  runExpectError,
-  trackDirectory
-} from "./helpers/index.js";
+import { cleanupAll, trackDirectory } from "./helpers/index.js";
 
 afterEach(async () => {
   await cleanupAll();
@@ -170,107 +163,10 @@ describe("update：npm 升级失败立即停止", () => {
   });
 });
 
-describe("call：参数校验、脱敏与动态模板", () => {
-  it("已登记接口缺少必填查询参数时报错", async () => {
-    const fixture = await createFixture({
-      environments: [{ name: "dev", tenantCode: "tenant-a", token: "secret" }]
-    });
-    const error = await runExpectError(fixture.program(), [
-      "call", "permission-role-menu-feature-tree", "--env", "dev", "--dry-run"
-    ]);
-    expect(error).toContain("缺少查询参数：featureRoleId");
-    expect(fixture.server("dev").requests).toHaveLength(0);
-  });
-
-  it("dry-run 输出脱敏请求：不泄露 Token/Authorization", async () => {
-    const fixture = await createFixture({
-      environments: [{ name: "dev", tenantCode: "tenant-a", token: "top-secret" }]
-    });
-    const output = JSON.parse(await runCommand(fixture.program(), [
-      "call", "permission-role-menu-feature-tree", "--env", "dev",
-      "--query", "featureRoleId=role-1", "--dry-run"
-    ])) as { url: string; headers: Record<string, unknown> };
-    expect(output.url).toBe(
-      `${fixture.baseUrl("dev")}/api-gateway/sei-basic/featureRoleFeature/getMenuFeatureTree?featureRoleId=role-1`
-    );
-    expect(output.headers["x-api-token"]).toBe("***");
-    expect(JSON.stringify(output)).not.toContain("top-secret");
-  });
-
-  it("Authorization-only 环境的 dry-run 输出 Authorization 脱敏", async () => {
-    const fixture = await createFixture({
-      environments: [{ name: "implicit", tenantCode: "tenant-a", authorization: "Bearer should-not-leak" }]
-    });
-    const output = JSON.parse(await runCommand(fixture.program(), [
-      "call", "GET", "/api-gateway/sei-basic/featureRole/findByPage", "--dry-run"
-    ])) as { headers: Record<string, unknown> };
-    expect(output.headers.Authorization).toBe("***");
-    expect(JSON.stringify(output)).not.toContain("should-not-leak");
-  });
-
-  it("动态请求模板（ANY 方法）不能被 call 直接执行", async () => {
-    const error = await runExpectError(createProgram(), ["call", "resource-find-by-page"]);
-    expect(error).toContain("动态请求模板");
-  });
-
-  it("给号保存请求使用 env 记录的 tenantCode，覆盖调用方输入", async () => {
-    const fixture = await createFixture({
-      environments: [{ name: "global", tenantCode: "global", token: "secret" }]
-    });
-    const body = serialNumberBody();
-    body.tenantCode = "caller-supplied";
-    const output = JSON.parse(await runCommand(fixture.program(), [
-      "call", "serial-number-config-save", "--env", "global", "--data", JSON.stringify(body), "--dry-run"
-    ])) as { body: Record<string, unknown> };
-    expect(output.body.tenantCode).toBe("global");
-  });
-
-  it("非 global 环境不能通过 call 调用给号配置（零请求）", async () => {
-    const fixture = await createFixture({
-      environments: [{ name: "dev", tenantCode: "tenant-a", token: "secret" }]
-    });
-    const error = await runExpectError(fixture.program(), [
-      "call", "serial-number-config-save", "--env", "dev",
-      "--data", JSON.stringify(serialNumberBody()), "--dry-run"
-    ]);
-    expect(error).toContain("必须使用 global 租户");
-    expect(fixture.server("dev").requests).toHaveLength(0);
-  });
-});
-
 function spawnResult(
   stdout: string,
   status = 0,
   stderr = ""
 ): SpawnSyncReturns<string> {
   return { pid: 1, output: [], stdout, stderr, status, signal: null };
-}
-
-function serialNumberBody(): Record<string, unknown> {
-  return {
-    appModuleCode: "BASIC",
-    appModuleName: "基础应用",
-    entityClassName: "com.example.Entity",
-    configType: "CODE_TYPE",
-    name: "编号",
-    expressionConfig: "#{00000}",
-    minNumber: 0,
-    maxNumber: 0,
-    useDeleted: false,
-    cycleStrategy: "MAX_CYCLE",
-    activated: true,
-    genFlag: true,
-    publicFlag: true,
-    tenantIsolation: true,
-    configItem: [
-      {
-        elementName: "流水号编码",
-        elementCode: "SERIAL_CODE",
-        elementValue: "5",
-        isolation: false,
-        linkCharacter: "EMPTY",
-        sort: 0
-      }
-    ]
-  };
 }

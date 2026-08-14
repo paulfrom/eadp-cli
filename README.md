@@ -1,6 +1,6 @@
 # EADP CLI
 
-面向 EADP 的多环境 API 命令行工具。每个环境名称直接对应一个 URL 和一个 Token。
+面向 EADP 的多环境资源与权限命令行工具。每个环境名称直接对应一个 URL 和一个 Token。
 
 ## 安装与开发
 
@@ -86,50 +86,41 @@ eadp rollback <operation-id>
   功能项组（`feature-group`）和给号配置（`serial-number`）的全部远端增删改查只能使用该环境；对应的真实后端路径
   `appModule`、`featureGroup`、`serialNumberConfig` 同样受租户校验；
 - 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
-- `call` 也执行同样的路径租户校验，不能通过通用接口绕过规则。
+- 资源命令和领域命令都会执行对应的租户校验，不能绕过已注册契约和领域规则。
 
-## 调用接口
+## 写入资源
 
-```bash
-eadp call POST /api-gateway/sei-basic/serialNumberConfig/save \
-  --env global \
-  --body ./serial-number.json \
-  --dry-run
+```powershell
+eadp resource write serial-number `
+  --env global `
+  --data (Get-Content -Raw ./serial-number.json)
+
+eadp resource write serial-number `
+  --env global `
+  --data (Get-Content -Raw ./serial-number.json) `
+  --apply
 ```
 
-## 接口目录
+所有资源写操作都由注册资源的统一引擎执行：默认只生成 ChangeSet 预览，只有 `--apply` 才会
+写入，并统一执行租户校验、blocked 门禁、操作记录、回查和验证。
 
-接口目录采用最小必要集合，包含组织、岗位、员工查询，用户权限核查，菜单权限判断，BPM 只读查询
-和给号接口。`inspect api` 输出接口 ID、接口名称、路径、风险和可调用状态；指定接口 ID 可继续
-查看请求体和查询参数。动态查询模板会列出有限的资源示例，但必须通过对应业务命令执行。
+## 发现资源与领域能力
 
-```bash
-eadp inspect api --domains
-eadp inspect api --domain serial-number
-eadp inspect api serial-number-config-save
+在全新上下文中先使用资源注册表和领域帮助发现能力，不需要接口 ID 或路径知识：
 
-eadp inspect api --domain organization
-eadp inspect api --domain permission
-eadp inspect api permission-role-menu-feature-tree
+```powershell
+eadp resource list
+eadp resource describe feature
+eadp resource describe serial-number
 
-eadp call permission-role-menu-feature-tree \
-  --env dev \
-  --query featureRoleId=<功能角色ID> \
-  --dry-run
-
-eadp call serial-number-config-save \
-  --body ./serial-number.json \
-  --dry-run
-
-eadp call serial-number-config-save \
-  --body ./serial-number.json \
-  --yes
+eadp permission --help
+eadp menu --help
+eadp bpm --help
 ```
 
-给号保存请求中的 `tenantCode` 由 CLI 使用当前环境在 `env add` 时取得的值覆盖，
-`serial-number.json` 无需提供该字段。
-
-高风险接口必须先使用 `--dry-run` 检查，正式执行时添加 `--yes`。
+`resource list` 列出已注册资源、能力和选择器；`resource describe <name>` 展开单个资源的查询、
+写入、比较、同步、租户和枚举契约。普通资源使用 `resource query/write/compare/sync`，权限、菜单
+和 BPM 能力分别使用对应领域命令。
 
 ## 在全新上下文中配置 BPM
 
@@ -529,17 +520,18 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 
 资源通过单一模块清单接入，不需要新增通用命令：
 
-- `src/resource/definitions/`：每个资源一个 `ResourceContract`，声明 API 事实与业务语义。
-- `src/resource/adapters/`：只有需要依赖 ID 重映射或字段规范化时才增加同名适配器，
-  公共映射辅助放在 `shared.ts`。
-- `src/resource/handlers/`：只有普通契约无法表达聚合读取、规划、写入或验证时才实现行为扩展；
-  处理器可提供只读 `query`，或提供 `hooks`（`load`/`plan`/`aggregatePlan`/`apply`/`verify`）扩展通用引擎的某个阶段。
-- `src/resource/modules/index.ts`：唯一的领域模块清单；每项绑定 contract 与可选 adapter/handler。
+- `src/domains/<resource>/contract.ts`：每个资源一个 `ResourceContract`，声明 API 事实与业务语义。
+- `src/domains/<resource>/adapter.ts`：只有需要依赖 ID 重映射或字段规范化时才增加同领域适配器。
+- `src/domains/<resource>/handler.ts`：只有普通契约无法表达聚合读取、规划、写入或验证时才实现行为扩展。
+- `src/resource/handlers/`：只维护处理器接口和注册器；处理器可提供只读 `query`，或提供 `hooks`
+  （`load`/`plan`/`aggregatePlan`/`apply`/`verify`）扩展通用引擎的某个阶段。
+- `src/domains/index.ts`：唯一的领域模块清单；每项绑定 contract 与可选 adapter/handler。
+- `src/resource/modules/contracts.ts`：定义模块装配契约。
 - `src/resource/catalog.ts`：从模块清单构造并校验资源、适配器和处理器注册表。
 - `src/resource/core/`：通用客户端、契约校验、资源引擎和错误模型；不依赖任何业务领域。
 
 契约必须描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、能力开关、
-时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；注册后自动获得
+时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；具备对应能力的注册资源自动获得
 `resource query/write/compare/sync`。
 分页契约中已确认的 `total` 记录数/页数语义会用于校验完整性；语义为 `unknown` 时不猜测，
 持续读取到短页或空页后才返回完整结果。
@@ -557,8 +549,8 @@ apply 阶段执行，预览模式在结构上不会调用任何写钩子。只�
 `hooks.aggregatePlan` 在单一阶段完成多资源规划，再由引擎统一负责 `apply`/`verify`、blocked 门禁、
 信封组装与操作日志生命周期。二者都复用同一 ChangeSet 信封，不再有任何整动作 compare/sync/write
 处理器路径。权限分配保留在独立的 `permission` 领域命令树。`src/resource/handlers/` 只维护处理器
-接口与注册器，菜单与 BPM 的实际实现分别位于 `src/menu/resource-handler.ts`、
-`src/bpm/resource-handler.ts`；菜单创建命令位于 `src/menu/command.ts`。新增领域只需在自己的资源
+接口与注册器，菜单与 BPM 的实际实现分别位于 `src/domains/menu/handler.ts`、
+`src/domains/bpm/handler.ts`；菜单创建命令位于 `src/commands/menu.ts`。新增领域只需在自己的资源
 契约中声明 `selectors` 元数据（名称、值占位符、帮助文本、是否必填），并在模块清单绑定；通用命令会
 自动汇总这些声明生成选项，并在发起领域请求前拒绝不适用或缺失的选择器。当前菜单的可选 `--code`
 与 BPM 的必填 `--flow` 都来自各自契约声明，不需要修改通用命令。任何行为扩展都必须返回同一

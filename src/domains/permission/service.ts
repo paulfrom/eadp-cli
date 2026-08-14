@@ -5,7 +5,7 @@ import { CliError } from "../../errors.js";
 import { printValue } from "../../io.js";
 import { OperationRecorder } from "../../operations/recorder.js";
 import { OperationLogStore } from "../../operations/store.js";
-import { inferProjectModuleName } from "../../project/name.js";
+import { inferProjectModuleName } from "./project-discovery.js";
 import { getRuntimeOptions } from "../../runtime-options.js";
 import { assertTenantScope } from "../../tenant.js";
 import { PermissionClient, type PermissionRecord } from "./client.js";

@@ -28,11 +28,29 @@ await access(executable);
 
 const checks = [
   { args: ["--version"], expected: packageJson.version },
+  {
+    args: ["--help"],
+    expected: ["EADP 多环境资源与权限命令行工具", "resource", "permission"],
+    forbidden: ["inspect", "call"]
+  },
   { args: ["env", "--help"], expected: "管理 EADP 环境" },
   { args: ["env", "remove", "--help"], expected: "移除环境" },
   {
-    args: ["inspect", "api", "--help"],
-    expected: "查看接口目录"
+    args: ["resource", "list"],
+    expected: [
+      '"kind": "eadp.resource.catalog.v2"',
+      '"name": "feature"',
+      '"name": "serial-number"'
+    ]
+  },
+  {
+    args: ["resource", "describe", "feature"],
+    expected: [
+      '"kind": "eadp.resource.contract.v1"',
+      '"id": "feature"',
+      '"identityFields"',
+      '"capabilities"'
+    ]
   },
   {
     args: ["permission", "verify", "--help"],
@@ -67,7 +85,12 @@ for (const check of checks) {
   const result = run(executable, check.args, {
     shell: process.platform === "win32"
   });
-  if (!result.stdout.includes(check.expected)) {
+  const expected = Array.isArray(check.expected) ? check.expected : [check.expected];
+  const forbidden = check.forbidden ?? [];
+  if (
+    expected.some((text) => !result.stdout.includes(text)) ||
+    forbidden.some((command) => new RegExp(`^\\s+${command}\\b`, "m").test(result.stdout))
+  ) {
     throw new Error(
       `本地安装验证失败：eadp ${check.args.join(" ")}\n${result.stdout}`
     );

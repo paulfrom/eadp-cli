@@ -23,8 +23,9 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 `env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
 re-run `eadp env add` for that environment; do not infer it or edit the config directly.
 
-Do not use raw `eadp call <METHOD> <PATH>` when a dedicated `resource query`, `resource write`, `resource compare`,
-`resource sync`, `inspect`, `permission`, `bpm`, or `menu` command covers the operation.
+Use `eadp resource list` and `eadp resource describe <name>` to discover registered resource capabilities before
+constructing a resource command. Use the dedicated `resource`, `permission`, `bpm`, or `menu` domain command for
+the operation; never construct a command from an endpoint path or an interface ID.
 
 ## Resolve parameters before asking the user or acting
 
@@ -87,7 +88,7 @@ Optionally provide `--group` (feature-group code, name, or ID), `--url`,
 
 This workflow is limited to an environment whose recorded `tenantCode` is `global`. The command
 first checks `feature/findByCode`; an existing `code` is reported as `action: "unchanged"` with
-`applied: false` and does not resolve dependencies or call `feature/save`. For a missing code,
+  `applied: false` and does not resolve dependencies or request `feature/save`. For a missing code,
 resolve the application module and feature group through read-only queries and require exactly one
 match; when the group exposes `appModuleId` or `appModuleCode`, verify that it belongs to the
 selected module. The default command is preview-only. Add `--apply` only after the preview is
@@ -149,7 +150,7 @@ Behavior extensions extend the generic engine through phase hooks
 (`load`/`plan`/`aggregatePlan`/`apply`/`verify`); the engine still owns the blocked gate, envelope
 assembly, operation-log lifecycle, and post-write verification. There is no whole-action
 compare/sync/write handler: `write` is always executed by the engine's apply phase, so preview mode
-cannot call a write hook. They must not return their own operation ID, claim writes in preview mode,
+cannot execute a write hook. They must not return their own operation ID, claim writes in preview mode,
 or return an applied result without successful post-write verification.
 
 ## Global safety rules
@@ -161,10 +162,10 @@ or return an applied result without successful post-write verification.
 - For cross-environment operations, preserve source/target direction exactly as requested.
 - Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
   Use it for every remote operation on CLI resources `app-module`, `menu`, `feature`, `feature-group`,
-  and `serial-number`, including query, write, sync, generic `call`, and rollback.
+  and `serial-number`, including query, write, sync, and rollback.
   Use a non-`global` environment for permission and position configuration/assignment, user queries,
-  BPM configuration, and all other operations. The generic `call` command enforces
-  the same path policy and must not be used to bypass it.
+  BPM configuration, and all other operations. The resource and domain commands enforce the same
+  tenant policy and must not be bypassed.
 - When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and
   records the returned `tenantCode`. If validation fails, the new Token is not saved; stop and report
   the failure without retrying.
@@ -173,8 +174,8 @@ or return an applied result without successful post-write verification.
 - Preview every write first. Show the planned create, update, grant, or revoke set.
 - Execute only after the user has authorized the write or explicitly requested completion.
 - Never pass `--apply` during exploration or when identity/dependency resolution is ambiguous.
-- If any CLI or EADP API call fails, stop the workflow immediately and report the failure truthfully. Include the environment name, redacted command, HTTP status or EADP message when available, and whether any earlier write may already have succeeded.
-- Do not retry a failed call automatically. Do not retry with changed parameters, another endpoint, another environment or Token, a raw `eadp call`, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
+- If any CLI or EADP API request fails, stop the workflow immediately and report the failure truthfully. Include the environment name, redacted command, HTTP status or EADP message when available, and whether any earlier write may already have succeeded.
+- Do not retry a failed request automatically. Do not retry with changed parameters, another endpoint, another environment or Token, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
 - After applying, require the CLI result to report successful verification. If it does not, stop and report the partial result.
 - For BPM and serial-number synchronization, distinguish record-level `blocked` results from CLI or
   EADP request failures. Apply only safe planned records, report every `blockingIssues` entry, and
@@ -183,7 +184,7 @@ or return an applied result without successful post-write verification.
 - Never display Token values. Redact them if an external command exposes them unexpectedly.
 - Successful creates and assignments return an `operationId` and keep a local operation log for 1 day.
   Run `eadp rollback <operation-id>` only when the user explicitly requests that rollback. It executes
-  directly without `--apply`; never invent an operation ID or substitute raw delete/remove calls.
+  directly without `--apply`; never invent an operation ID or substitute an unregistered delete/remove request.
 
 ## Report results
 
@@ -195,4 +196,4 @@ State:
 4. Whether the operation was preview-only or applied.
 5. Verification status, `skippedBlocked`, and every missing or ambiguous dependency reported by the CLI.
 
-For a failed call, report the failure instead of converting it into a partial success. State clearly that no retry was attempted.
+For a failed request, report the failure instead of converting it into a partial success. State clearly that no retry was attempted.

@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { CliError } from "../errors.js";
+import { CliError } from "../../errors.js";
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",

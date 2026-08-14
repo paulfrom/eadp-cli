@@ -44,7 +44,6 @@ try {
   const resourceHelp = run(["resource", "--help"]);
   const resourceList = run(["resource", "list"]);
   const resourceDescribe = run(["resource", "describe", "feature"]);
-  const catalog = run(["inspect", "api", "--domain", "serial-number"]);
   const bpmHelp = run(["bpm", "inspect", "--help"]);
   const permissionHelp = run(["permission", "inspect", "--help"]);
   const functionalPermissionHelp = run([
@@ -61,49 +60,12 @@ try {
   const skillHelp = run(["skill", "--help"]);
   const skillInstall = run(["skill", "install"]);
   const skillUpgrade = run(["skill", "upgrade"]);
-  const dryRun = run([
-    "call",
-    "serial-number-config-save",
-    "--env",
-    "dev",
-    "--data",
-    JSON.stringify({
-      appModuleCode: "BASIC",
-      appModuleName: "基础应用",
-      entityClassName: "com.example.PositionCategory",
-      configType: "CODE_TYPE",
-      name: "岗位类别",
-      expressionConfig: "#{00000}",
-      minNumber: 2,
-      maxNumber: 0,
-      useDeleted: false,
-      cycleStrategy: "MAX_CYCLE",
-      activated: true,
-      genFlag: true,
-      tenantCode: "global",
-      publicFlag: true,
-      tenantIsolation: true,
-      configItem: [
-        {
-          elementName: "流水号编码",
-          elementCode: "SERIAL_CODE",
-          elementValue: "5",
-          isolation: false,
-          linkCharacter: "EMPTY",
-          sort: 0
-        }
-      ]
-    }),
-    "--dry-run"
-  ]);
 
-  if (!catalog.includes("serial-number-config-save")) {
-    throw new Error("接口目录烟雾测试失败");
-  }
   if (
-    ["inspect", "call", "permission", "menu", "resource", "bpm"].some(
+    ["permission", "menu", "resource", "bpm"].some(
       (command) => !rootHelp.includes(command)
     ) ||
+    /^\s+(inspect|call)\b/m.test(rootHelp) ||
     !rootHelp.includes("--timeout <ms>") ||
     !rootHelp.includes("--compact")
   ) {
@@ -112,11 +74,15 @@ try {
   if (
     !resourceHelp.includes("声明式资源契约") ||
     !resourceHelp.includes("resource compare") ||
-    !resourceList.includes('"feature"') ||
+    !resourceList.includes('"kind": "eadp.resource.catalog.v2"') ||
+    !resourceList.includes('"name": "feature"') ||
+    !resourceList.includes('"name": "serial-number"') ||
+    !resourceDescribe.includes('"kind": "eadp.resource.contract.v1"') ||
+    !resourceDescribe.includes('"id": "feature"') ||
     !resourceDescribe.includes('"identityFields"') ||
     !resourceDescribe.includes('"capabilities"')
   ) {
-    throw new Error("声明式资源命令烟雾测试失败");
+    throw new Error("资源 list/describe 烟雾测试失败");
   }
   if (
     !bpmHelp.includes("从真实项目代码发现 BPM 流程骨架及可选集成回调") ||
@@ -158,10 +124,7 @@ try {
   ) {
     throw new Error("环境移除烟雾测试失败");
   }
-  if (!dryRun.includes('"x-api-token": "***"')) {
-    throw new Error("Dry Run 未正确脱敏 Token");
-  }
-  if (`${environments}\n${dryRun}`.includes(environment.EADP_SMOKE_TOKEN)) {
+  if (environments.includes(environment.EADP_SMOKE_TOKEN)) {
     throw new Error("CLI 输出泄露 Token");
   }
 
@@ -172,14 +135,15 @@ try {
         environment: "dev",
         defaultEnvironment: "dev",
         environmentRemovable: true,
-        catalog: "serial-number",
+        resourceList: "feature,serial-number",
+        resourceDescribe: "feature",
         bpmDiscoverable: true,
         permissionDiscoverable: true,
         skillInstallable: true,
         workbuddyInstallable: true,
         claudeInstallable: true,
         qoderInstallable: true,
-        tokenMasked: true
+        tokenNotExposed: true
       },
       null,
       2

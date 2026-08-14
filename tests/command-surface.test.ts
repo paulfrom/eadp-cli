@@ -3,10 +3,15 @@ import { createProgram } from "../src/program.js";
 
 describe("统一命令面", () => {
   it("暴露 resource-first 资源命令和领域命令及全局运行参数", () => {
-    const help = createProgram().helpInformation();
-    for (const command of ["inspect", "call", "permission", "bpm", "menu", "resource", "rollback", "env", "skill", "update"]) {
+    const program = createProgram();
+    const help = program.helpInformation();
+    for (const command of ["permission", "bpm", "menu", "resource", "rollback", "env", "skill", "update"]) {
       expect(help).toContain(command);
     }
+    expect(program.commands.map((command) => command.name())).not.toEqual(
+      expect.arrayContaining(["inspect", "call"])
+    );
+    expect(help).not.toMatch(/^\s+(inspect|call)\b/m);
     expect(help).toContain("--timeout <ms>");
     expect(help).toContain("--compact");
     expect(help).toContain("--output <format>");
@@ -31,25 +36,26 @@ describe("统一命令面", () => {
   it("拒绝无效的全局超时时间", async () => {
     const program = createProgram().exitOverride();
     await expect(
-      program.parseAsync(["--timeout", "invalid", "inspect", "api"], { from: "user" })
+      program.parseAsync(["--timeout", "invalid", "resource", "list"], { from: "user" })
     ).rejects.toThrow("超时时间无效：invalid");
   });
 
-  it("resource 帮助和通用 call 帮助明确资源能力与 global 租户边界", () => {
-    const program = createProgram();
-    let help = "";
+  it("resource list/describe 提供资源发现与契约详情", async () => {
+    let outputText = "";
     const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      help += String(chunk);
+      outputText += String(chunk);
       return true;
     });
-    program.commands.find((command) => command.name() === "resource")?.outputHelp();
-    program.commands.find((command) => command.name() === "call")?.outputHelp();
-    output.mockRestore();
-    expect(help).toContain('tenantCode === "global"');
-    expect(help).toContain("menu");
-    expect(help).toContain("feature");
-    expect(help).toContain("feature-group");
-    expect(help).toContain("serial-number");
+    try {
+      await createProgram().parseAsync(["resource", "list"], { from: "user" });
+      await createProgram().parseAsync(["resource", "describe", "feature"], { from: "user" });
+    } finally {
+      output.mockRestore();
+    }
+    expect(outputText).toContain('"kind": "eadp.resource.catalog.v2"');
+    expect(outputText).toContain('"name": "feature"');
+    expect(outputText).toContain('"kind": "eadp.resource.contract.v1"');
+    expect(outputText).toContain('"identityFields"');
   });
 
   it("env add 帮助明确仅支持管理员权限策略", () => {

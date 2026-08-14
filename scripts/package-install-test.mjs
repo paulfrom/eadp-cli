@@ -76,9 +76,7 @@ try {
     {
       args: ["--help"],
       expected: [
-        "EADP 多环境 API 命令行工具",
-        "inspect",
-        "call",
+        "EADP 多环境资源与权限命令行工具",
         "permission",
         "menu",
         "bpm",
@@ -87,19 +85,12 @@ try {
         "--timeout <ms>",
         "--compact",
         "update"
-      ]
+      ],
+      forbidden: ["inspect", "call"]
     },
     {
       args: ["env", "--help"],
       expected: ["管理 EADP 环境", "add", "list", "remove"]
-    },
-    {
-      args: ["inspect", "api", "--help"],
-      expected: ["查看接口目录", "--domain", "--domains"]
-    },
-    {
-      args: ["call", "--help"],
-      expected: ["<id-or-method>", "[path]", "--dry-run"]
     },
     {
       args: ["bpm", "inspect", "--help"],
@@ -116,6 +107,23 @@ try {
     {
       args: ["resource", "query", "--help"],
       expected: ["按资源契约完整查询", "--env <env>", "分页自动聚合"]
+    },
+    {
+      args: ["resource", "list"],
+      expected: [
+        '"kind": "eadp.resource.catalog.v2"',
+        '"name": "feature"',
+        '"name": "serial-number"'
+      ]
+    },
+    {
+      args: ["resource", "describe", "feature"],
+      expected: [
+        '"kind": "eadp.resource.contract.v1"',
+        '"id": "feature"',
+        '"identityFields"',
+        '"capabilities"'
+      ]
     },
     {
       args: ["menu", "create", "--help"],
@@ -201,7 +209,10 @@ try {
     );
     if (
       help.status !== 0 ||
-      helpCase.expected.some((text) => !help.stdout.includes(text))
+      helpCase.expected.some((text) => !help.stdout.includes(text)) ||
+      (helpCase.forbidden ?? []).some(
+        (command) => new RegExp(`^\\s+${command}\\b`, "m").test(help.stdout)
+      )
     ) {
       throw new Error(
         `npm 命令入口验证失败：eadp ${helpCase.args.join(" ")}\n${

@@ -1,5 +1,4 @@
 import { Command } from "commander";
-import { registerApiCommands } from "./commands/api.js";
 import { registerBpmCommands } from "./commands/bpm.js";
 import { registerEnvironmentCommands } from "./commands/env.js";
 import { registerPermissionCommands } from "./commands/permission.js";
@@ -9,8 +8,7 @@ import { registerSkillCommands } from "./commands/skill.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerMenuCommands } from "./commands/menu.js";
 import {
-  registerPermissionVerbCommands,
-  registerVerbCommands
+  registerPermissionVerbCommands
 } from "./commands/verbs.js";
 import { ConfigStore } from "./config/store.js";
 import { CliError, errorMessage } from "./errors.js";
@@ -21,17 +19,15 @@ export function createProgram(store = new ConfigStore()): Command {
   const program = new Command();
   program
     .name("eadp")
-    .description("EADP 多环境 API 命令行工具")
+    .description("EADP 多环境资源与权限命令行工具")
     .version(cliVersion)
     .showHelpAfterError();
 
   addRuntimeOptions(program);
-  const commands = registerVerbCommands(program);
   const permissionCommands = registerPermissionVerbCommands(program);
   registerEnvironmentCommands(program, store);
   registerResourceCommands(store, program);
   registerMenuCommands(program, store);
-  registerApiCommands(commands, store, program);
   registerBpmCommands(store, program);
   registerPermissionCommands(permissionCommands, store, program);
   registerRollbackCommand(program, store);

@@ -116,10 +116,11 @@ function registerBpmRoutes(server: MockEadpServer, state: BpmState): void {
   });
 }
 
-async function createBpmProject(): Promise<string> {
+async function createBpmProject(options: { pageName?: string } = {}): Promise<string> {
   const project = await mkdtemp(join(tmpdir(), "eadp-bpm-project-"));
   trackDirectory(project);
   await mkdir(join(project, "backend"), { recursive: true });
+  await mkdir(join(project, "frontend", "config"), { recursive: true });
   await writeFile(join(project, "backend", "settings.gradle"), "rootProject.name = 'sdh-tbs'\n", "utf8");
   const javaRoot = join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "project");
   await mkdir(join(javaRoot, "api"), { recursive: true });
@@ -131,6 +132,27 @@ async function createBpmProject(): Promise<string> {
     "utf8"
   );
   await writeFile(
+    join(project, "frontend", "config", "router.config.ts"),
+    `
+const routes = [
+  {
+    path: "/project",
+    routes: [
+      {
+        path: "apply",
+        name: "projectApply",
+        title: ${JSON.stringify(options.pageName ?? "项目申请工作台")},
+        component: "./pages/project/apply"
+      }
+    ]
+  },
+  { path: "/other", name: "无关页面", component: "./pages/other" }
+];
+export default routes;
+`,
+    "utf8"
+  );
+  await writeFile(
     join(javaRoot, "entity", "Project.java"),
     "package com.sdh.tbs.project.entity; public class Project extends BaseFlowEntity {}",
     "utf8"
@@ -139,18 +161,25 @@ async function createBpmProject(): Promise<string> {
 package com.sdh.tbs.project.controller;
 import com.sdh.tbs.project.api.ProjectApi;
 import com.sdh.tbs.project.entity.Project;
+/** 项目申请流程 */
 @Tag(name = "ProjectApi", description = "项目申请服务")
 @RequestMapping(path = ProjectApi.PATH)
 public class ProjectController extends BaseFlowController<Project, ProjectDto> {
+  /** 项目申请提交前校验 */
   public ResultData<Void> beforeStartFlow(BpmInvokeParams params) {
     return service.validateBeforeStart(params.getBusinessId());
   }
+  @Operation(summary = "项目申请流程结束后", description = "流程结束时同步项目")
   public ResultData<Void> afterEndFlow(BpmInvokeParams params) {
     service.createProject(params.getBusinessId());
     return ResultData.success();
   }
+  // 项目负责人选人
   public ResultData<List<Executor>> getProjectLeaders(BpmInvokeParams params) {
     return service.getProjectLeaders(params.getBusinessId());
+  }
+  public ResultData<Void> internalSync(BpmInvokeParams params) {
+    return service.internalSync(params.getBusinessId());
   }
 }`, "utf8");
   return project;
@@ -217,20 +246,48 @@ describe("bpm inspect：从真实项目代码发现流程", () => {
         code: string;
         entity: { code: string; serviceName: string };
         interfaces: Array<{ url: string; interfaceType: string; name: string }>;
+        pages: Array<{ name: string; pcUrl: string }>;
       }>;
     };
     expect(result.businessModule).toEqual({ code: "sdh-tbs", name: "sdh-tbs", serviceName: "sdh-tbs" });
     expect(result.flows).toHaveLength(1);
     const flow = result.flows[0]!;
-    expect(flow.name).toBe("项目申请");
+    expect(flow.name).toBe("项目申请流程");
     expect(flow.code).toBe("com.sdh.tbs.project.entity.Project");
     expect(flow.entity.code).toBe("com.sdh.tbs.project.entity.Project");
+    expect(flow.pages).toEqual([
+      { name: "项目申请工作台", pcUrl: "/project/apply" }
+    ]);
     // 回调区分：Executor 返回值 → CUSTOM_PERSON，其余 → EVENT
     expect(flow.interfaces).toEqual(expect.arrayContaining([
-      expect.objectContaining({ url: "project/beforeStartFlow", interfaceType: "EVENT" }),
-      expect.objectContaining({ url: "project/afterEndFlow", interfaceType: "EVENT" }),
-      expect.objectContaining({ url: "project/getProjectLeaders", interfaceType: "CUSTOM_PERSON" })
+      expect.objectContaining({ url: "project/beforeStartFlow", name: "项目申请提交前校验", interfaceType: "EVENT" }),
+      expect.objectContaining({ url: "project/afterEndFlow", name: "项目申请流程结束后", interfaceType: "EVENT" }),
+      expect.objectContaining({ url: "project/getProjectLeaders", name: "项目负责人选人", interfaceType: "CUSTOM_PERSON" })
     ]));
+    expect(flow.interfaces).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: "project/internalSync" })
+    ]));
+  });
+
+  it("页面或接口名称超过 15 个 Unicode 字符时，预览和 apply 都在本地停止", async () => {
+    const project = await createBpmProject({ pageName: "项目申请处理工作台首页超长页面名称" });
+    const fixture = await createFixture({
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "secret" }]
+    });
+    const state = createBpmState();
+    registerBpmRoutes(fixture.server("dev"), state);
+    const args = [
+      "bpm", "configure", "--project", project,
+      "--flow", "com.sdh.tbs.project.entity.Project"
+    ];
+
+    const previewError = await runExpectError(fixture.program(), args);
+    expect(previewError).toContain("15");
+    expect(state.saves).toHaveLength(0);
+
+    const applyError = await runExpectError(fixture.program(), [...args, "--apply"]);
+    expect(applyError).toContain("15");
+    expect(state.saves).toHaveLength(0);
   });
 
   it("Entity 全限定名匹配：--flow 只显示指定流程", async () => {
@@ -247,25 +304,27 @@ describe("bpm inspect：从真实项目代码发现流程", () => {
   it("没有 Controller 时按 Entity 全限定名单独发现流程骨架", async () => {
     const project = await mkdtemp(join(tmpdir(), "eadp-bpm-entity-only-"));
     trackDirectory(project);
-    const file = join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "qualification", "entity", "QualificationFileApply.java");
+    const file = join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "qualification", "entity", "Qualification.java");
     await mkdir(join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "qualification", "entity"), { recursive: true });
+    await writeFile(join(project, "backend", "settings.gradle"), "rootProject.name = 'qualification'\n", "utf8");
     await writeFile(file, `
 package com.sdh.tbs.qualification.entity;
-public class QualificationFileApply extends BaseFlowEntity { }
+/** 资质申请流程 */
+public class Qualification extends BaseFlowEntity { }
 `, "utf8");
     // bpm inspect 走项目路径发现；Entity 全限定名唯一定位由 discoverBpmProject 支持
     const { discoverBpmProject } = await import("../src/domains/bpm/discovery.js");
     const definition = await discoverBpmProject(
       project,
-      "com.sdh.tbs.qualification.entity.QualificationFileApply"
+      "com.sdh.tbs.qualification.entity.Qualification"
     );
     expect(definition.flows).toEqual([{
-      name: "QualificationFileApply",
-      code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
+      name: "资质申请流程",
+      code: "com.sdh.tbs.qualification.entity.Qualification",
       entity: {
-        name: "QualificationFileApply",
-        code: "com.sdh.tbs.qualification.entity.QualificationFileApply",
-        serviceName: "qualificationFileApply"
+        name: "资质申请流程",
+        code: "com.sdh.tbs.qualification.entity.Qualification",
+        serviceName: "qualification"
       },
       interfaces: [],
       pages: []
@@ -453,6 +512,27 @@ describe("resource sync bpm：跨环境迁移", () => {
       resource: "conPage", identityField: "pcUrl", value: "/purchase/request", reason: "ambiguous"
     });
     expect(target.pages).toHaveLength(2);
+    expect(target.interfaces).toHaveLength(1);
+    expect(target.flowTypes).toHaveLength(1);
+  });
+
+  it("源页面名称超过 15 个 Unicode 字符时标记 blocked，其他安全资源继续同步", async () => {
+    const { fixture, source, target } = await bpmSyncFixture();
+    source.pages[0]!.name = "采购申请处理工作台首页超长页面名称";
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
+      "--flow", "PURCHASE_REQUEST", "--apply"
+    ])) as {
+      summary: Record<string, number>;
+      skippedBlocked: number;
+      changes: Array<Record<string, unknown>>;
+    };
+    expect(output.summary.blocked).toBe(1);
+    expect(output.skippedBlocked).toBe(1);
+    expect(output.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ resource: "conPage", action: "blocked", key: "/purchase/request" })
+    ]));
+    expect(target.pages).toHaveLength(0);
     expect(target.interfaces).toHaveLength(1);
     expect(target.flowTypes).toHaveLength(1);
   });

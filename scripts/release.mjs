@@ -12,8 +12,6 @@ if (releaseArguments.length > 1) {
 const releaseVersion = releaseArguments[0] ?? "patch";
 const npm = npmInvocation();
 
-runNpm(["whoami"]);
-
 if (!dryRun) {
   runNpm(["version", releaseVersion, "--no-git-tag-version"]);
 }
@@ -24,7 +22,7 @@ process.stdout.write(`准备发布 ${packageJson.name}@${packageJson.version}\n`
 runNpm(["run", "check"]);
 runNpm(["pack", "--ignore-scripts"]);
 runNpm(["run", "test:package"]);
-runNpm(["publish", "--ignore-scripts", ...(dryRun ? ["--dry-run"] : [])]);
+runNpm(["publish", "--ignore-scripts", "--dry-run"]);
 
 process.stdout.write(
   dryRun
@@ -66,8 +64,7 @@ function runNpm(arguments_) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `命令执行失败：npm ${arguments_.join(" ")}\n${
-        result.stderr || result.stdout || result.error?.message || "未知错误"
+      `命令执行失败：npm ${arguments_.join(" ")}\n${result.stderr || result.stdout || result.error?.message || "未知错误"
       }`
     );
   }

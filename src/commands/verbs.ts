@@ -1,23 +1,11 @@
 import type { Command } from "commander";
 
-export interface VerbCommands {
-  inspect: Command;
-  call: Command;
-}
-
 export interface PermissionVerbCommands {
   inspect: Command;
   apply: Command;
   assign: Command;
   revoke: Command;
   verify: Command;
-}
-
-export function registerVerbCommands(program: Command): VerbCommands {
-  return {
-    inspect: program.command("inspect").description("查看已登记接口"),
-    call: program.command("call").description("调用已登记接口或指定 HTTP 方法和路径")
-  };
 }
 
 export function registerPermissionVerbCommands(program: Command): PermissionVerbCommands {
