@@ -137,6 +137,21 @@ target. A transport/API failure stops immediately and is never retried.
 `compare` is read-only. Before either environment is read, validate both recorded tenant policies;
 after every applied write, require the CLI's post-write verification to be true.
 
+All ordinary resources and behavior extensions use the same ChangeSet envelope. Compare and sync
+results expose `changeSetKind: "eadp.resource.change-set.v1"`, `resource`, `changes`, and a
+`summary` with `create`, `update`, `unchanged`, and `blocked`. A special resource may add domain
+fields (for example menu hierarchy or BPM relations), but it must not return a second protocol.
+The generic command owns preview/apply selection, operation-log completion/failure, blocked-record
+skipping, and post-write verification. A normal resource declaring `sync` must have both a confirmed
+save endpoint and a safe rollback contract at registration time; incomplete declarations are rejected
+before any remote read.
+Behavior extensions extend the generic engine through phase hooks
+(`load`/`plan`/`aggregatePlan`/`apply`/`verify`); the engine still owns the blocked gate, envelope
+assembly, operation-log lifecycle, and post-write verification. There is no whole-action
+compare/sync/write handler: `write` is always executed by the engine's apply phase, so preview mode
+cannot call a write hook. They must not return their own operation ID, claim writes in preview mode,
+or return an applied result without successful post-write verification.
+
 ## Global safety rules
 
 - Resolve relative dates into explicit year-month or timestamps. Ask when the year or timezone changes the result.

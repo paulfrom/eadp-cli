@@ -96,7 +96,9 @@ export class ResourceClient {
       const data = await this.requestContract(contract, contract.query, body);
       const pageRows = extractRows(data, pagination.rowsField);
       rows.push(...pageRows);
-      if (pageRows.length < pagination.pageSize) return rows;
+      if (shouldFinishContractPagination(pagination, data, pageRows.length, rows.length, page)) {
+        return rows;
+      }
     }
     throw new CliError(`${contract.query.path} 分页数量异常`);
   }
@@ -186,7 +188,37 @@ export class ResourceClient {
     });
   }
 
-  private async call(path: string, method: string, body?: unknown): Promise<unknown> {
+  async getChildren(
+    resource: "conEntityPage" | "conEntityInterface",
+    parentId: string
+  ): Promise<ResourceRecord[]> {
+    const data = await this.call(
+      `${resource}/getChildrenFromParentId`,
+      "GET",
+      undefined,
+      { parentId: [parentId] }
+    );
+    if (!Array.isArray(data)) {
+      throw new CliError(`${resource}/getChildrenFromParentId 返回格式无效`);
+    }
+    return data.filter(isRecord);
+  }
+
+  async insertRelations(
+    resource: "conEntityPage" | "conEntityInterface",
+    parentId: string,
+    childIds: string[]
+  ): Promise<void> {
+    if (childIds.length === 0) return;
+    await this.call(`${resource}/insertRelations`, "POST", { parentId, childIds });
+  }
+
+  private async call(
+    path: string,
+    method: string,
+    body?: unknown,
+    query?: Record<string, string[]>
+  ): Promise<unknown> {
     const result = await sendRequest({
       baseUrl: this.options.baseUrl,
       token: this.options.token,
@@ -194,6 +226,7 @@ export class ResourceClient {
       method,
       path: `/api-gateway/${this.options.service}/${path}`,
       ...(body === undefined ? {} : { body }),
+      ...(query === undefined ? {} : { query }),
       ...(this.options.timeoutMs === undefined
         ? {}
         : { timeoutMs: this.options.timeoutMs })
@@ -228,6 +261,49 @@ export class ResourceClient {
     }
     return envelope.data;
   }
+}
+
+/**
+ * Respect a verified `total` contract. Unknown semantics deliberately ignore
+ * `total` and keep reading until a short page proves the end of the result.
+ */
+export function shouldFinishContractPagination(
+  pagination: NonNullable<ResourceContract["pagination"]>,
+  responseData: unknown,
+  pageRowCount: number,
+  accumulatedRowCount: number,
+  pageNumber: number
+): boolean {
+  if (pagination.totalSemantics === "unknown") {
+    return pageRowCount < pagination.pageSize;
+  }
+  if (!isRecord(responseData) || !Number.isInteger(responseData.total) ||
+      (responseData.total as number) < 0) {
+    throw new CliError("资源分页响应缺少有效 total");
+  }
+  const total = responseData.total as number;
+  if (pagination.totalSemantics === "records") {
+    if (accumulatedRowCount > total) throw new CliError("资源分页响应 total 小于已读取记录数");
+    if (accumulatedRowCount === total) return true;
+    if (pageRowCount < pagination.pageSize) {
+      throw new CliError(`资源分页提前结束：已读取 ${accumulatedRowCount}/${total} 条`);
+    }
+    return false;
+  }
+
+  const pageIndex = pageNumber - pagination.startPage + 1;
+  if (total === 0) {
+    if (pageIndex !== 1 || pageRowCount > 0) {
+      throw new CliError("资源分页响应 total 页数与当前页不一致");
+    }
+    return true;
+  }
+  if (pageIndex <= 0 || pageIndex > total) {
+    throw new CliError("资源分页响应 total 页数与当前页不一致");
+  }
+  if (pageIndex === total) return true;
+  if (pageRowCount === 0) throw new CliError(`资源分页提前结束：已读取 ${pageIndex}/${total} 页`);
+  return false;
 }
 
 export function createResourceClient(options: ResourceClientOptions): ResourceClient {

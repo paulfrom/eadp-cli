@@ -10,8 +10,11 @@ export interface MissingDependency {
 export interface BlockingIssue {
   resource: string;
   field: string;
-  reason: "invalid";
+  reason: "invalid" | "ambiguous";
   message: string;
+  /** Optional identity details supplied by aggregate behavior extensions. */
+  identityField?: string;
+  value?: string | null;
 }
 
 export class DependencyResolutionError extends CliError {
@@ -31,4 +34,3 @@ export class RecordMappingError extends CliError {
     super(blockingIssues.map((issue) => issue.message).join(", "));
   }
 }
-

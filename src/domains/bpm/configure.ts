@@ -1,5 +1,5 @@
-import { CliError } from "../errors.js";
-import type { OperationRecorder } from "../operations/recorder.js";
+import { CliError } from "../../errors.js";
+import type { OperationRecorder } from "../../operations/recorder.js";
 import { BpmClient, stringField } from "./client.js";
 import type {
   BpmConfigureResult,

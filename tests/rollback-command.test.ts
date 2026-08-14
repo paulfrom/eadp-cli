@@ -16,6 +16,79 @@ afterEach(async () => {
 });
 
 describe("rollback 命令", () => {
+  it("uses the resource contract's explicit lookup and remove API semantics", async () => {
+    let exists = true;
+    const requests: string[] = [];
+    const server = createServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      requests.push(`${request.method} ${url.pathname}${url.search}`);
+      if (url.pathname.endsWith("/warehouse/detail")) {
+        const body = await readBody(request) as { warehouseId?: string };
+        expect(body.warehouseId).toBe("warehouse-1");
+        respond(response, exists ? { id: "warehouse-1", code: "W1" } : null);
+        return;
+      }
+      if (url.pathname.endsWith("/warehouse/remove")) {
+        expect(url.searchParams.get("warehouseId")).toBe("warehouse-1");
+        exists = false;
+        respond(response, true);
+        return;
+      }
+      respond(response, null, 404);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
+    const directory = await mkdtemp(join(tmpdir(), "eadp-rollback-contract-"));
+    temporaryDirectories.push(directory);
+    const configStore = new ConfigStore(directory);
+    await configStore.save({ currentEnvironment: "dev", environments: {
+      dev: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "tenant-a" }
+    }});
+    await new OperationLogStore(directory).save({
+      version: 1,
+      id: "contract-operation",
+      command: "eadp resource write warehouse",
+      environment: "dev",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: "completed",
+      actions: [{
+        id: "warehouse-create",
+        type: "create-entity",
+        service: "sei-inventory",
+        resource: "warehouse",
+        entityId: "warehouse-1",
+        expected: { code: "W1" },
+        deleteMethod: "POST",
+        lookup: {
+          path: "warehouse/detail",
+          method: "POST",
+          idField: "warehouseId",
+          idPlacement: "body"
+        },
+        remove: {
+          path: "warehouse/remove",
+          method: "POST",
+          idField: "warehouseId",
+          idPlacement: "query"
+        },
+        tenantPolicy: "any",
+        status: "applied"
+      }]
+    });
+
+    await createProgram(configStore).parseAsync(["rollback", "contract-operation"], { from: "user" });
+
+    expect(exists).toBe(false);
+    expect(requests).toEqual([
+      "POST /api-gateway/sei-inventory/warehouse/detail",
+      "POST /api-gateway/sei-inventory/warehouse/remove?warehouseId=warehouse-1",
+      "POST /api-gateway/sei-inventory/warehouse/detail"
+    ]);
+  });
+
   it("支持回滚权限复制新增的员工岗位关系", async () => {
     const assigned = new Set(["position-1"]);
     const server = createServer((request, response) => {

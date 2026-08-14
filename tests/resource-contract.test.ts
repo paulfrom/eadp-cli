@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { createResourceRegistry, type ResourceContract } from "../src/resource/core/contracts.js";
-import { getResourceContract, listResourceContracts } from "../src/resource/catalog.js";
-import { ResourceEngine } from "../src/resource/core/engine.js";
-import type { ResourceClient } from "../src/resource/core/client.js";
 import {
-  createSpecialResourceHandlerRegistry,
+  getResourceContract,
+  listResourceContracts,
   specialResourceHandlerRegistry
-} from "../src/resource/handlers/index.js";
+} from "../src/resource/catalog.js";
+import { ResourceEngine } from "../src/resource/core/engine.js";
+import {
+  shouldFinishContractPagination,
+  type ResourceClient
+} from "../src/resource/core/client.js";
+import {
+  createSpecialResourceHandlerRegistry
+} from "../src/resource/handlers/registry.js";
+import { createResourceModuleCatalog } from "../src/resource/modules/contracts.js";
 
 const base = (overrides: Partial<ResourceContract> = {}): ResourceContract => ({
   id: "demo",
@@ -21,7 +28,12 @@ const base = (overrides: Partial<ResourceContract> = {}): ResourceContract => ({
   writableFields: ["code", "name"],
   tenant: { policy: "any" },
   capabilities: ["query", "write", "compare", "sync"],
-  rollback: { service: "sei-basic", resource: "demo", deleteMethod: "DELETE" },
+  rollback: {
+    service: "sei-basic",
+    resource: "demo",
+    remove: { path: "demo/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" },
+    lookup: { path: "demo/findOne", method: "GET", idField: "id", idPlacement: "query" }
+  },
   help: "Demo help",
   ...overrides
 });
@@ -35,8 +47,63 @@ describe("declarative resource contracts", () => {
     expect(() => createResourceRegistry([base({ save: undefined })])).toThrow("缺少保存接口");
   });
 
+  it("rejects ordinary sync without save and safe rollback contracts at registration", () => {
+    const syncOnly = { capabilities: ["compare", "sync"] as ResourceContract["capabilities"] };
+    expect(() => createResourceRegistry([base({ ...syncOnly, save: undefined })]))
+      .toThrow("缺少保存接口");
+    expect(() => createResourceRegistry([base({ ...syncOnly, rollback: undefined })]))
+      .toThrow("缺少安全回滚契约");
+  });
+
+  it("allows a behavior extension to implement write through the apply phase hook", () => {
+    const registry = createResourceRegistry([base({
+      capabilities: ["write"],
+      handler: "demo",
+      read: "handler",
+      save: undefined,
+      rollback: undefined,
+      identityFields: [],
+      compareFields: [],
+      writableFields: []
+    })]);
+    expect(registry.get("demo").capabilities).toEqual(["write"]);
+    const handlers = createSpecialResourceHandlerRegistry([["demo", {
+      hooks: { apply: async () => {} }
+    }]]);
+    expect(typeof handlers.get("demo").hooks?.apply).toBe("function");
+  });
+
   it("rejects paged contracts without pagination semantics", () => {
     expect(() => createResourceRegistry([base({ read: "paged" })])).toThrow("缺少分页契约");
+  });
+
+  it("uses verified total semantics and conservatively handles unknown pagination", () => {
+    const pagination = {
+      pageField: "pageInfo",
+      pageNumberField: "page",
+      pageSizeField: "rows",
+      startPage: 1,
+      rowsField: "rows",
+      pageSize: 500,
+      totalSemantics: "records" as const
+    };
+    expect(shouldFinishContractPagination(pagination, { total: 501 }, 500, 500, 1)).toBe(false);
+    expect(shouldFinishContractPagination(pagination, { total: 501 }, 1, 501, 2)).toBe(true);
+    expect(() => shouldFinishContractPagination(pagination, {}, 1, 1, 1)).toThrow("有效 total");
+    expect(shouldFinishContractPagination(
+      { ...pagination, totalSemantics: "pages" },
+      { total: 2 },
+      1,
+      501,
+      2
+    )).toBe(true);
+    expect(shouldFinishContractPagination(
+      { ...pagination, totalSemantics: "unknown" },
+      {},
+      499,
+      499,
+      1
+    )).toBe(true);
   });
 
   it("rejects inconsistent registration combinations", () => {
@@ -93,13 +160,70 @@ describe("declarative resource contracts", () => {
     ]);
   });
 
-  it("allows a future service through one validated ordinary-resource declaration", () => {
-    const registry = createResourceRegistry([base({
-      service: "sei-inventory",
-      rollback: { service: "sei-inventory", resource: "warehouse", deleteMethod: "DELETE" }
-    })]);
-    expect(registry.get("demo").service).toBe("sei-inventory");
+  it("gives a future API-defined service query, write, compare, and sync without domain code", async () => {
+    const catalog = createResourceModuleCatalog([{
+      contract: base({
+        service: "sei-inventory",
+        rollback: {
+          service: "sei-inventory",
+          resource: "warehouse",
+          remove: {
+            path: "warehouse/delete/{id}",
+            method: "DELETE",
+            idField: "id",
+            idPlacement: "path"
+          },
+          lookup: { path: "warehouse/findOne", method: "GET", idField: "id", idPlacement: "query" }
+        }
+      })
+    }]);
+    const contract = catalog.registry.get("demo");
+    const sourceRows = [{ id: "source-A", code: "A", name: "Warehouse A" }];
+    let targetRows: Array<Record<string, unknown>> = [];
+    const source = {
+      queryContract: async () => sourceRows
+    } as unknown as ResourceClient;
+    const target = {
+      queryContract: async () => targetRows,
+      saveContract: async (_contract: ResourceContract, desired: Record<string, unknown>) => {
+        const saved = { ...desired, id: "target-A" };
+        targetRows = [saved];
+        return saved;
+      }
+    } as unknown as ResourceClient;
+    const resourceEngine = new ResourceEngine();
+
+    const query = await resourceEngine.query(contract, source, "source");
+    const write = await resourceEngine.write(contract, target, sourceRows[0]!, { apply: false });
+    const compare = await resourceEngine.compare(contract, source, target, {
+      source: "source",
+      target: "target"
+    });
+    const sync = await resourceEngine.sync(contract, source, target, {
+      source: "source",
+      target: "target"
+    }, { apply: true });
+
+    expect(contract.service).toBe("sei-inventory");
+    expect(query.items).toHaveLength(1);
+    expect(write).toMatchObject({ applied: false, summary: { create: 1 } });
+    expect(compare.summary.create).toBe(1);
+    expect(sync).toMatchObject({ applied: true, verified: true, summary: { create: 1 } });
     expect(() => createResourceRegistry([base({ service: "../unsafe" })])).toThrow("服务标识无效");
+  });
+
+  it("uses one change-set marker for ordinary compare and sync plans", async () => {
+    const client = {
+      queryContract: async () => [{ code: "A", name: "A" }]
+    } as unknown as ResourceClient;
+    const plan = await new ResourceEngine().compare(
+      base(),
+      client,
+      client,
+      { source: "source", target: "target" }
+    );
+    expect(plan.changeSetKind).toBe("eadp.resource.change-set.v1");
+    expect(plan.kind).toBe("eadp.resource.change-set.v1");
   });
 
   it("fails an unregistered adapter before any resource read", async () => {
@@ -116,25 +240,55 @@ describe("declarative resource contracts", () => {
     expect(queries).toBe(0);
   });
 
+  it("rejects incomplete adapters and behavior extensions at composition time", () => {
+    expect(() => createResourceModuleCatalog([
+      { contract: base({ adapter: "missing-adapter" }) }
+    ])).toThrow("但未提供实现");
+
+    const specialWrite = base({
+      capabilities: ["write"],
+      handler: "demo-special",
+      read: "handler",
+      save: undefined,
+      rollback: undefined,
+      identityFields: [],
+      compareFields: [],
+      writableFields: []
+    });
+    expect(() => createResourceModuleCatalog([
+      { contract: specialWrite, handler: {} }
+    ])).toThrow("write 能力必须经由通用引擎（提供阶段钩子）");
+    expect(() => createResourceModuleCatalog([
+      { contract: specialWrite, handler: { hooks: { apply: async () => {} } } }
+    ])).not.toThrow();
+  });
+
   it("registers and dispatches special handlers independently from ordinary contracts", async () => {
     const calls: string[] = [];
     const registry = createSpecialResourceHandlerRegistry([
       ["demo-special", {
-        async compare({ selectors }) {
-          calls.push("compare");
-          return { kind: "demo", selector: selectors.pick };
-        }
+        async query({ quick }) {
+          calls.push(quick ?? "query");
+          return {
+            kind: "eadp.resource.query.v1",
+            resource: "demo",
+            environment: "env",
+            items: [],
+            total: 0
+          };
+        },
+        hooks: { aggregatePlan: async () => ({ changes: [] }) }
       }]
     ]);
-    const result = await registry.get("demo-special").compare!({
-      source: {} as never,
-      target: {} as never,
+    const result = await registry.get("demo-special").query!({
+      environment: {} as never,
       runtime: {} as never,
-      selectors: { pick: "value" },
-      apply: false
+      filters: [],
+      quick: "value"
     });
-    expect(result).toEqual({ kind: "demo", selector: "value" });
-    expect(calls).toEqual(["compare"]);
+    expect(result).toMatchObject({ kind: "eadp.resource.query.v1", resource: "demo" });
+    expect(calls).toEqual(["value"]);
+    expect(typeof registry.get("demo-special").hooks?.aggregatePlan).toBe("function");
     expect(registry.find("missing")).toBeUndefined();
     expect(() => createSpecialResourceHandlerRegistry([
       ["demo-special", {}],
@@ -145,6 +299,7 @@ describe("declarative resource contracts", () => {
   it("composes built-in special handlers without putting domain imports in resource commands", () => {
     expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu"]);
     expect(specialResourceHandlerRegistry.get("menu").query).toBeTypeOf("function");
-    expect(specialResourceHandlerRegistry.get("bpm").sync).toBeTypeOf("function");
+    expect(specialResourceHandlerRegistry.get("menu").hooks?.plan).toBeTypeOf("function");
+    expect(specialResourceHandlerRegistry.get("bpm").hooks?.aggregatePlan).toBeTypeOf("function");
   });
 });

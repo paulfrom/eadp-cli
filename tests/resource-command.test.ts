@@ -20,10 +20,18 @@ afterEach(async () => {
 describe("resource-first command workflow", () => {
   it("exposes list/describe with declarative capabilities", async () => {
     const output = captureOutput();
+    const helpProgram = createProgram().exitOverride();
+    await expect(helpProgram.parseAsync(["resource", "--help"], { from: "user" }))
+      .rejects.toThrow("process.exit unexpectedly called");
+    const resourceHelp = output.text();
+    expect(resourceHelp).toContain("已注册普通资源：app-module、feature、feature-group、serial-number");
+    expect(resourceHelp).toContain("行为扩展资源：bpm、menu");
+    output.clear();
     const program = createProgram().exitOverride();
     await program.parseAsync(["resource", "list"], { from: "user" });
     expect(output.text()).toContain('"feature"');
     expect(output.text()).toContain('"valuePlaceholder": "code"');
+    expect(output.text()).toContain('"lookup"');
     await createProgram().parseAsync(["resource", "describe", "feature"], { from: "user" });
     expect(output.text()).toContain('"identityFields"');
   });

@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { CliError } from "../errors.js";
+import { CliError } from "../../errors.js";
 import type {
   BpmBusinessModuleDefinition,
   BpmFlowDefinition,

@@ -11,14 +11,21 @@ import {
   getResourceContract,
   listResourceContracts,
   resourceAdapterRegistry,
+  resourcePhaseHooksRegistry,
   specialResourceHandlerRegistry
 } from "../resource/catalog.js";
 import type {
   ResourceContract,
   ResourceSelectorContract
 } from "../resource/core/contracts.js";
-import { ResourceEngine, assertMigrationTenants, assertResourceTenant } from "../resource/core/engine.js";
-import type { SpecialResourceHandler } from "../resource/handlers/contracts.js";
+import {
+  ResourceEngine,
+  assertMigrationTenants,
+  assertResourceTenant
+} from "../resource/core/engine.js";
+import type {
+  SpecialResourceHandler
+} from "../resource/handlers/contracts.js";
 
 interface FilterOptions {
   filter: string[];
@@ -36,23 +43,35 @@ interface ResourceMigrationOptions extends FilterOptions {
   apply?: boolean;
   [key: string]: unknown;
 }
-const engine = new ResourceEngine(resourceAdapterRegistry);
+const engine = new ResourceEngine(resourceAdapterRegistry, resourcePhaseHooksRegistry);
 
 /** Register the generic resource-first command tree. */
 export function registerResourceCommands(
   store: ConfigStore,
   root: Command
 ): void {
+  const registeredContracts = listResourceContracts();
+  const ordinaryResources = registeredContracts
+    .filter((contract) => !contract.handler)
+    .map((contract) => contract.id)
+    .sort()
+    .join("、") || "无";
+  const behaviorExtensions = registeredContracts
+    .filter((contract) => contract.handler)
+    .map((contract) => contract.id)
+    .sort()
+    .join("、") || "无";
   const resource = root
     .command("resource")
     .description("按声明式资源契约查询、写入、比较和迁移（默认预览；不提供删除）")
     .addHelpText(
       "after",
       `
-普通资源均由契约注册，契约包含查询/保存接口、分页策略、业务唯一键、可比较/可写字段、租户策略和能力开关。
-内置普通资源：app-module、feature、feature-group、serial-number；特殊处理器：menu、bpm。
+资源均由契约注册；普通资源由 API 与业务语义声明获得统一动作，特殊资源可为同一动作登记行为扩展。
+契约包含查询/保存接口、分页策略、业务唯一键、可比较/可写字段、租户策略和能力开关。
+已注册普通资源：${ordinaryResources}；行为扩展资源：${behaviorExtensions}。
 动作统一为 create、update、unchanged、blocked；传输失败立即停止，不自动重试。
-特殊能力：menu 使用菜单树专用处理器；BPM 使用 eadp bpm inspect/configure 与 resource compare/sync bpm 工作流。
+使用 resource list/describe 发现每个资源的能力、选择器与领域说明。
 示例：
   eadp resource list
   eadp resource describe feature
@@ -78,6 +97,7 @@ export function registerResourceCommands(
             read: contract.read,
             query: contract.query,
             save: contract.save ?? null,
+            rollback: contract.rollback ?? null,
             identityFields: contract.identityFields,
             compareFields: contract.compareFields,
             writableFields: contract.writableFields,
@@ -149,29 +169,27 @@ export function registerResourceCommands(
       const input = await readJsonInput({ data: options.data });
       if (!isRecordOrArray(input)) throw new CliError("--data 必须是 JSON 对象或对象数组");
       const runtime = getRuntimeOptions(root);
-      const client = createClient(environment, contract.service, runtime.timeoutMs);
-      const recorder = options.apply
-        ? new OperationRecorder(
-            new OperationLogStore(store.directory),
-            `eadp resource write ${contract.id}`,
-            environment.name
-          )
-        : undefined;
-      try {
-        const result = await engine.write(contract, client, input, {
-          apply: options.apply === true,
-          ...(environment.config.tenantCode === undefined ? {} : { targetTenantCode: environment.config.tenantCode }),
-          ...(recorder ? { recorder } : {})
-        });
-        const operationId = await recorder?.complete();
-        printValue(
-          { ...result, environment: environment.name, ...(operationId ? { operationId } : {}) },
-          runtime.compact
+      const apply = options.apply === true;
+      const result = await executeResourceChangeAction({
+        apply,
+        operationStoreDirectory: store.directory,
+        command: `eadp resource write ${contract.id}`,
+        targetEnvironment: environment.name
+      }, async (recorder) => {
+        return engine.write(
+          contract,
+          createClient(environment, contract.service, runtime.timeoutMs),
+          input,
+          {
+            apply,
+            ...(environment.config.tenantCode === undefined
+              ? {}
+              : { targetTenantCode: environment.config.tenantCode }),
+            ...(recorder ? { recorder } : {})
+          }
         );
-      } catch (error) {
-        await recorder?.fail(error);
-        throw operationError(error, recorder);
-      }
+      });
+      printValue({ ...result, environment: environment.name }, runtime.compact);
     });
 
   addResourceFilterOptions(
@@ -189,20 +207,10 @@ export function registerResourceCommands(
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
-      const selectors = validateSelectorOptions(contract, options);
-      const special = getSpecialHandler(contract, "compare");
-      if (special?.compare) {
-        if (filters.length > 0) throw new CliError(`资源 ${contract.id} 的特殊比较不支持通用过滤条件`);
-        const result = await special.compare({
-          source,
-          target,
-          runtime,
-          selectors,
-          apply: false
-        });
-        printValue(result, runtime.compact);
-        return;
+      if (contract.handler && filters.length > 0) {
+        throw new CliError(`资源 ${contract.id} 不支持通用过滤条件`);
       }
+      const selectors = validateSelectorOptions(contract, options);
       const result = await engine.compare(
         contract,
         createClient(source, contract.service, runtime.timeoutMs),
@@ -210,7 +218,8 @@ export function registerResourceCommands(
         { source: source.name, target: target.name },
         {
           sourceQuery: { filters },
-          ...(target.config.tenantCode === undefined ? {} : { targetTenantCode: target.config.tenantCode })
+          ...(target.config.tenantCode === undefined ? {} : { targetTenantCode: target.config.tenantCode }),
+          selectors
         }
       );
       printValue(result, runtime.compact);
@@ -232,47 +241,32 @@ export function registerResourceCommands(
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
-      const selectors = validateSelectorOptions(contract, options);
-      const special = getSpecialHandler(contract, "sync");
-      if (special?.sync) {
-        if (filters.length > 0) throw new CliError(`资源 ${contract.id} 的特殊迁移不支持通用过滤条件`);
-        const result = await special.sync({
-          source,
-          target,
-          operationStoreDirectory: store.directory,
-          runtime,
-          selectors,
-          apply: options.apply === true
-        });
-        printValue(result, runtime.compact);
-        return;
+      if (contract.handler && filters.length > 0) {
+        throw new CliError(`资源 ${contract.id} 不支持通用过滤条件`);
       }
-      const recorder = options.apply
-        ? new OperationRecorder(
-            new OperationLogStore(store.directory),
-            `eadp resource sync ${contract.id}`,
-            target.name
-          )
-        : undefined;
-      try {
-        const result = await engine.sync(
+      const selectors = validateSelectorOptions(contract, options);
+      const apply = options.apply === true;
+      const result = await executeResourceChangeAction({
+        apply,
+        operationStoreDirectory: store.directory,
+        command: `eadp resource sync ${contract.id}`,
+        targetEnvironment: target.name
+      }, async (recorder) => {
+        return engine.sync(
           contract,
           createClient(source, contract.service, runtime.timeoutMs),
           createClient(target, contract.service, runtime.timeoutMs),
           { source: source.name, target: target.name },
           {
-            apply: options.apply === true,
+            apply,
             sourceQuery: { filters },
             ...(target.config.tenantCode === undefined ? {} : { targetTenantCode: target.config.tenantCode }),
-            ...(recorder ? { recorder } : {})
+            ...(recorder ? { recorder } : {}),
+            selectors
           }
         );
-        const operationId = await recorder?.complete();
-        printValue({ ...result, ...(operationId ? { operationId } : {}) }, runtime.compact);
-      } catch (error) {
-        await recorder?.fail(error);
-        throw operationError(error, recorder);
-      }
+      });
+      printValue(result, runtime.compact);
     });
 }
 
@@ -421,7 +415,7 @@ function optionAttributeName(name: string): string {
 
 function getSpecialHandler(
   contract: ResourceContract,
-  capability: "query" | "compare" | "sync"
+  capability: "query"
 ): SpecialResourceHandler | undefined {
   if (!contract.handler) return undefined;
   const handler = specialResourceHandlerRegistry.get(contract.handler);
@@ -429,6 +423,33 @@ function getSpecialHandler(
     throw new CliError(`资源 ${contract.id} 的 ${capability} 处理器未注册`);
   }
   return handler;
+}
+
+/** One operation lifecycle for ordinary resources and behavior extensions. */
+async function executeResourceChangeAction<T extends object>(
+  options: {
+    apply: boolean;
+    operationStoreDirectory: string;
+    command: string;
+    targetEnvironment: string;
+  },
+  action: (recorder: OperationRecorder | undefined) => Promise<T>
+): Promise<T & { operationId?: string }> {
+  const recorder = options.apply
+    ? new OperationRecorder(
+        new OperationLogStore(options.operationStoreDirectory),
+        options.command,
+        options.targetEnvironment
+      )
+    : undefined;
+  try {
+    const result = await action(recorder);
+    const operationId = await recorder?.complete();
+    return operationId ? { ...result, operationId } : result;
+  } catch (error) {
+    await recorder?.fail(error);
+    throw operationError(error, recorder);
+  }
 }
 
 function assertCapability(

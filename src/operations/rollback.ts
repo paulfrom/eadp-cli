@@ -76,11 +76,28 @@ async function rollbackAction(action: OperationAction, env: ResolvedEnvironment,
 }
 
 async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {
-  const path = `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`;
+  const remove = action.remove ?? {
+    path: `${action.resource}/delete/{id}`,
+    method: action.deleteMethod,
+    idField: "id",
+    idPlacement: "path" as const
+  };
+  const relativePath = remove.idPlacement === "path"
+    ? remove.path.replace("{id}", encodeURIComponent(action.entityId))
+    : remove.path;
+  const path = `${gateway(action.service)}/${relativePath}`;
+  const values = { [remove.idField]: action.entityId };
   assertRollbackActionTenantScope(action, env);
   const current = await findEntity(action, env, timeoutMs);
   if (current === null) return false;
-  await call(env, timeoutMs, action.deleteMethod, path);
+  await call(
+    env,
+    timeoutMs,
+    remove.method,
+    path,
+    remove.idPlacement === "body" ? values : undefined,
+    remove.idPlacement === "query" ? { [remove.idField]: [action.entityId] } : undefined
+  );
   if ((await findEntity(action, env, timeoutMs)) !== null) {
     throw new CliError(`回滚后回查失败：${action.resource}/${action.entityId} 仍然存在`);
   }
@@ -133,9 +150,22 @@ async function rollbackDataValues(action: AssignDataValuesAction, env: ResolvedE
 }
 
 async function findEntity(action: CreateEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<RecordValue | null> {
-  const base = `${gateway(action.service)}/${action.resource}`;
-  const data = await call(env, timeoutMs, "GET", `${base}/${action.resource === "serialNumberConfig" ? "getDetail" : "findOne"}`,
-    undefined, { id: [action.entityId] });
+  const legacyPath = `${action.resource}/${action.resource === "serialNumberConfig" ? "getDetail" : "findOne"}`;
+  const lookup = action.lookup ?? {
+    path: legacyPath,
+    method: "GET" as const,
+    idField: "id",
+    idPlacement: "query" as const
+  };
+  const values = { [lookup.idField]: action.entityId };
+  const data = await call(
+    env,
+    timeoutMs,
+    lookup.method,
+    `${gateway(action.service)}/${lookup.path}`,
+    lookup.idPlacement === "body" ? values : undefined,
+    lookup.idPlacement === "query" ? { [lookup.idField]: [action.entityId] } : undefined
+  );
   if (data === null || data === undefined) return null;
   if (!isRecord(data)) throw new CliError(`${action.resource} 回查返回格式无效`);
   return data;

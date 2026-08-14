@@ -237,7 +237,17 @@ describe("菜单命令", () => {
 
     const result = JSON.parse(output.text());
     expect(result.summary).toEqual({ create: 2, update: 0, unchanged: 0, blocked: 0 });
-    expect(result).toMatchObject({ applied: true, verified: true });
+    expect(result).toMatchObject({
+      kind: "eadp.resource.change-set.v1",
+      changeSetKind: "eadp.resource.change-set.v1",
+      resource: "menu",
+      applied: true,
+      verified: true
+    });
+    expect(result.changes.every((change: Record<string, unknown>) =>
+      typeof change.key === "string" && Array.isArray(change.changedFields) &&
+      "before" in change && "desired" in change
+    )).toBe(true);
     expect(savedBodies[0]).toMatchObject({ code: "PURCHASE", name: "采购管理" });
     expect(savedBodies[0]).not.toHaveProperty("id");
     expect(savedBodies[1]).toMatchObject({

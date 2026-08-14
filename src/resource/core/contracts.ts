@@ -60,7 +60,19 @@ export interface ResourceRollbackContract {
   /** A strictly registered rollback target; arbitrary paths are not accepted. */
   service: string;
   resource: string;
-  deleteMethod: "DELETE" | "POST";
+  remove: {
+    path: string;
+    method: "DELETE" | "POST";
+    idField: string;
+    idPlacement: "path" | "query" | "body";
+  };
+  /** Explicit read-back contract used before and after a rollback delete. */
+  lookup: {
+    path: string;
+    method: "GET" | "POST";
+    idField: string;
+    idPlacement: "query" | "body";
+  };
 }
 
 /**
@@ -139,14 +151,17 @@ export function validateResourceContracts(
     if (contract.selectors?.length && !contract.handler) {
       throw new CliError(`资源契约 ${contract.id} 只有特殊处理器才能声明选择器`);
     }
-    if (contract.handler && contract.capabilities.includes("write")) {
-      throw new CliError(`资源契约 ${contract.id} 的特殊写操作必须使用领域命令`);
-    }
-    if (contract.capabilities.includes("write") && !contract.save) {
+    if (contract.capabilities.includes("write") && contract.handler === undefined && !contract.save) {
       throw new CliError(`资源契约 ${contract.id} 声明 write 能力但缺少保存接口`);
     }
     if (contract.capabilities.includes("write") && contract.handler === undefined && !contract.rollback) {
       throw new CliError(`资源契约 ${contract.id} 声明 write 能力但缺少安全回滚契约`);
+    }
+    if (contract.capabilities.includes("sync") && contract.handler === undefined && !contract.save) {
+      throw new CliError(`资源契约 ${contract.id} 声明 sync 能力但缺少保存接口`);
+    }
+    if (contract.capabilities.includes("sync") && contract.handler === undefined && !contract.rollback) {
+      throw new CliError(`资源契约 ${contract.id} 声明 sync 能力但缺少安全回滚契约`);
     }
     if ((contract.capabilities.includes("compare") || contract.capabilities.includes("sync")) &&
       contract.identityFields.length === 0 && contract.handler === undefined) {
@@ -252,6 +267,17 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     if (candidate.rollback.service !== candidate.service) {
       throw new CliError(`资源契约 ${candidate.id} 的回滚服务必须与资源服务一致`);
     }
+    if (!candidate.rollback.lookup) {
+      throw new CliError(`资源契约 ${candidate.id} 的安全回滚契约缺少回查接口`);
+    }
+    validateEndpoint(candidate.id, "回滚回查", candidate.rollback.lookup);
+    if (!["GET", "POST"].includes(candidate.rollback.lookup.method) ||
+        !["query", "body"].includes(candidate.rollback.lookup.idPlacement) ||
+        !isSafeRelativePath(candidate.rollback.lookup.path)) {
+      throw new CliError(`资源契约 ${candidate.id} 回滚回查接口无效`);
+    }
+    validatePathSegment(candidate.id, "回滚 ID 字段", candidate.rollback.lookup.idField);
+    validateRollbackRemove(candidate.id, candidate.rollback.remove);
   }
   const selectors = candidate.selectors === undefined
     ? undefined
@@ -265,6 +291,31 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     capabilities: [...new Set(candidate.capabilities)],
     ...(selectors === undefined ? {} : { selectors })
   };
+}
+
+function validateRollbackRemove(
+  id: string,
+  remove: ResourceRollbackContract["remove"] | undefined
+): void {
+  if (!remove) throw new CliError(`资源契约 ${id} 的安全回滚契约缺少删除接口`);
+  const path = remove.path.trim();
+  const validPath = path && !path.startsWith("/") && !path.includes("..") && !/[?#]/.test(path) &&
+    path.split("/").every((segment) => segment === "{id}" || isSafePathSegment(segment));
+  const idTokens = path.split("{id}").length - 1;
+  if (!validPath || !["DELETE", "POST"].includes(remove.method) ||
+      !["path", "query", "body"].includes(remove.idPlacement) || !remove.idField.trim() ||
+      (remove.idPlacement === "path" ? idTokens !== 1 : idTokens !== 0)) {
+    throw new CliError(`资源契约 ${id} 回滚删除接口无效`);
+  }
+  validatePathSegment(id, "回滚删除 ID 字段", remove.idField);
+}
+
+function isSafeRelativePath(path: string): boolean {
+  return path.length <= 512 && path.split("/").every(isSafePathSegment);
+}
+
+function isSafePathSegment(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 }
 
 function normalizeSelectors(

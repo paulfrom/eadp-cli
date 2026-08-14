@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/program.js";
-import { BpmClient } from "../src/bpm/client.js";
-import { configureBpmProject } from "../src/bpm/configure.js";
+import { BpmClient } from "../src/domains/bpm/client.js";
+import { configureBpmProject } from "../src/domains/bpm/configure.js";
 import { ConfigStore } from "../src/config/store.js";
 
 const temporaryDirectories: string[] = [];
@@ -137,7 +137,16 @@ describe("bpm configure", () => {
       targetState.interfaces[0]!.id
     ]);
     const results = output.text().trim().split("\n").map((line) => JSON.parse(line));
-    expect(results[0].kind).toBe("eadp.bpm.sync.v1");
+    expect(results[0].kind).toBe("eadp.resource.change-set.v1");
+    expect(results[0]).toMatchObject({
+      changeSetKind: "eadp.resource.change-set.v1",
+      resource: "bpm",
+      missingDependencies: []
+    });
+    expect(results[0].changes.every((change: Record<string, unknown>) =>
+      typeof change.key === "string" && Array.isArray(change.changedFields) &&
+      "before" in change && "desired" in change
+    )).toBe(true);
     expect(results[0].verified).toBe(true);
     expect(results[1].summary.unchanged).toBeGreaterThan(0);
   });

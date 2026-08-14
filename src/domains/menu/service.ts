@@ -1,7 +1,13 @@
-import { CliError, errorMessage } from "../errors.js";
-import { OperationRecorder } from "../operations/recorder.js";
-import type { ResourceClient, ResourceFilter, ResourceRecord } from "../resource/core/client.js";
-import type { BlockingIssue, MissingDependency } from "../resource/core/errors.js";
+import { CliError } from "../../errors.js";
+import type { ResourceClient, ResourceFilter, ResourceRecord } from "../../resource/core/client.js";
+import type { BlockingIssue, MissingDependency } from "../../resource/core/errors.js";
+import type {
+  ResourceApplyContext,
+  ResourcePhaseHooks,
+  ResourcePlanChange,
+  ResourcePlanContext,
+  ResourceVerifyContext
+} from "../../resource/core/engine.js";
 
 export interface MenuRecord extends ResourceRecord {
   code: string;
@@ -96,37 +102,36 @@ export function assertCanBeParent(menu: MenuRecord): void {
   }
 }
 
-export async function syncMenus(options: {
-  sourceClient: ResourceClient;
-  targetClient: ResourceClient;
-  sourceEnvironment: string;
-  targetEnvironment: string;
-  code?: string;
-  apply: boolean;
-  recorder?: OperationRecorder;
-}): Promise<Record<string, unknown>> {
-  // Validate an explicitly selected code before any remote reads. Source menu
-  // codes are validated again after selecting the complete synchronization set.
-  assertMenuCodeLength(options.code);
-  const [allSource, initialTarget] = await Promise.all([
-    loadMenus(options.sourceClient),
-    loadMenus(options.targetClient)
-  ]);
+/** Load hook: read the menu tree and flatten it into parentCode-bearing records. */
+export function loadMenuRecords(client: ResourceClient): Promise<ResourceRecord[]> {
+  return loadMenus(client);
+}
+
+/** Plan hook: classify each selected menu as create/update/unchanged/blocked. */
+async function planMenuChanges(
+  source: ResourceRecord[],
+  target: ResourceRecord[],
+  context: ResourcePlanContext
+): Promise<ResourcePlanChange[]> {
+  const code = context.selectors.code;
+  assertMenuCodeLength(code);
+  const allSource = source as MenuRecord[];
+  const initialTarget = target as MenuRecord[];
   assertUniqueCodes(allSource, "源环境");
   assertUniqueCodes(initialTarget, "目标环境");
-  const source = selectSubtree(allSource, options.code);
-  for (const menu of source) assertMenuCodeLength(menu.code);
+  const selected = selectSubtree(allSource, code);
+  for (const menu of selected) assertMenuCodeLength(menu.code);
   const sourceByCode = codeMap(allSource);
   const targetByCode = codeMap(initialTarget);
-  const featureCodes = [...new Set(source.map(featureCode).filter((value): value is string => Boolean(value)))];
+  const featureCodes = [...new Set(selected.map(featureCode).filter((value): value is string => Boolean(value)))];
   const targetFeatures = featureCodes.length
-    ? (await options.targetClient.findByPage("feature")).rows
+    ? (await context.targetClient.findByPage("feature")).rows
     : [];
   const targetFeatureMap = uniqueDependencyMap(targetFeatures, "功能项");
   const changes: MenuChange[] = [];
   const statusByCode = new Map<string, MenuChange>();
 
-  for (const sourceMenu of sortParentsFirst(source, sourceByCode)) {
+  for (const sourceMenu of sortParentsFirst(selected, sourceByCode)) {
     const key = sourceMenu.code;
     const targetMenu = targetByCode.get(normalize(key));
     const dependencies: MissingDependency[] = [];
@@ -203,100 +208,97 @@ export async function syncMenus(options: {
     changes.push(change);
     statusByCode.set(normalize(key), change);
   }
+  return changes;
+}
 
-  const writable = changes.filter((change) => change.action === "create" || change.action === "update");
-  if (options.apply) {
-    try {
-      for (const change of writable) {
-        const sourceMenu = sourceByCode.get(normalize(change.key))!;
-        const current = targetByCode.get(normalize(change.key));
-        const parent = sourceMenu.parentCode ? targetByCode.get(normalize(sourceMenu.parentCode)) : undefined;
-        const desired = change.desired!;
-        const payload = current
-          ? withoutChildren({ ...current, name: desired.name, rank: desired.rank })
-          : { code: sourceMenu.code, name: desired.name, rank: desired.rank };
-        setOptional(payload, "iconCls", desired.iconCls);
-        if (current) {
-          payload.parentId = current.parentId;
-        } else if (sourceMenu.parentCode) {
-          payload.parentId = requiredString(parent?.id, `目标父菜单 ${sourceMenu.parentCode} 缺少有效 ID`);
-        }
-        const sourceFeatureCode = featureCode(sourceMenu);
-        if (sourceFeatureCode) payload.featureId = desired.featureId;
-        else if (current) payload.featureId = null;
+/**
+ * Apply hook: write the writable changes through the generic engine's gate.
+ * The target tree is re-read at the start so newly-created parents can resolve
+ * their target IDs in parent-first order without threading plan-time state.
+ */
+async function applyMenuChanges(
+  writable: ResourcePlanChange[],
+  client: ResourceClient,
+  context: ResourceApplyContext
+): Promise<void> {
+  const targetByCode = new Map<string, ResourceRecord>();
+  for (const menu of await loadMenus(client)) targetByCode.set(normalize(menu.code), menu);
+  for (const change of writable) {
+    const desired = change.desired!;
+    const parentCode = typeof desired.parentCode === "string" && desired.parentCode
+      ? desired.parentCode
+      : null;
+    const current = targetByCode.get(normalize(change.key));
+    const parent = parentCode ? targetByCode.get(normalize(parentCode)) : undefined;
+    const payload = current
+      ? withoutChildren({ ...current, name: desired.name, rank: desired.rank })
+      : { code: desired.code, name: desired.name, rank: desired.rank };
+    setOptional(payload, "iconCls", desired.iconCls);
+    if (current) {
+      payload.parentId = current.parentId;
+    } else if (parentCode) {
+      payload.parentId = requiredString(parent?.id, `目标父菜单 ${parentCode} 缺少有效 ID`);
+    }
+    const sourceFeatureCode = featureCode(desired);
+    if (sourceFeatureCode) payload.featureId = desired.featureId;
+    else if (current) payload.featureId = null;
 
-        let saved: ResourceRecord | undefined = current;
-        const saveFields = change.changedFields.filter((field) => field !== "parentCode");
-        if (!current || saveFields.length) {
-          saved = await options.targetClient.save("menu", payload);
-          if (!current) {
-            await options.recorder!.recordAction({
-              type: "create-entity",
-              service: "sei-basic",
-              resource: "menu",
-              entityId: requiredString(saved!.id, `菜单 ${change.key} 保存后缺少 ID`),
-              expected: rollbackExpected(payload),
-              deleteMethod: "DELETE"
-            });
-          }
-        }
-        if (current && change.changedFields.includes("parentCode")) {
-          await options.targetClient.move(
-            "menu",
-            requiredString(current.id, `目标菜单 ${change.key} 缺少有效 ID`),
-            sourceMenu.parentCode
-              ? requiredString(parent?.id, `目标父菜单 ${sourceMenu.parentCode} 缺少有效 ID`)
-              : ""
-          );
-        }
-        targetByCode.set(normalize(change.key), {
-          ...sourceMenu,
-          ...saved,
-          parentCode: sourceMenu.parentCode,
-          featureCode: sourceFeatureCode
+    let saved: ResourceRecord | undefined = current;
+    const saveFields = change.changedFields.filter((field) => field !== "parentCode");
+    if (!current || saveFields.length) {
+      saved = await client.save("menu", payload);
+      if (!current) {
+        await context.recorder!.recordAction({
+          type: "create-entity",
+          service: "sei-basic",
+          resource: "menu",
+          entityId: requiredString(saved!.id, `菜单 ${change.key} 保存后缺少 ID`),
+          expected: rollbackExpected(payload),
+          deleteMethod: "DELETE"
         });
       }
-    } catch (error) {
-      await options.recorder?.fail(error);
-      const suffix = options.recorder?.hasActions ? `；可使用 operation-id ${options.recorder.operationId} 回滚已新增菜单` : "";
-      throw new CliError(`${errorMessage(error)}${suffix}`);
     }
+    if (current && change.changedFields.includes("parentCode")) {
+      await client.move(
+        "menu",
+        requiredString(current.id, `目标菜单 ${change.key} 缺少有效 ID`),
+        parentCode
+          ? requiredString(parent?.id, `目标父菜单 ${parentCode} 缺少有效 ID`)
+          : ""
+      );
+    }
+    targetByCode.set(normalize(change.key), {
+      ...desired,
+      ...saved,
+      parentCode,
+      featureCode: sourceFeatureCode
+    });
   }
+}
 
-  let verified = !options.apply;
-  if (options.apply) {
-    const after = codeMap(await loadMenus(options.targetClient));
-    verified = changes.filter((change) => change.action !== "blocked").every((change) => {
+/** Verify hook: re-read the target tree and compare the logical menu fields. */
+async function verifyMenuChanges(
+  client: ResourceClient,
+  context: ResourceVerifyContext
+): Promise<boolean> {
+  const after = codeMap(await loadMenus(client));
+  return context.plan.changes
+    .filter((change) => change.action !== "blocked")
+    .every((change) => {
       const actual = after.get(normalize(change.key));
       return actual !== undefined && logicalFields.every(
         (field) => sameValue(logicalMenu(actual)[field], change.desired![field])
       );
     });
-    if (!verified) throw new CliError("菜单同步写入后回查失败");
-  }
-  const operationId = await options.recorder?.complete();
-  const blocked = changes.filter((change) => change.action === "blocked");
-  return {
-    kind: "eadp.menu.sync.v1",
-    resource: "menu",
-    sourceEnvironment: options.sourceEnvironment,
-    targetEnvironment: options.targetEnvironment,
-    selector: options.code ? { code: options.code, includesDescendants: true } : null,
-    applied: options.apply && writable.length > 0,
-    skippedBlocked: options.apply ? blocked.length : 0,
-    summary: {
-      create: changes.filter((change) => change.action === "create").length,
-      update: changes.filter((change) => change.action === "update").length,
-      unchanged: changes.filter((change) => change.action === "unchanged").length,
-      blocked: blocked.length
-    },
-    missingDependencies: uniqueDependencies(blocked),
-    blockingIssues: uniqueIssues(blocked),
-    changes,
-    ...(operationId ? { operationId } : {}),
-    verified
-  };
 }
+
+/** Menu extends every phase of the generic engine; the engine owns the envelope. */
+export const menuPhaseHooks: ResourcePhaseHooks = {
+  load: loadMenuRecords,
+  plan: planMenuChanges,
+  apply: applyMenuChanges,
+  verify: verifyMenuChanges
+};
 
 export function logicalMenu(menu: ResourceRecord): Record<string, unknown> {
   const result: Record<string, unknown> = {
@@ -372,22 +374,6 @@ function featureCode(menu: ResourceRecord): string | undefined {
 
 function menuDependency(code: string, reason: "missing" | "ambiguous"): MissingDependency {
   return { resource: "menu", identityField: "code", value: code, reason };
-}
-
-function uniqueDependencies(changes: MenuChange[]): MissingDependency[] {
-  const values = new Map<string, MissingDependency>();
-  for (const change of changes) for (const item of change.missingDependencies ?? []) {
-    values.set(`${item.resource}:${normalize(item.value)}:${item.reason}`, item);
-  }
-  return [...values.values()];
-}
-
-function uniqueIssues(changes: MenuChange[]): BlockingIssue[] {
-  const values = new Map<string, BlockingIssue>();
-  for (const change of changes) for (const item of change.blockingIssues ?? []) {
-    values.set(`${item.field}:${item.message}`, item);
-  }
-  return [...values.values()];
 }
 
 function rollbackExpected(payload: ResourceRecord): ResourceRecord {

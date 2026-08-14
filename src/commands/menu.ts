@@ -14,7 +14,7 @@ import {
   resolveFeatureId,
   selectMenuByCode,
   assertMenuCodeLength
-} from "./service.js";
+} from "../domains/menu/service.js";
 import { assertPathTenantScope } from "../tenant.js";
 
 interface ApplyMenuOptions {

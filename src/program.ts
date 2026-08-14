@@ -7,7 +7,7 @@ import { registerResourceCommands } from "./commands/resource.js";
 import { registerRollbackCommand } from "./commands/rollback.js";
 import { registerSkillCommands } from "./commands/skill.js";
 import { registerUpdateCommand } from "./commands/update.js";
-import { registerMenuCommands } from "./menu/command.js";
+import { registerMenuCommands } from "./commands/menu.js";
 import {
   registerPermissionVerbCommands,
   registerVerbCommands

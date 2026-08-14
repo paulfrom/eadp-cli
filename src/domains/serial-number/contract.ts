@@ -1,4 +1,4 @@
-import type { ResourceContract } from "../core/contracts.js";
+import type { ResourceContract } from "../../resource/core/contracts.js";
 
 export const serialNumberContract: ResourceContract =   {
     id: "serial-number",
@@ -68,5 +68,5 @@ export const serialNumberContract: ResourceContract =   {
       ]
     },
     adapter: "serial-number",
-    rollback: { service: "sei-basic", resource: "serialNumberConfig", deleteMethod: "POST" }
+    rollback: { service: "sei-basic", resource: "serialNumberConfig", remove: { path: "serialNumberConfig/delete/{id}", method: "POST", idField: "id", idPlacement: "path" }, lookup: { path: "serialNumberConfig/getDetail", method: "GET", idField: "id", idPlacement: "query" } }
   };

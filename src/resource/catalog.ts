@@ -1,22 +1,15 @@
-import { resourceDefinitions } from "./definitions/index.js";
-import {
-  type ResourceContract,
-  createResourceRegistry,
-  type ResourceRegistry
-} from "./core/contracts.js";
-import { resourceAdapterRegistry } from "./adapters/index.js";
-import { specialResourceHandlerRegistry } from "./handlers/index.js";
+import type { ResourceContract } from "./core/contracts.js";
+import { createResourceModuleCatalog } from "./modules/contracts.js";
+import { resourceModules } from "../domains/index.js";
 
-/**
- * Composition root for built-in resource contracts, adapters, and special
- * handlers. Adding an ordinary resource only requires a definition here; its
- * adapter and handler are independently registered in their own registries.
- */
-export const resourceContracts: readonly ResourceContract[] = resourceDefinitions;
+/** Single composition root for API contracts and optional behavior extensions. */
+const catalog = createResourceModuleCatalog(resourceModules);
 
-export const resourceRegistry: ResourceRegistry = createResourceRegistry(resourceContracts);
-
-export { resourceAdapterRegistry, specialResourceHandlerRegistry };
+export const resourceRegistry = catalog.registry;
+export const resourceContracts: readonly ResourceContract[] = resourceRegistry.contracts;
+export const resourceAdapterRegistry = catalog.adapterRegistry;
+export const specialResourceHandlerRegistry = catalog.handlerRegistry;
+export const resourcePhaseHooksRegistry = catalog.phaseHooksRegistry;
 
 export function getResourceContract(name: string): ResourceContract {
   return resourceRegistry.get(name);

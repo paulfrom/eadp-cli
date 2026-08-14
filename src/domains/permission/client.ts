@@ -1,6 +1,6 @@
-import { CliError } from "../errors.js";
-import { sendRequest } from "../http/client.js";
-import { readAllPages } from "../http/pagination.js";
+import { CliError } from "../../errors.js";
+import { sendRequest } from "../../http/client.js";
+import { readAllPages } from "../../http/pagination.js";
 
 export interface PermissionClientOptions {
   baseUrl: string;

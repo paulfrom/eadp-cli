@@ -1,6 +1,6 @@
-import type { ResourceRecord } from "../core/client.js";
-import type { ResourceAdapter } from "../core/engine.js";
-import { recordId, requiredString, selectDependencyByCode } from "./shared.js";
+import type { ResourceRecord } from "../../resource/core/client.js";
+import type { ResourceAdapter } from "../../resource/core/engine.js";
+import { recordId, requiredString, selectDependencyByCode } from "../shared.js";
 
 const writableFields = ["code", "name", "appModuleId"];
 

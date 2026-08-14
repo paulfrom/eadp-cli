@@ -1,6 +1,6 @@
-import { CliError } from "../../errors.js";
-import type { ResourceRecord } from "../core/client.js";
-import { DependencyResolutionError, RecordMappingError } from "../core/errors.js";
+import { CliError } from "../errors.js";
+import type { ResourceRecord } from "../resource/core/client.js";
+import { DependencyResolutionError, RecordMappingError } from "../resource/core/errors.js";
 
 export function normalizeFeatureUrl(value: string): string {
   const trimmed = value.trim();

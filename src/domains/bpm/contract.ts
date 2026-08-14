@@ -1,4 +1,4 @@
-import type { ResourceContract } from "../core/contracts.js";
+import type { ResourceContract } from "../../resource/core/contracts.js";
 
 export const bpmContract: ResourceContract = {
   id: "bpm",

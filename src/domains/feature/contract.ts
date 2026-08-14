@@ -1,4 +1,4 @@
-import type { ResourceContract } from "../core/contracts.js";
+import type { ResourceContract } from "../../resource/core/contracts.js";
 
 export const featureContract: ResourceContract =   {
     id: "feature",
@@ -35,5 +35,5 @@ export const featureContract: ResourceContract =   {
     },
     filtering: { time: true, defaultTimeField: "createdDate" },
     adapter: "feature",
-    rollback: { service: "sei-basic", resource: "feature", deleteMethod: "DELETE" }
+    rollback: { service: "sei-basic", resource: "feature", remove: { path: "feature/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "feature/findOne", method: "GET", idField: "id", idPlacement: "query" } }
   };

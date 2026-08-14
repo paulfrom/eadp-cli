@@ -1,11 +1,11 @@
 import type { Command } from "commander";
-import { BpmClient } from "../bpm/client.js";
-import { configureBpmProject } from "../bpm/configure.js";
+import { BpmClient } from "../domains/bpm/client.js";
+import { configureBpmProject } from "../domains/bpm/configure.js";
 import {
   discoverBpmProject,
   resolveBpmEntityCode,
   selectBpmFlow
-} from "../bpm/discovery.js";
+} from "../domains/bpm/discovery.js";
 import { assertTenantScope } from "../tenant.js";
 import type { ConfigStore } from "../config/store.js";
 import { resolveEnvironment } from "../config/resolve.js";

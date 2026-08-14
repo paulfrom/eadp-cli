@@ -19,6 +19,20 @@ export interface CreateEntityAction extends ActionBase {
   entityId: string;
   expected: Record<string, unknown>;
   deleteMethod: "DELETE" | "POST";
+  /** Optional for legacy operation logs; new generic resources always persist it. */
+  remove?: {
+    path: string;
+    method: "DELETE" | "POST";
+    idField: string;
+    idPlacement: "path" | "query" | "body";
+  };
+  /** Optional for legacy operation logs; new generic resources always persist it. */
+  lookup?: {
+    path: string;
+    method: "GET" | "POST";
+    idField: string;
+    idPlacement: "query" | "body";
+  };
   tenantPolicy?: "any" | "global" | "non-global";
 }
 
@@ -250,7 +264,7 @@ function validateAction(value: unknown): asserts value is OperationAction {
       ["any", "global", "non-global"].includes(action.tenantPolicy);
     if (typeof action.entityId !== "string" || action.entityId.trim() === "" ||
         !isRecord(action.expected) || !["DELETE", "POST"].includes(action.deleteMethod) ||
-        !validTenantPolicy) {
+        !validTenantPolicy || !isValidLookup(action.lookup) || !isValidRemove(action.remove)) {
       throw new CliError("操作日志新增动作格式无效");
     }
     return;
@@ -268,6 +282,32 @@ function validateAction(value: unknown): asserts value is OperationAction {
       (action.parentEntityId !== undefined && typeof action.parentEntityId !== "string")) {
     throw new CliError("操作日志数据权限动作格式无效");
   }
+}
+
+function isValidLookup(value: CreateEntityAction["lookup"]): boolean {
+  if (value === undefined) return true;
+  return isSafeRelativePath(value.path) && ["GET", "POST"].includes(value.method) &&
+    isSafePathSegment(value.idField) && ["query", "body"].includes(value.idPlacement);
+}
+
+function isValidRemove(value: CreateEntityAction["remove"]): boolean {
+  if (value === undefined) return true;
+  const idTokens = value.path.split("{id}").length - 1;
+  return isSafeTemplatePath(value.path) && ["DELETE", "POST"].includes(value.method) &&
+    isSafePathSegment(value.idField) && ["path", "query", "body"].includes(value.idPlacement) &&
+    (value.idPlacement === "path" ? idTokens === 1 : idTokens === 0);
+}
+
+function isSafeRelativePath(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 512 &&
+    !value.startsWith("/") && value.split("/").every(isSafePathSegment);
+}
+
+function isSafeTemplatePath(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 512 &&
+    !value.startsWith("/") && value.split("/").every(
+      (segment) => segment === "{id}" || isSafePathSegment(segment)
+    );
 }
 
 function isSafePathSegment(value: unknown): value is string {

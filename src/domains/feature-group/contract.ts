@@ -1,4 +1,4 @@
-import type { ResourceContract } from "../core/contracts.js";
+import type { ResourceContract } from "../../resource/core/contracts.js";
 
 export const featureGroupContract: ResourceContract =   {
     id: "feature-group",
@@ -16,5 +16,5 @@ export const featureGroupContract: ResourceContract =   {
     help: "功能项组通过 appModuleCode 适配到目标应用模块；仅允许 global 租户。",
     filtering: { time: true, defaultTimeField: "createdDate" },
     adapter: "feature-group",
-    rollback: { service: "sei-basic", resource: "featureGroup", deleteMethod: "DELETE" }
+    rollback: { service: "sei-basic", resource: "featureGroup", remove: { path: "featureGroup/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "featureGroup/findOne", method: "GET", idField: "id", idPlacement: "query" } }
   };

@@ -1,8 +1,8 @@
 import { Ajv, type ErrorObject } from "ajv";
 import { Option, type Command } from "commander";
-import type { EndpointDefinition } from "../catalog/schema.js";
+import type { EndpointDefinition } from "../interface-catalog/schema.js";
 import { CliError } from "../errors.js";
-import { findEndpoint, loadCatalog } from "../catalog/loader.js";
+import { findEndpoint, loadCatalog } from "../interface-catalog/loader.js";
 import { resolveEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { sendRequest, buildUrl } from "../http/client.js";

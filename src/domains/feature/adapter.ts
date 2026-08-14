@@ -1,12 +1,12 @@
 import { CliError } from "../../errors.js";
-import type { ResourceRecord } from "../core/client.js";
-import type { ResourceAdapter } from "../core/engine.js";
+import type { ResourceRecord } from "../../resource/core/client.js";
+import type { ResourceAdapter } from "../../resource/core/engine.js";
 import {
   normalizeFeatureUrl,
   recordId,
   requiredString,
   selectDependencyByCode
-} from "./shared.js";
+} from "../shared.js";
 
 const writableFields = [
   "code",

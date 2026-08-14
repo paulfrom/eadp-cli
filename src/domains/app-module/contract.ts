@@ -1,4 +1,4 @@
-import type { ResourceContract } from "../core/contracts.js";
+import type { ResourceContract } from "../../resource/core/contracts.js";
 
 export const appModuleContract: ResourceContract =   {
     id: "app-module",
@@ -19,5 +19,5 @@ export const appModuleContract: ResourceContract =   {
       preserveTargetFieldsWhenMissing: ["rank"]
     },
     filtering: { time: true, defaultTimeField: "createdDate" },
-    rollback: { service: "sei-basic", resource: "appModule", deleteMethod: "DELETE" }
+    rollback: { service: "sei-basic", resource: "appModule", remove: { path: "appModule/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "appModule/findOne", method: "GET", idField: "id", idPlacement: "query" } }
   };

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverBpmProject, selectBpmFlow } from "../src/bpm/discovery.js";
+import { discoverBpmProject, selectBpmFlow } from "../src/domains/bpm/discovery.js";
 
 const temporaryDirectories: string[] = [];
 

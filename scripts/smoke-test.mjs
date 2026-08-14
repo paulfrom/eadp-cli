@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const configurationDirectory = await mkdtemp(join(tmpdir(), "eadp-cli-smoke-"));
-const cliPath = join(process.cwd(), "dist", "cli.js");
+const cliPath = join(process.cwd(), "dist", "bin.js");
 const environment = {
   ...process.env,
   EADP_CONFIG_DIR: configurationDirectory,

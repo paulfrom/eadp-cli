@@ -527,27 +527,44 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 
 ## 扩展普通资源与特殊操作
 
-普通资源通过分层注册接入，不需要新增通用命令：
+资源通过单一模块清单接入，不需要新增通用命令：
 
-- `src/resource/definitions/`：每个资源一个 `ResourceContract` 声明文件，在 `index.ts` 汇总。
+- `src/resource/definitions/`：每个资源一个 `ResourceContract`，声明 API 事实与业务语义。
 - `src/resource/adapters/`：只有需要依赖 ID 重映射或字段规范化时才增加同名适配器，
-  由 `index.ts` 登记；公共映射辅助放在 `shared.ts`。
-- `src/resource/catalog.ts`：唯一组合入口，负责将 definitions、adapters 和特殊处理器装配到注册表。
+  公共映射辅助放在 `shared.ts`。
+- `src/resource/handlers/`：只有普通契约无法表达聚合读取、规划、写入或验证时才实现行为扩展；
+  处理器可提供只读 `query`，或提供 `hooks`（`load`/`plan`/`aggregatePlan`/`apply`/`verify`）扩展通用引擎的某个阶段。
+- `src/resource/modules/index.ts`：唯一的领域模块清单；每项绑定 contract 与可选 adapter/handler。
+- `src/resource/catalog.ts`：从模块清单构造并校验资源、适配器和处理器注册表。
 - `src/resource/core/`：通用客户端、契约校验、资源引擎和错误模型；不依赖任何业务领域。
 
 契约必须描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、能力开关、
-时间过滤边界、创建默认值及安全回滚目标；注册后自动获得 `resource query/write/compare/sync`。
+时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；注册后自动获得
+`resource query/write/compare/sync`。
+分页契约中已确认的 `total` 记录数/页数语义会用于校验完整性；语义为 `unknown` 时不猜测，
+持续读取到短页或空页后才返回完整结果。
+声明 `sync` 的普通资源在注册阶段必须同时提供已确认的保存接口和安全回滚契约；查询接口同时
+承担写后回查，不能等到 `--apply` 才发现契约不完整。`compare` 与 `sync` 共用同一个
+ChangeSet 输出，结果包含 `changeSetKind: "eadp.resource.change-set.v1"`、统一的
+`changes` 和 `summary`（`create`、`update`、`unchanged`、`blocked`）。
+行为扩展通过 `hooks.apply` 实现同一个 `write` 动作，不另建命令协议；`write` 一律由通用引擎的
+apply 阶段执行，预览模式在结构上不会调用任何写钩子。只有 API 契约无法表达聚合规划、
+依赖重映射或领域写入时才需要处理器代码。
 普通资源更新按补丁语义处理：输入中未出现的可写字段保留目标值，只有显式提供的值才参与更新；
 契约声明的创建默认值只作用于新增。
 
-菜单树、BPM 聚合、权限分配这类无法抽象为独立记录 CRUD 的操作继续使用代码处理器：
-`src/resource/handlers/` 只维护处理器接口、注册表和组合入口，菜单与 BPM 的实际实现分别位于
-`src/menu/resource-handler.ts`、`src/bpm/resource-handler.ts`；菜单创建命令位于
-`src/menu/command.ts`，权限保留在独立的 `permission` 领域命令树。这样特殊逻辑不会进入通用
-资源引擎，新增领域只需在自己的资源契约中声明 `selectors` 元数据（名称、值占位符、帮助文本、
-是否必填），实现处理器读取通用 `selectors` 映射，并在组合入口登记；通用命令会自动汇总这些
-声明生成选项，并在发起领域请求前拒绝不适用或缺失的选择器。当前菜单的可选 `--code` 与 BPM
-的必填 `--flow` 都来自各自契约声明，不需要修改通用命令。
+菜单树这类聚合资源通过 `hooks` 扩展通用引擎的 `load`/`plan`/`apply`/`verify` 阶段；BPM 聚合通过
+`hooks.aggregatePlan` 在单一阶段完成多资源规划，再由引擎统一负责 `apply`/`verify`、blocked 门禁、
+信封组装与操作日志生命周期。二者都复用同一 ChangeSet 信封，不再有任何整动作 compare/sync/write
+处理器路径。权限分配保留在独立的 `permission` 领域命令树。`src/resource/handlers/` 只维护处理器
+接口与注册器，菜单与 BPM 的实际实现分别位于 `src/menu/resource-handler.ts`、
+`src/bpm/resource-handler.ts`；菜单创建命令位于 `src/menu/command.ts`。新增领域只需在自己的资源
+契约中声明 `selectors` 元数据（名称、值占位符、帮助文本、是否必填），并在模块清单绑定；通用命令会
+自动汇总这些声明生成选项，并在发起领域请求前拒绝不适用或缺失的选择器。当前菜单的可选 `--code`
+与 BPM 的必填 `--flow` 都来自各自契约声明，不需要修改通用命令。任何行为扩展都必须返回同一
+ChangeSet 信封；通用入口统一负责默认预览、`--apply`、操作记录完成/失败以及验证安全结果；处理器
+不得另起一套输出或操作生命周期。预览结果不得标记为已写入，正式执行必须报告写后验证成功，并准确
+报告跳过的 `blocked` 数量。
 
 ## 给用户或岗位分配和移除角色
 

@@ -6,36 +6,33 @@ import {
 } from "./client.js";
 import {
   DependencyResolutionError,
-  RecordMappingError,
-  type BlockingIssue,
-  type MissingDependency
+  RecordMappingError
 } from "./errors.js";
 import type { ResourceContract } from "./contracts.js";
 import { assertTenantScope } from "../../tenant.js";
 import type { OperationRecorder } from "../../operations/recorder.js";
+import {
+  makePlan,
+  writableChanges,
+  type ResourcePlan,
+  type ResourcePlanChange
+} from "./change-set.js";
 
-export type ResourcePlanAction = "create" | "update" | "unchanged" | "blocked";
-
-export interface ResourcePlanChange {
-  key: string;
-  action: ResourcePlanAction;
-  changedFields: string[];
-  before: ResourceRecord | null;
-  desired: ResourceRecord | null;
-  missingDependencies?: MissingDependency[];
-  blockingIssues?: BlockingIssue[];
-}
-
-export interface ResourcePlan {
-  kind: "eadp.resource.plan.v1";
-  resource: string;
-  sourceEnvironment?: string;
-  targetEnvironment?: string;
-  changes: ResourcePlanChange[];
-  summary: Record<ResourcePlanAction, number>;
-  missingDependencies: MissingDependency[];
-  blockingIssues: BlockingIssue[];
-}
+export {
+  RESOURCE_CHANGE_SET_KIND,
+  makePlan,
+  summarizeChanges,
+  uniqueBlockingIssues,
+  uniqueMissingDependencies,
+  writableChanges
+} from "./change-set.js";
+export type {
+  ResourceChange,
+  ResourceChangeSet,
+  ResourcePlan,
+  ResourcePlanAction,
+  ResourcePlanChange
+} from "./change-set.js";
 
 export interface ResourceQueryResult {
   kind: "eadp.resource.query.v1";
@@ -56,6 +53,86 @@ export interface ResourceEngineOptions {
   sourceQuery?: ContractQueryOptions;
   targetQuery?: ContractQueryOptions;
   recorder?: OperationRecorder;
+  /** Selector values resolved by the command from the contract's declared selectors. */
+  selectors?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Phase-extension hooks.  A resource that declares these overrides a single
+ * phase of the generic engine lifecycle; the engine still owns the blocked
+ * gate, the recorder lifecycle, the envelope, and the verify gate.
+ */
+export interface ResourcePlanContext {
+  contract: ResourceContract;
+  targetClient: ResourceClient;
+  targetTenantCode: string | undefined;
+  selectors: Readonly<Record<string, string>>;
+}
+
+export interface ResourceApplyContext {
+  contract: ResourceContract;
+  plan: ResourcePlan;
+  targetTenantCode: string | undefined;
+  recorder: OperationRecorder | undefined;
+}
+
+export interface ResourceVerifyContext {
+  contract: ResourceContract;
+  plan: ResourcePlan;
+  targetTenantCode: string | undefined;
+}
+
+export interface ResourceAggregatePlanContext {
+  contract: ResourceContract;
+  sourceClient: ResourceClient;
+  targetClient: ResourceClient;
+  targetTenantCode: string | undefined;
+  selectors: Readonly<Record<string, string>>;
+}
+
+/** Aggregate planning result: changes plus optional extra summary/details. */
+export interface ResourceAggregatePlan {
+  changes: ResourcePlanChange[];
+  extraSummary?: Record<string, number>;
+  details?: Record<string, unknown>;
+  /** True when the apply phase performs work beyond the writable records (e.g. relations). */
+  appliedExtra?: boolean;
+}
+
+export interface ResourcePhaseHooks {
+  /** Override source/target read (default: client.queryContract). */
+  load?(client: ResourceClient, contract: ResourceContract, options: ContractQueryOptions): Promise<ResourceRecord[]>;
+  /** Override planning (default: buildChanges). Must still emit the four actions. */
+  plan?(source: ResourceRecord[], target: ResourceRecord[], context: ResourcePlanContext): Promise<ResourcePlanChange[]>;
+  /**
+   * Aggregate planning: load both sides and plan in one phase. Used by
+   * multi-resource resources whose source/target read is not a single record
+   * list. Mutually exclusive with `plan` for a given resource.
+   */
+  aggregatePlan?(context: ResourceAggregatePlanContext): Promise<ResourceAggregatePlan>;
+  /** Override the apply phase (default: saveChanges). Only invoked when apply is true. */
+  apply?(writable: ResourcePlanChange[], client: ResourceClient, context: ResourceApplyContext): Promise<void>;
+  /** Override post-write verification (default: re-query + diffFields). */
+  verify?(client: ResourceClient, context: ResourceVerifyContext): Promise<boolean>;
+}
+
+export interface ResourcePhaseHooksRegistry {
+  find(name: string): ResourcePhaseHooks | undefined;
+}
+
+export function createResourcePhaseHooksRegistry(
+  entries: ReadonlyArray<readonly [string, ResourcePhaseHooks]> = []
+): ResourcePhaseHooksRegistry {
+  const hooks = new Map<string, ResourcePhaseHooks>();
+  for (const [name, value] of entries) {
+    if (!name.trim() || hooks.has(name)) throw new CliError(`资源阶段钩子重复或无效：${name}`);
+    hooks.set(name, value);
+  }
+  return {
+    find(name: string): ResourcePhaseHooks | undefined {
+      return hooks.get(name);
+    }
+  };
 }
 
 /** Tenant validation used before any query, including source/target migration. */
@@ -90,7 +167,10 @@ export function assertMigrationTenants(
  * in the command layer.
  */
 export class ResourceEngine {
-  constructor(private readonly adapters: ResourceAdapterRegistry = createResourceAdapterRegistry()) {}
+  constructor(
+    private readonly adapters: ResourceAdapterRegistry = createResourceAdapterRegistry(),
+    private readonly phaseHooks: ResourcePhaseHooksRegistry = createResourcePhaseHooksRegistry()
+  ) {}
 
   async query(
     contract: ResourceContract,
@@ -125,14 +205,17 @@ export class ResourceEngine {
       bindTargetTenant(record, contract, options.targetTenantCode)
     );
     assertUniqueIdentities(records, contract, "写入数据");
-    const targetRows = await client.queryContract(contract, options.targetQuery);
-    assertUniqueIdentities(targetRows, contract, "目标环境");
-    const changes = await this.buildChanges(
+    const targetRows = await this.loadRows(client, contract, options.targetQuery);
+    if (!this.hooksFor(contract)?.plan) {
+      assertUniqueIdentities(targetRows, contract, "目标环境");
+    }
+    const changes = await this.planChanges(
       contract,
       records,
       targetRows,
       client,
-      options.targetTenantCode
+      options.targetTenantCode,
+      options.selectors
     );
     return makePlan(contract.id, changes);
   }
@@ -144,26 +227,7 @@ export class ResourceEngine {
     options: ResourceEngineOptions & { apply?: boolean } = {}
   ): Promise<ResourceExecutionResult> {
     const plan = await this.planWrite(contract, client, data, options);
-    const writable = plan.changes.filter(
-      (change) => change.action === "create" || change.action === "update"
-    );
-    if (options.apply) await this.saveChanges(contract, client, writable, options.recorder);
-    let verified = !options.apply;
-    if (options.apply) {
-      const after = await client.queryContract(contract, options.targetQuery);
-      verified = plan.changes.filter((change) => change.action !== "blocked").every((change) => {
-        const actual = findByIdentity(after, contract, change.key);
-        return actual !== undefined && change.desired !== null &&
-          diffFields(actual, change.desired, contract, this.getAdapter(contract)).length === 0;
-      });
-      if (!verified) throw new CliError(`资源 ${contract.id} 写入后回查失败`);
-    }
-    return {
-      ...plan,
-      applied: options.apply === true && writable.length > 0,
-      skippedBlocked: options.apply ? plan.summary.blocked : 0,
-      verified
-    };
+    return this.executePlan(contract, client, plan, options);
   }
 
   async compare(
@@ -177,18 +241,36 @@ export class ResourceEngine {
       throw new CliError(`资源 ${contract.id} 未声明 compare 能力`);
     }
     this.getAdapter(contract);
+    const hooks = this.hooksFor(contract);
+    if (hooks?.aggregatePlan) {
+      const aggregate = await hooks.aggregatePlan({
+        contract,
+        sourceClient,
+        targetClient,
+        targetTenantCode: options.targetTenantCode,
+        selectors: options.selectors ?? {}
+      });
+      return makePlan(contract.id, aggregate.changes, environments, {
+        ...(aggregate.extraSummary ? { summary: aggregate.extraSummary } : {}),
+        ...(aggregate.details ? { details: aggregate.details } : {}),
+        ...(aggregate.appliedExtra ? { appliedExtra: aggregate.appliedExtra } : {})
+      });
+    }
     const [sourceRows, targetRows] = await Promise.all([
-      sourceClient.queryContract(contract, options.sourceQuery),
-      targetClient.queryContract(contract, options.targetQuery)
+      this.loadRows(sourceClient, contract, options.sourceQuery),
+      this.loadRows(targetClient, contract, options.targetQuery)
     ]);
-    assertUniqueIdentities(sourceRows, contract, "源环境");
-    assertUniqueIdentities(targetRows, contract, "目标环境");
-    const changes = await this.buildChanges(
+    if (!hooks?.plan) {
+      assertUniqueIdentities(sourceRows, contract, "源环境");
+      assertUniqueIdentities(targetRows, contract, "目标环境");
+    }
+    const changes = await this.planChanges(
       contract,
       sourceRows,
       targetRows,
       targetClient,
-      options.targetTenantCode
+      options.targetTenantCode,
+      options.selectors
     );
     return makePlan(contract.id, changes, environments);
   }
@@ -210,25 +292,56 @@ export class ResourceEngine {
       environments,
       options
     );
-    const writable = plan.changes.filter(
-      (change) => change.action === "create" || change.action === "update"
-    );
-    if (options.apply) await this.saveChanges(contract, targetClient, writable, options.recorder);
+    return this.executePlan(contract, targetClient, plan, options);
+  }
+
+  /** Execute any ordinary write/sync plan through one lifecycle. */
+  private async executePlan(
+    contract: ResourceContract,
+    client: ResourceClient,
+    plan: ResourcePlan,
+    options: ResourceEngineOptions & { apply?: boolean }
+  ): Promise<ResourceExecutionResult> {
+    const writable = writableChanges(plan.changes);
+    // `blocked` changes are intentionally absent from writable.  This is the
+    // single safety gate used by both write and sync.
+    if (options.apply) {
+      const hooks = this.hooksFor(contract);
+      if (hooks?.apply) {
+        await hooks.apply(writable, client, {
+          contract,
+          plan,
+          targetTenantCode: options.targetTenantCode,
+          recorder: options.recorder
+        });
+      } else {
+        await this.saveChanges(contract, client, writable, options.recorder);
+      }
+    }
     let verified = !options.apply;
     if (options.apply) {
-      const after = await targetClient.queryContract(contract, options.targetQuery);
-      const safe = plan.changes.filter((change) => change.action !== "blocked");
-      verified = safe.every((change) => {
-        const actual = findByIdentity(after, contract, change.key);
-        return actual !== undefined && change.desired !== null &&
-          diffFields(actual, change.desired, contract, this.getAdapter(contract)).length === 0;
-      });
+      const hooks = this.hooksFor(contract);
+      if (hooks?.verify) {
+        verified = await hooks.verify(client, {
+          contract,
+          plan,
+          targetTenantCode: options.targetTenantCode
+        });
+      } else {
+        const after = await this.loadRows(client, contract, options.targetQuery);
+        const safe = plan.changes.filter((change) => change.action !== "blocked");
+        verified = safe.every((change) => {
+          const actual = findByIdentity(after, contract, change.key);
+          return actual !== undefined && change.desired !== null &&
+            diffFields(actual, change.desired, contract, this.getAdapter(contract)).length === 0;
+        });
+      }
       if (!verified) throw new CliError(`资源 ${contract.id} 写入后回查失败`);
     }
     return {
       ...plan,
-      applied: options.apply === true && writable.length > 0,
-      skippedBlocked: options.apply ? plan.summary.blocked : 0,
+      applied: options.apply === true && (writable.length > 0 || plan.appliedExtra === true),
+      skippedBlocked: options.apply ? (plan.summary.blocked ?? 0) : 0,
       verified
     };
   }
@@ -285,6 +398,40 @@ export class ResourceEngine {
     return this.adapters.get(contract.adapter);
   }
 
+  private hooksFor(contract: ResourceContract): ResourcePhaseHooks | undefined {
+    return this.phaseHooks.find(contract.id);
+  }
+
+  private async loadRows(
+    client: ResourceClient,
+    contract: ResourceContract,
+    options: ContractQueryOptions = {}
+  ): Promise<ResourceRecord[]> {
+    const hooks = this.hooksFor(contract);
+    if (hooks?.load) return hooks.load(client, contract, options);
+    return client.queryContract(contract, options);
+  }
+
+  private async planChanges(
+    contract: ResourceContract,
+    source: ResourceRecord[],
+    target: ResourceRecord[],
+    targetClient: ResourceClient,
+    targetTenantCode?: string,
+    selectors: Readonly<Record<string, string>> = {}
+  ): Promise<ResourcePlanChange[]> {
+    const hooks = this.hooksFor(contract);
+    if (hooks?.plan) {
+      return hooks.plan(source, target, {
+        contract,
+        targetClient,
+        targetTenantCode,
+        selectors
+      });
+    }
+    return this.buildChanges(contract, source, target, targetClient, targetTenantCode);
+  }
+
   private async saveChanges(
     contract: ResourceContract,
     client: ResourceClient,
@@ -302,7 +449,9 @@ export class ResourceEngine {
         resource: rollback.resource,
         entityId: String(saved.id),
         expected: change.desired!,
-        deleteMethod: rollback.deleteMethod,
+        deleteMethod: rollback.remove.method,
+        remove: rollback.remove,
+        lookup: rollback.lookup,
         tenantPolicy: contract.tenant.policy
       });
     }
@@ -321,6 +470,7 @@ export interface ResourceAdapter {
 
 export interface ResourceAdapterRegistry {
   get(name: string): ResourceAdapter;
+  find(name: string): ResourceAdapter | undefined;
 }
 
 export function createResourceAdapterRegistry(
@@ -336,6 +486,9 @@ export function createResourceAdapterRegistry(
       const adapter = adapters.get(name);
       if (!adapter) throw new CliError(`资源适配器未注册：${name}`);
       return adapter;
+    },
+    find(name: string): ResourceAdapter | undefined {
+      return adapters.get(name);
     }
   };
 }
@@ -397,24 +550,6 @@ function isMissingValue(value: unknown): boolean {
   return value === undefined || value === null || (typeof value === "string" && value.trim() === "");
 }
 
-function makePlan(
-  resource: string,
-  changes: ResourcePlanChange[],
-  environments?: { source: string; target: string }
-): ResourcePlan {
-  const summary: Record<ResourcePlanAction, number> = { create: 0, update: 0, unchanged: 0, blocked: 0 };
-  for (const change of changes) summary[change.action] += 1;
-  return {
-    kind: "eadp.resource.plan.v1",
-    resource,
-    ...(environments ? { sourceEnvironment: environments.source, targetEnvironment: environments.target } : {}),
-    changes,
-    summary,
-    missingDependencies: uniqueMissingDependencies(changes),
-    blockingIssues: uniqueBlockingIssues(changes)
-  };
-}
-
 function identityValue(
   record: ResourceRecord,
   contract: ResourceContract,
@@ -467,20 +602,3 @@ function assertUniqueIdentities(records: ResourceRecord[], contract: ResourceCon
 }
 
 function identityDescription(contract: ResourceContract): string { return contract.identityFields.join("+"); }
-
-function uniqueMissingDependencies(changes: ResourcePlanChange[]): MissingDependency[] {
-  const values = new Map<string, MissingDependency>();
-  for (const change of changes) for (const item of change.missingDependencies ?? []) {
-    values.set([item.resource, item.identityField, item.value.toLocaleLowerCase(), item.reason].join(":"), item);
-  }
-  return [...values.values()];
-}
-
-function uniqueBlockingIssues(changes: ResourcePlanChange[]): BlockingIssue[] {
-  const values = new Map<string, BlockingIssue>();
-  for (const change of changes) for (const item of change.blockingIssues ?? []) {
-    values.set([item.resource, item.field, item.reason, item.message].join(":"), item);
-  }
-  return [...values.values()];
-}
-
