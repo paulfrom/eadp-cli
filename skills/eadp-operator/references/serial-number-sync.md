@@ -18,8 +18,8 @@ Use this workflow for migrating 给号配置 between named environments.
    - Built-in `DefaultElement`: `FIXED_CODE` (固定编码), `DATE_CODE` (日期编码),
      `SERIAL_CODE` (流水号编码). `elementCode` may also use a custom element code already
      registered in the target service; resolve it read-only instead of guessing.
-5. Preview with explicit filters when selecting one entity or configuration type; the command does
-   not guess selection filters:
+5. Preview with explicit filters when selecting one entity or configuration type. `configType` remains
+   only an explicit query/compare selection filter and is never added automatically:
 
 ```text
 eadp resource compare serial-number --source A --target B --filter entityClassName:EQ:com.example.Order --filter configType:EQ:CODE_TYPE
@@ -42,6 +42,8 @@ eadp resource sync serial-number --source A --target B --apply
 The CLI replaces source record and `configItem` IDs with target IDs, maps the composite key to the
 target environment's recorded `tenantCode` (including `desired.tenantCode` and post-write lookup),
 and performs an idempotent post-write query. When creating a target configuration, a missing, null,
-or blank `returnStrategy` defaults to `NEW`; an update preserves the existing target value when the
-source value is missing. During `--apply`, require `skippedBlocked` to match the blocked count and
-report the skipped composite keys. Never provide or override `tenantCode` manually.
+or blank `configType` defaults to `CODE_TYPE`, and a missing, null, or blank `returnStrategy` defaults
+to `NEW`; explicit legal values such as `BAR_TYPE` are retained. These defaults apply only to new
+records; an update preserves the existing target value when the source value is missing. During
+`--apply`, require `skippedBlocked` to match the blocked count and report the skipped composite keys.
+Never provide or override `tenantCode` manually.

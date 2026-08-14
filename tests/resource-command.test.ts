@@ -23,6 +23,7 @@ describe("resource-first command workflow", () => {
     const program = createProgram().exitOverride();
     await program.parseAsync(["resource", "list"], { from: "user" });
     expect(output.text()).toContain('"feature"');
+    expect(output.text()).toContain('"valuePlaceholder": "code"');
     await createProgram().parseAsync(["resource", "describe", "feature"], { from: "user" });
     expect(output.text()).toContain('"identityFields"');
   });
@@ -190,7 +191,7 @@ describe("resource-first command workflow", () => {
     expect(targetBodies[0]!.filters).toEqual([]);
   });
 
-  it("binds serial-number tenant and applies NEW only on create without overriding explicit or target values", async () => {
+  it("binds serial-number tenant and applies CODE_TYPE/NEW only on create without overriding explicit or target values", async () => {
     const item = [{
       elementName: "流水号", elementCode: "SERIAL_CODE", elementValue: "5",
       isolation: false, linkCharacter: "EMPTY", sort: 0
@@ -221,7 +222,7 @@ describe("resource-first command workflow", () => {
     const data = JSON.stringify([
       { entityClassName: "com.example.A", name: "updated", configItem: item },
       { entityClassName: "com.example.B", name: "created-default", configItem: item },
-      { entityClassName: "com.example.C", name: "created-explicit", returnStrategy: "REPEAT", configItem: item }
+      { entityClassName: "com.example.C", name: "created-explicit", configType: "BAR_TYPE", returnStrategy: "REPEAT", configItem: item }
     ]);
     const output = captureOutput();
 
@@ -231,6 +232,7 @@ describe("resource-first command workflow", () => {
 
     expect(savedBodies).toHaveLength(3);
     expect(savedBodies.map((body) => body.tenantCode)).toEqual(["global", "global", "global"]);
+    expect(savedBodies.map((body) => body.configType)).toEqual(["CODE_TYPE", "CODE_TYPE", "BAR_TYPE"]);
     expect(savedBodies.map((body) => body.returnStrategy)).toEqual(["PATCH", "NEW", "REPEAT"]);
     expect(JSON.parse(output.text())).toMatchObject({ applied: true, verified: true });
   });
@@ -500,6 +502,36 @@ describe("resource-first command workflow", () => {
     output.clear();
     await createProgram().parseAsync(["resource", "describe", "bpm"], { from: "user" });
     expect(output.text()).toContain('"handler": "bpm"');
+  });
+
+  it("registers selector flags from contracts and validates them before special requests", async () => {
+    const program = createProgram().exitOverride();
+    const resource = program.commands.find((command) => command.name() === "resource")!;
+    const compare = resource.commands.find((command) => command.name() === "compare")!;
+    const help = compare.helpInformation();
+    expect(help).toContain("--code <code>");
+    expect(help).toContain("--flow <code-or-name>");
+
+    let requests = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => { requests += 1; respond(response, []); },
+      target: (_request, response) => { requests += 1; respond(response, []); }
+    });
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "tenant-a";
+      config.environments.target!.tenantCode = "tenant-b";
+    });
+    await expect(createProgram(store).parseAsync([
+      "resource", "compare", "bpm", "--source", "source", "--target", "target"
+    ], { from: "user" })).rejects.toThrow("必须提供 --flow");
+    await store.update((config) => {
+      config.environments.source!.tenantCode = "global";
+      config.environments.target!.tenantCode = "global";
+    });
+    await expect(createProgram(store).parseAsync([
+      "resource", "compare", "feature", "--source", "source", "--target", "target", "--code", "A"
+    ], { from: "user" })).rejects.toThrow("--code 不适用于资源 feature");
+    expect(requests).toBe(0);
   });
 });
 

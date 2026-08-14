@@ -54,6 +54,9 @@ For `serial-number`, the registered identity is the composite `entityClassName +
 Validate source keys from each source record's actual `tenantCode`, then map the desired key and
 post-write lookup to the target environment's recorded `tenantCode`. Missing identity fields or
 duplicate composite keys stop the workflow before any write.
+When a new target serial-number record is created, a missing, null, or blank source `configType`
+uses the registered default `CODE_TYPE`; an explicit legal value such as `BAR_TYPE` is retained.
+This is a write/synchronization default only and does not add an implicit query or compare filter.
 
 Compare the complete contract-selected source records:
 

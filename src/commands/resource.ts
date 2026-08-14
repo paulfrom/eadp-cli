@@ -1,32 +1,24 @@
 import { Option, type Command } from "commander";
-import { BpmClient } from "../bpm/client.js";
-import { syncBpmFlow } from "../bpm/sync.js";
 import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
 import { CliError, errorMessage } from "../errors.js";
 import { getRuntimeOptions, type RuntimeOptions } from "../runtime-options.js";
 import { formatCompactNdjson, printValue, readJsonInput } from "../io.js";
-import {
-  assertCanBeParent,
-  loadMenus,
-  logicalMenu,
-  resolveFeatureId,
-  selectMenuByCode,
-  filterMenus,
-  syncMenus,
-  assertMenuCodeLength
-} from "../menu/service.js";
 import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
-import { ResourceClient, type ResourceFilter, type ResourceRecord } from "../resource/client.js";
+import { ResourceClient, createResourceClient, type ResourceFilter, type ResourceRecord } from "../resource/core/client.js";
 import {
   getResourceContract,
   listResourceContracts,
-  resourceAdapterRegistry
+  resourceAdapterRegistry,
+  specialResourceHandlerRegistry
 } from "../resource/catalog.js";
-import type { ResourceContract } from "../resource/contracts.js";
-import { ResourceEngine, assertMigrationTenants, assertResourceTenant } from "../resource/engine.js";
-import { assertPathTenantScope } from "../tenant.js";
+import type {
+  ResourceContract,
+  ResourceSelectorContract
+} from "../resource/core/contracts.js";
+import { ResourceEngine, assertMigrationTenants, assertResourceTenant } from "../resource/core/engine.js";
+import type { SpecialResourceHandler } from "../resource/handlers/contracts.js";
 
 interface FilterOptions {
   filter: string[];
@@ -41,24 +33,12 @@ interface ResourceWriteOptions extends ResourceEnvironmentOptions { data?: strin
 interface ResourceMigrationOptions extends FilterOptions {
   source: string;
   target: string;
-  code?: string;
-  flow?: string;
   apply?: boolean;
+  [key: string]: unknown;
 }
-interface ApplyMenuOptions {
-  env?: string;
-  code?: string;
-  name: string;
-  parentCode?: string;
-  featureCode?: string;
-  rank: number;
-  iconCls?: string;
-  apply?: boolean;
-}
-
 const engine = new ResourceEngine(resourceAdapterRegistry);
 
-/** Register the new resource-first command tree and retained domain workflows. */
+/** Register the generic resource-first command tree. */
 export function registerResourceCommands(
   store: ConfigStore,
   root: Command
@@ -194,14 +174,14 @@ export function registerResourceCommands(
       }
     });
 
-  addResourceFilterOptions(resource
-    .command("compare")
-    .description("只读比较两个环境，输出统一 change plan")
-    .argument("<name>", "资源名")
-    .requiredOption("--source <env>", "源环境名称")
-    .requiredOption("--target <env>", "目标环境名称")
-    .option("--code <code>", "菜单代码；仅 menu 特殊处理器使用")
-    .option("--flow <code-or-name>", "BPM 流程代码、名称或 Entity 代码；仅 bpm 特殊处理器使用"), false)
+  addResourceFilterOptions(
+    addResourceSelectorOptions(resource
+      .command("compare")
+      .description("只读比较两个环境，输出统一 change plan")
+      .argument("<name>", "资源名")
+      .requiredOption("--source <env>", "源环境名称")
+      .requiredOption("--target <env>", "目标环境名称")),
+    false)
     .action(async (name: string, options: ResourceMigrationOptions) => {
       const contract = getResourceContract(name);
       assertCapability(contract, "compare");
@@ -209,7 +189,7 @@ export function registerResourceCommands(
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
-      validateSelectorOptions(contract, options);
+      const selectors = validateSelectorOptions(contract, options);
       const special = getSpecialHandler(contract, "compare");
       if (special?.compare) {
         if (filters.length > 0) throw new CliError(`资源 ${contract.id} 的特殊比较不支持通用过滤条件`);
@@ -217,8 +197,7 @@ export function registerResourceCommands(
           source,
           target,
           runtime,
-          ...(options.code === undefined ? {} : { code: options.code }),
-          ...(options.flow === undefined ? {} : { flow: options.flow }),
+          selectors,
           apply: false
         });
         printValue(result, runtime.compact);
@@ -237,15 +216,15 @@ export function registerResourceCommands(
       printValue(result, runtime.compact);
     });
 
-  addResourceFilterOptions(resource
-    .command("sync")
-    .description("复用 compare change plan；默认预览，--apply 执行安全 create/update 并回查")
-    .argument("<name>", "资源名")
-    .requiredOption("--source <env>", "源环境名称")
-    .requiredOption("--target <env>", "目标环境名称")
-    .option("--code <code>", "菜单代码；仅 menu 特殊处理器使用")
-    .option("--flow <code-or-name>", "BPM 流程代码、名称或 Entity 代码；仅 bpm 特殊处理器使用")
-    .option("--apply", "执行同步；blocked 记录会跳过"), false)
+  addResourceFilterOptions(
+    addResourceSelectorOptions(resource
+      .command("sync")
+      .description("复用 compare change plan；默认预览，--apply 执行安全 create/update 并回查")
+      .argument("<name>", "资源名")
+      .requiredOption("--source <env>", "源环境名称")
+      .requiredOption("--target <env>", "目标环境名称")
+      .option("--apply", "执行同步；blocked 记录会跳过")),
+    false)
     .action(async (name: string, options: ResourceMigrationOptions) => {
       const contract = getResourceContract(name);
       assertCapability(contract, "sync");
@@ -253,17 +232,16 @@ export function registerResourceCommands(
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
-      validateSelectorOptions(contract, options);
+      const selectors = validateSelectorOptions(contract, options);
       const special = getSpecialHandler(contract, "sync");
       if (special?.sync) {
         if (filters.length > 0) throw new CliError(`资源 ${contract.id} 的特殊迁移不支持通用过滤条件`);
         const result = await special.sync({
           source,
           target,
-          store,
+          operationStoreDirectory: store.directory,
           runtime,
-          ...(options.code === undefined ? {} : { code: options.code }),
-          ...(options.flow === undefined ? {} : { flow: options.flow }),
+          selectors,
           apply: options.apply === true
         });
         printValue(result, runtime.compact);
@@ -296,200 +274,6 @@ export function registerResourceCommands(
         throw operationError(error, recorder);
       }
     });
-
-  registerMenuCommands(root, store);
-}
-
-interface SpecialResourceHandler {
-  query?(options: {
-    environment: ResolvedEnvironment;
-    runtime: RuntimeOptions;
-    filters: ResourceFilter[];
-    quick?: string;
-  }): Promise<{ kind: string; resource: string; environment: string; items: ResourceRecord[]; total: number }>;
-  compare?(options: {
-    source: ResolvedEnvironment;
-    target: ResolvedEnvironment;
-    runtime: RuntimeOptions;
-    code?: string;
-    flow?: string;
-    apply: boolean;
-  }): Promise<Record<string, unknown>>;
-  sync?(options: {
-    source: ResolvedEnvironment;
-    target: ResolvedEnvironment;
-    store: ConfigStore;
-    runtime: RuntimeOptions;
-    code?: string;
-    flow?: string;
-    apply: boolean;
-  }): Promise<Record<string, unknown>>;
-}
-
-const specialResourceHandlers: Record<string, SpecialResourceHandler> = {
-  menu: {
-    async query({ environment, runtime, filters, quick }) {
-      const menus = await loadMenus(createClient(environment, "sei-basic", runtime.timeoutMs));
-      const items = filterMenus(menus, filters, quick);
-      return {
-        kind: "eadp.resource.query.v1",
-        resource: "menu",
-        environment: environment.name,
-        items,
-        total: items.length
-      };
-    },
-    async compare({ source, target, runtime, code }) {
-      return syncMenus({
-        sourceClient: createClient(source, "sei-basic", runtime.timeoutMs),
-        targetClient: createClient(target, "sei-basic", runtime.timeoutMs),
-        sourceEnvironment: source.name,
-        targetEnvironment: target.name,
-        ...(code === undefined ? {} : { code }),
-        apply: false
-      });
-    },
-    async sync({ source, target, store, runtime, code, apply }) {
-      const recorder = apply
-        ? new OperationRecorder(new OperationLogStore(store.directory), "eadp resource sync menu", target.name)
-        : undefined;
-      return syncMenus({
-        sourceClient: createClient(source, "sei-basic", runtime.timeoutMs),
-        targetClient: createClient(target, "sei-basic", runtime.timeoutMs),
-        sourceEnvironment: source.name,
-        targetEnvironment: target.name,
-        ...(code === undefined ? {} : { code }),
-        apply,
-        ...(recorder ? { recorder } : {})
-      });
-    }
-  },
-  bpm: {
-    async compare({ source, target, runtime, flow }) {
-      return runBpmSync({ source, target, runtime, ...(flow === undefined ? {} : { flow }), apply: false });
-    },
-    async sync({ source, target, store, runtime, flow, apply }) {
-      return runBpmSync({ source, target, store, runtime, ...(flow === undefined ? {} : { flow }), apply });
-    }
-  }
-};
-
-async function runBpmSync(options: {
-  source: ResolvedEnvironment;
-  target: ResolvedEnvironment;
-  store?: ConfigStore;
-  runtime: RuntimeOptions;
-  flow?: string;
-  apply: boolean;
-}): Promise<Record<string, unknown>> {
-  if (!options.flow || options.flow.trim() === "") {
-    throw new CliError("resource bpm compare/sync 必须提供 --flow 流程代码、名称或 Entity 代码");
-  }
-  const recorder = options.apply && options.store
-    ? new OperationRecorder(
-        new OperationLogStore(options.store.directory),
-        "eadp resource sync bpm",
-        options.target.name
-      )
-    : undefined;
-  try {
-    const result = await syncBpmFlow({
-      sourceClient: new BpmClient({
-        baseUrl: options.source.config.baseUrl,
-        token: options.source.token,
-        authorization: options.source.authorization,
-        timeoutMs: options.runtime.timeoutMs
-      }),
-      targetClient: new BpmClient({
-        baseUrl: options.target.config.baseUrl,
-        token: options.target.token,
-        authorization: options.target.authorization,
-        timeoutMs: options.runtime.timeoutMs
-      }),
-      sourceEnvironment: options.source.name,
-      targetEnvironment: options.target.name,
-      selector: options.flow,
-      apply: options.apply,
-      ...(recorder ? { recorder } : {})
-    });
-    const operationId = await recorder?.complete();
-    return { ...result, ...(operationId ? { operationId } : {}) };
-  } catch (error) {
-    await recorder?.fail(error);
-    throw operationError(error, recorder);
-  }
-}
-
-function registerMenuCommands(root: Command, store: ConfigStore): void {
-  const menu = root
-    .command("menu")
-    .description("执行菜单树专用操作");
-  menu
-    .command("create")
-    .description("按菜单代码安全新增菜单；默认只预览；仅允许 global 租户")
-    .requiredOption("--name <name>", "菜单名称")
-    .option("--code <code>", "菜单代码；最多20个字符；省略时由服务端给号")
-    .option("--parent-code <code>", "父菜单代码")
-    .option("--feature-code <code>", "绑定的功能项代码")
-    .option("--rank <number>", "菜单顺序", parseNonNegativeInteger, 0)
-    .option("--icon-cls <class>", "菜单图标类")
-    .option("--env <name>", "环境名称；默认使用当前环境")
-    .option("--apply", "执行新增；默认预览")
-    .addHelpText("after", "\n正式新增后回查菜单，并返回可用于显式 rollback 的 operationId。")
-    .action(async (options: ApplyMenuOptions) => {
-      assertMenuCodeLength(options.code);
-      const resolved = resolveEnvironment(await store.load(), options.env);
-      assertPathTenantScope(resolved.config.tenantCode, "/api-gateway/sei-basic/menu", resolved.name);
-      const runtime = getRuntimeOptions(root);
-      const client = createClient(resolved, "sei-basic", runtime.timeoutMs);
-      const menus = await loadMenus(client);
-      const parent = options.parentCode ? selectMenuByCode(menus, options.parentCode, "父菜单") : undefined;
-      if (parent) assertCanBeParent(parent);
-      const feature = options.featureCode ? await resolveFeatureId(client, options.featureCode) : undefined;
-      const desired: ResourceRecord = {
-        ...(options.code ? { code: options.code } : {}),
-        name: options.name,
-        rank: options.rank,
-        parentCode: parent?.code ?? null,
-        featureCode: feature?.code ?? null,
-        ...(options.iconCls === undefined ? {} : { iconCls: options.iconCls })
-      };
-      const existing = options.code
-        ? menus.find((menu) => menu.code.toLocaleLowerCase() === options.code!.toLocaleLowerCase())
-        : undefined;
-      if (existing) {
-        const fields = ["name", "rank", "parentCode", "featureCode", ...(options.iconCls === undefined ? [] : ["iconCls"])] as const;
-        const conflicts = fields.filter((field) => JSON.stringify(logicalMenu(existing)[field] ?? null) !== JSON.stringify(desired[field] ?? null));
-        if (conflicts.length) throw new CliError(`菜单 code=${options.code} 已存在且字段不同：${conflicts.join(", ")}；新增命令不会覆盖已有菜单`);
-        printValue({ kind: "eadp.menu.apply.v1", environment: resolved.name, applied: false, action: "unchanged", desired, existing, verified: true }, runtime.compact);
-        return;
-      }
-      if (!options.apply) {
-        printValue({ kind: "eadp.menu.apply.v1", environment: resolved.name, applied: false, action: "create", desired, verified: true }, runtime.compact);
-        return;
-      }
-      const recorder = new OperationRecorder(new OperationLogStore(store.directory), "eadp menu create", resolved.name);
-      const payload: ResourceRecord = {
-        ...(options.code ? { code: options.code } : {}), name: options.name, rank: options.rank,
-        ...(parent ? { parentId: requireRecordId(parent, `父菜单 ${parent.code}`) } : {}),
-        ...(feature ? { featureId: feature.id } : {}),
-        ...(options.iconCls === undefined ? {} : { iconCls: options.iconCls })
-      };
-      try {
-        const saved = await client.save("menu", payload);
-        const savedCode = typeof saved.code === "string" && saved.code ? saved.code : options.code;
-        if (!savedCode) throw new CliError("menu/save 未返回服务端生成的菜单代码");
-        await recorder.recordAction({ type: "create-entity", service: "sei-basic", resource: "menu", entityId: String(saved.id), expected: payload, deleteMethod: "DELETE" });
-        const actual = selectMenuByCode(await loadMenus(client), savedCode, "新增菜单");
-        const verified = ["code", "name", "rank", "parentCode", "featureCode", ...(options.iconCls === undefined ? [] : ["iconCls"])].every((field) => JSON.stringify(logicalMenu(actual)[field] ?? null) === JSON.stringify({ ...desired, code: savedCode }[field] ?? null));
-        if (!verified) throw new CliError("菜单新增后回查失败");
-        const operationId = await recorder.complete();
-        printValue({ kind: "eadp.menu.apply.v1", environment: resolved.name, applied: true, action: "create", desired: { ...desired, code: savedCode }, actual, operationId, verified }, runtime.compact);
-      } catch (error) {
-        await recorder.fail(error);
-        throw new CliError(error instanceof Error ? error.message : String(error));
-      }
-    });
 }
 
 async function resolveMigrationEnvironments(
@@ -506,7 +290,13 @@ function sourceForTenant(environment: ResolvedEnvironment): { name: string; tena
 }
 
 function createClient(environment: ResolvedEnvironment, service: string, timeoutMs: number): ResourceClient {
-  return new ResourceClient({ baseUrl: environment.config.baseUrl, token: environment.token, authorization: environment.authorization, service, timeoutMs });
+  return createResourceClient({
+    baseUrl: environment.config.baseUrl,
+    token: environment.token,
+    authorization: environment.authorization,
+    service,
+    timeoutMs
+  });
 }
 
 function printQuery(result: { items: ResourceRecord[]; kind: string; resource: string; environment: string; total: number }, runtime: RuntimeOptions): void {
@@ -530,6 +320,35 @@ function addResourceFilterOptions(command: Command, quick: boolean): Command {
     .option("--time-field <field>", "覆盖契约声明的时间字段");
   if (quick) command.option("--quick <text>", "快速查询文本");
   return command;
+}
+
+function addResourceSelectorOptions(command: Command): Command {
+  for (const selector of collectResourceSelectors()) {
+    command.option(
+      `--${selector.name} <${selector.valuePlaceholder}>`,
+      `${selector.description}${selector.required ? "（必填）" : ""}`
+    );
+  }
+  return command;
+}
+
+function collectResourceSelectors(): ResourceSelectorContract[] {
+  const selectors = new Map<string, ResourceSelectorContract>();
+  for (const contract of listResourceContracts()) {
+    for (const selector of contract.selectors ?? []) {
+      const existing = selectors.get(selector.name);
+      if (existing && (
+        existing.valuePlaceholder !== selector.valuePlaceholder ||
+        existing.description !== selector.description
+      )) {
+        throw new CliError(`资源选择器声明冲突：--${selector.name}`);
+      }
+      selectors.set(selector.name, existing
+        ? { ...existing, required: existing.required && selector.required }
+        : selector);
+    }
+  }
+  return [...selectors.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function buildResourceFilters(contract: ResourceContract, options: FilterOptions): ResourceFilter[] {
@@ -573,14 +392,31 @@ function monthRange(source: string): { from: string; to: string } {
 
 function validateSelectorOptions(
   contract: ResourceContract,
-  options: { code?: string; flow?: string }
-): void {
-  if (options.code !== undefined && !contract.selectors?.includes("code")) {
-    throw new CliError(`--code 不适用于资源 ${contract.id}`);
+  options: Record<string, unknown>
+): Readonly<Record<string, string>> {
+  const declared = new Map((contract.selectors ?? []).map((selector) => [selector.name, selector]));
+  const values: Record<string, string> = {};
+  for (const selector of collectResourceSelectors()) {
+    const value = options[optionAttributeName(selector.name)];
+    if (value === undefined) continue;
+    if (!declared.has(selector.name)) {
+      throw new CliError(`--${selector.name} 不适用于资源 ${contract.id}`);
+    }
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new CliError(`资源 ${contract.id} 的 --${selector.name} 值不能为空`);
+    }
+    values[selector.name] = value;
   }
-  if (options.flow !== undefined && !contract.selectors?.includes("flow")) {
-    throw new CliError(`--flow 不适用于资源 ${contract.id}`);
+  for (const selector of contract.selectors ?? []) {
+    if (selector.required && values[selector.name] === undefined) {
+      throw new CliError(`资源 ${contract.id} 必须提供 --${selector.name}`);
+    }
   }
+  return Object.freeze(values);
+}
+
+function optionAttributeName(name: string): string {
+  return name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 }
 
 function getSpecialHandler(
@@ -588,8 +424,8 @@ function getSpecialHandler(
   capability: "query" | "compare" | "sync"
 ): SpecialResourceHandler | undefined {
   if (!contract.handler) return undefined;
-  const handler = specialResourceHandlers[contract.handler];
-  if (!handler || typeof handler[capability] !== "function") {
+  const handler = specialResourceHandlerRegistry.get(contract.handler);
+  if (typeof handler[capability] !== "function") {
     throw new CliError(`资源 ${contract.id} 的 ${capability} 处理器未注册`);
   }
   return handler;
@@ -631,15 +467,6 @@ function parseScalar(source: string): unknown {
 }
 
 function collect(value: string, previous: string[]): string[] { return [...previous, value]; }
-function parseNonNegativeInteger(source: string): number {
-  const value = Number(source);
-  if (!Number.isInteger(value) || value < 0) throw new CliError(`菜单顺序无效：${source}`);
-  return value;
-}
-function requireRecordId(record: ResourceRecord, label: string): string {
-  if (typeof record.id !== "string" || !record.id) throw new CliError(`${label} 缺少有效 ID`);
-  return record.id;
-}
 function isRecord(value: unknown): value is ResourceRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

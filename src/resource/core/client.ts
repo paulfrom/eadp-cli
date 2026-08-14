@@ -1,6 +1,6 @@
-import { CliError } from "../errors.js";
-import { sendRequest } from "../http/client.js";
-import { iteratePages } from "../http/pagination.js";
+import { CliError } from "../../errors.js";
+import { sendRequest } from "../../http/client.js";
+import { iteratePages } from "../../http/pagination.js";
 import type { ResourceContract } from "./contracts.js";
 
 export type ResourceRecord = Record<string, unknown>;
@@ -23,17 +23,19 @@ export interface ContractQueryOptions {
   quickSearchProperties?: string[];
 }
 
+export interface ResourceClientOptions {
+  baseUrl: string;
+  token?: string | undefined;
+  authorization?: string | undefined;
+  service: string;
+  timeoutMs?: number;
+}
+
 export class ResourceClient {
   private readonly findAllCache = new Map<string, ResourceRecord[]>();
 
   constructor(
-    private readonly options: {
-      baseUrl: string;
-      token?: string | undefined;
-      authorization?: string | undefined;
-      service: string;
-      timeoutMs?: number;
-    }
+    private readonly options: ResourceClientOptions
   ) {}
 
   async findByPage(
@@ -226,6 +228,10 @@ export class ResourceClient {
     }
     return envelope.data;
   }
+}
+
+export function createResourceClient(options: ResourceClientOptions): ResourceClient {
+  return new ResourceClient(options);
 }
 
 export function isRecord(value: unknown): value is ResourceRecord {

@@ -1,4 +1,4 @@
-import { CliError } from "../errors.js";
+import { CliError } from "../../errors.js";
 
 /** Supported operations exposed by the generic resource command. */
 export type ResourceCapability = "query" | "write" | "compare" | "sync";
@@ -64,6 +64,21 @@ export interface ResourceRollbackContract {
 }
 
 /**
+ * Selector metadata for special compare/sync workflows.  The command layer
+ * turns these declarations into options without knowing the domain meaning.
+ */
+export interface ResourceSelectorContract {
+  /** Parsed CLI option name without the leading `--`. */
+  name: string;
+  /** Value placeholder shown in help, for example `code-or-name`. */
+  valuePlaceholder: string;
+  /** Human-readable help text for the option. */
+  description: string;
+  /** Whether this selector must be provided for the resource operation. */
+  required: boolean;
+}
+
+/**
  * Declarative contract consumed by query/write/compare/sync.  A contract
  * describes the business semantics in addition to the HTTP endpoints; an
  * endpoint entry alone is deliberately insufficient for registration.
@@ -91,7 +106,7 @@ export interface ResourceContract {
   adapter?: string;
   /** Optional code workflow used instead of the ordinary record engine. */
   handler?: string;
-  selectors?: Array<"code" | "flow">;
+  selectors?: ResourceSelectorContract[];
   rollback?: ResourceRollbackContract;
 }
 
@@ -120,6 +135,9 @@ export function validateResourceContracts(
     }
     if (contract.adapter && contract.handler) {
       throw new CliError(`资源契约 ${contract.id} 不能同时声明适配器和特殊处理器`);
+    }
+    if (contract.selectors?.length && !contract.handler) {
+      throw new CliError(`资源契约 ${contract.id} 只有特殊处理器才能声明选择器`);
     }
     if (contract.handler && contract.capabilities.includes("write")) {
       throw new CliError(`资源契约 ${contract.id} 的特殊写操作必须使用领域命令`);
@@ -235,6 +253,9 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
       throw new CliError(`资源契约 ${candidate.id} 的回滚服务必须与资源服务一致`);
     }
   }
+  const selectors = candidate.selectors === undefined
+    ? undefined
+    : normalizeSelectors(candidate.id, candidate.selectors);
   return {
     ...candidate,
     id: candidate.id.trim(),
@@ -242,8 +263,43 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     compareFields: [...candidate.compareFields],
     writableFields: [...candidate.writableFields],
     capabilities: [...new Set(candidate.capabilities)],
-    ...(candidate.selectors ? { selectors: [...new Set(candidate.selectors)] } : {})
+    ...(selectors === undefined ? {} : { selectors })
   };
+}
+
+function normalizeSelectors(
+  resourceId: string,
+  selectors: ResourceSelectorContract[]
+): ResourceSelectorContract[] {
+  if (!Array.isArray(selectors)) {
+    throw new CliError(`资源契约 ${resourceId} 的选择器声明无效`);
+  }
+  const names = new Set<string>();
+  return selectors.map((selector) => {
+    if (!selector || typeof selector !== "object" ||
+        typeof selector.name !== "string" ||
+        typeof selector.valuePlaceholder !== "string" ||
+        typeof selector.description !== "string") {
+      throw new CliError(`资源契约 ${resourceId} 的选择器声明无效`);
+    }
+    const name = selector.name.trim();
+    const valuePlaceholder = selector.valuePlaceholder.trim();
+    const description = selector.description.trim();
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      throw new CliError(`资源契约 ${resourceId} 的选择器名称无效：${selector.name}`);
+    }
+    if (names.has(name)) {
+      throw new CliError(`资源契约 ${resourceId} 的选择器名称重复：${name}`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(valuePlaceholder)) {
+      throw new CliError(`资源契约 ${resourceId} 的选择器值占位符无效：${selector.valuePlaceholder}`);
+    }
+    if (!description || typeof selector.required !== "boolean") {
+      throw new CliError(`资源契约 ${resourceId} 的选择器 ${name} 元数据无效`);
+    }
+    names.add(name);
+    return { name, valuePlaceholder, description, required: selector.required };
+  });
 }
 
 function validatePathSegment(id: string, label: string, value: string): void {

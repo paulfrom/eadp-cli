@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { CliError } from "./errors.js";
 
@@ -16,10 +15,6 @@ let activeOutputMode: OutputMode = "json";
  */
 export function setOutputMode(mode: OutputMode): void {
   activeOutputMode = mode;
-}
-
-export function getOutputMode(): OutputMode {
-  return activeOutputMode;
 }
 
 export interface CompactNdjsonOptions {
@@ -80,12 +75,6 @@ export function printValue(value: unknown, compact: boolean | OutputMode = false
     return;
   }
   process.stdout.write(`${JSON.stringify(value, null, mode === "compact" ? 0 : 2)}\n`);
-}
-
-export async function printJsonLine(value: unknown): Promise<void> {
-  if (!process.stdout.write(`${JSON.stringify(value)}\n`)) {
-    await once(process.stdout, "drain");
-  }
 }
 
 /**

@@ -419,7 +419,7 @@ eadp resource query app-module --env global-dev --filter code:EQ:ams
 `eadp.resource.query.v1` JSON；需要低 token 的逐行结果时使用全局
 `--output compact-ndjson`。
 
-查询给号配置时，`configType` 仅用于筛选，不参与业务唯一键；查询不会隐式添加该筛选。
+查询或比较给号配置时，`configType` 仍只是显式提供的筛选条件，不参与业务唯一键；查询和比较不会隐式添加该筛选。
 CLI 按 `entityClassName + tenantCode` 复合键逐条判重，缺少任一键字段会明确失败：
 
 ```bash
@@ -512,6 +512,9 @@ BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 
 `entityClassName + tenantCode` 匹配，先校验源记录复合键，再将目标匹配和写入使用的
 `tenantCode` 绑定为目标环境由 `env add` 获取的值；`configType` 不参与键计算。
 CLI 会清除源配置和 `configItem` ID，两者重复执行均只处理差异。
+给号资源写入或同步新增记录时，源记录缺失、为 `null` 或空白的 `configType` 使用资源注册默认
+`CODE_TYPE`；显式合法值（例如 `BAR_TYPE`）保留。该默认只作用于新增记录，更新时源记录缺失
+`configType` 保留已有目标值。
 BPM 业务实体的 `auditTypeId`、`auditTypeName` 不随源环境迁移，目标环境始终置空。
 
 BPM 同步会先完成整个流程的只读规划，再开始目标写入。源流程、业务实体或业务模块等
@@ -524,16 +527,27 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 
 ## 扩展普通资源与特殊操作
 
-普通资源通过 `src/resource/catalog.ts` 中的 `ResourceContract` 声明接入，不需要新增命令。
-契约必须同时描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、
-能力开关、时间过滤边界、创建默认值及安全回滚目标；注册后自动获得
-`resource query/write/compare/sync`。存在目标依赖 ID 映射或字段规范化时，再实现
-`ResourceAdapter` 并登记到适配器注册表。普通资源更新按补丁语义处理：输入中未出现的
-可写字段保留目标值，只有显式提供的值才参与更新；契约声明的创建默认值只作用于新增。
+普通资源通过分层注册接入，不需要新增通用命令：
 
-菜单树、BPM 聚合、权限分配这类无法抽象为独立记录 CRUD 的操作继续使用代码处理器。
-资源型特殊处理器由契约的 `handler` 选择；权限使用独立的 `permission` 领域命令树，避免把
-审批、树移动或关系分配逻辑塞进通用资源引擎。
+- `src/resource/definitions/`：每个资源一个 `ResourceContract` 声明文件，在 `index.ts` 汇总。
+- `src/resource/adapters/`：只有需要依赖 ID 重映射或字段规范化时才增加同名适配器，
+  由 `index.ts` 登记；公共映射辅助放在 `shared.ts`。
+- `src/resource/catalog.ts`：唯一组合入口，负责将 definitions、adapters 和特殊处理器装配到注册表。
+- `src/resource/core/`：通用客户端、契约校验、资源引擎和错误模型；不依赖任何业务领域。
+
+契约必须描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、能力开关、
+时间过滤边界、创建默认值及安全回滚目标；注册后自动获得 `resource query/write/compare/sync`。
+普通资源更新按补丁语义处理：输入中未出现的可写字段保留目标值，只有显式提供的值才参与更新；
+契约声明的创建默认值只作用于新增。
+
+菜单树、BPM 聚合、权限分配这类无法抽象为独立记录 CRUD 的操作继续使用代码处理器：
+`src/resource/handlers/` 只维护处理器接口、注册表和组合入口，菜单与 BPM 的实际实现分别位于
+`src/menu/resource-handler.ts`、`src/bpm/resource-handler.ts`；菜单创建命令位于
+`src/menu/command.ts`，权限保留在独立的 `permission` 领域命令树。这样特殊逻辑不会进入通用
+资源引擎，新增领域只需在自己的资源契约中声明 `selectors` 元数据（名称、值占位符、帮助文本、
+是否必填），实现处理器读取通用 `selectors` 映射，并在组合入口登记；通用命令会自动汇总这些
+声明生成选项，并在发起领域请求前拒绝不适用或缺失的选择器。当前菜单的可选 `--code` 与 BPM
+的必填 `--flow` 都来自各自契约声明，不需要修改通用命令。
 
 ## 给用户或岗位分配和移除角色
 

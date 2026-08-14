@@ -1,4 +1,4 @@
-import { CliError } from "../errors.js";
+import { CliError } from "../../errors.js";
 import {
   ResourceClient,
   type ContractQueryOptions,
@@ -9,10 +9,10 @@ import {
   RecordMappingError,
   type BlockingIssue,
   type MissingDependency
-} from "./specs.js";
+} from "./errors.js";
 import type { ResourceContract } from "./contracts.js";
-import { assertTenantScope } from "../tenant.js";
-import type { OperationRecorder } from "../operations/recorder.js";
+import { assertTenantScope } from "../../tenant.js";
+import type { OperationRecorder } from "../../operations/recorder.js";
 
 export type ResourcePlanAction = "create" | "update" | "unchanged" | "blocked";
 
@@ -483,3 +483,4 @@ function uniqueBlockingIssues(changes: ResourcePlanChange[]): BlockingIssue[] {
   }
   return [...values.values()];
 }
+

@@ -1,7 +1,7 @@
 import { CliError, errorMessage } from "../errors.js";
 import { OperationRecorder } from "../operations/recorder.js";
-import type { ResourceClient, ResourceFilter, ResourceRecord } from "../resource/client.js";
-import type { BlockingIssue, MissingDependency } from "../resource/specs.js";
+import type { ResourceClient, ResourceFilter, ResourceRecord } from "../resource/core/client.js";
+import type { BlockingIssue, MissingDependency } from "../resource/core/errors.js";
 
 export interface MenuRecord extends ResourceRecord {
   code: string;

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createResourceRegistry, type ResourceContract } from "../src/resource/contracts.js";
+import { createResourceRegistry, type ResourceContract } from "../src/resource/core/contracts.js";
 import { getResourceContract, listResourceContracts } from "../src/resource/catalog.js";
-import { ResourceEngine } from "../src/resource/engine.js";
-import type { ResourceClient } from "../src/resource/client.js";
+import { ResourceEngine } from "../src/resource/core/engine.js";
+import type { ResourceClient } from "../src/resource/core/client.js";
+import {
+  createSpecialResourceHandlerRegistry,
+  specialResourceHandlerRegistry
+} from "../src/resource/handlers/index.js";
 
 const base = (overrides: Partial<ResourceContract> = {}): ResourceContract => ({
   id: "demo",
@@ -40,8 +44,20 @@ describe("declarative resource contracts", () => {
       .toThrow("必须同时声明 compare");
     expect(() => createResourceRegistry([base({ adapter: "demo", handler: "demo" })]))
       .toThrow("不能同时声明适配器和特殊处理器");
+    expect(() => createResourceRegistry([base({
+      selectors: [{ name: "code", valuePlaceholder: "code", description: "代码", required: false }]
+    })])).toThrow("只有特殊处理器才能声明选择器");
     expect(() => createResourceRegistry([base({ id: "../demo" })]))
       .toThrow("资源契约 ID 无效");
+    expect(() => createResourceRegistry([base({
+      selectors: [
+        { name: "code", valuePlaceholder: "code", description: "代码", required: false },
+        { name: "code", valuePlaceholder: "code", description: "重复", required: false }
+      ]
+    })])).toThrow("选择器名称重复");
+    expect(() => createResourceRegistry([base({
+      selectors: [{ name: "flow", valuePlaceholder: "", description: "流程", required: true }]
+    })])).toThrow("选择器值占位符无效");
   });
 
   it("ships ordinary and special contracts with discoverable capabilities", () => {
@@ -49,11 +65,27 @@ describe("declarative resource contracts", () => {
     expect(names).toEqual(expect.arrayContaining(["feature", "feature-group", "serial-number", "menu", "bpm"]));
     expect(getResourceContract("menu").handler).toBe("menu");
     expect(getResourceContract("bpm").handler).toBe("bpm");
+    expect(getResourceContract("menu").selectors).toEqual([{
+      name: "code",
+      valuePlaceholder: "code",
+      description: "菜单代码；省略时比较完整菜单树",
+      required: false
+    }]);
+    expect(getResourceContract("bpm").selectors).toEqual([{
+      name: "flow",
+      valuePlaceholder: "code-or-name",
+      description: "BPM 流程代码、名称或 Entity 代码",
+      required: true
+    }]);
     expect(getResourceContract("bpm").capabilities).toEqual(["compare", "sync"]);
     expect(getResourceContract("app-module").writableFields).toEqual([
       "code", "name", "remark", "webBaseAddress", "apiBaseAddress", "rank"
     ]);
     expect(getResourceContract("app-module").defaults?.create).toEqual({ rank: 1 });
+    expect(getResourceContract("serial-number").defaults?.create).toEqual({
+      returnStrategy: "NEW",
+      configType: "CODE_TYPE"
+    });
     expect(getResourceContract("serial-number").enums?.returnStrategy).toEqual([
       { value: "NEW", meaning: "每次新给号" },
       { value: "REPEAT", meaning: "同一关联对象优先复用已有条码" },
@@ -82,5 +114,37 @@ describe("declarative resource contracts", () => {
       { code: "A", name: "A" }
     )).rejects.toThrow("资源适配器未注册：missing-adapter");
     expect(queries).toBe(0);
+  });
+
+  it("registers and dispatches special handlers independently from ordinary contracts", async () => {
+    const calls: string[] = [];
+    const registry = createSpecialResourceHandlerRegistry([
+      ["demo-special", {
+        async compare({ selectors }) {
+          calls.push("compare");
+          return { kind: "demo", selector: selectors.pick };
+        }
+      }]
+    ]);
+    const result = await registry.get("demo-special").compare!({
+      source: {} as never,
+      target: {} as never,
+      runtime: {} as never,
+      selectors: { pick: "value" },
+      apply: false
+    });
+    expect(result).toEqual({ kind: "demo", selector: "value" });
+    expect(calls).toEqual(["compare"]);
+    expect(registry.find("missing")).toBeUndefined();
+    expect(() => createSpecialResourceHandlerRegistry([
+      ["demo-special", {}],
+      ["demo-special", {}]
+    ])).toThrow("特殊处理器 ID 重复或无效");
+  });
+
+  it("composes built-in special handlers without putting domain imports in resource commands", () => {
+    expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu"]);
+    expect(specialResourceHandlerRegistry.get("menu").query).toBeTypeOf("function");
+    expect(specialResourceHandlerRegistry.get("bpm").sync).toBeTypeOf("function");
   });
 });
