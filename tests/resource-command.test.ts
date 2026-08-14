@@ -5,1355 +5,521 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/program.js";
 import { ConfigStore } from "../src/config/store.js";
-import { OperationLogStore } from "../src/operations/store.js";
 
 const servers: Server[] = [];
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await Promise.all(
-    servers.splice(0).map(
-      (server) =>
-        new Promise<void>((resolve, reject) =>
-          server.close((error) => (error ? reject(error) : resolve()))
-        )
-    )
-  );
-  await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true })
-    )
-  );
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve())
+  )));
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("query 和 sync 命令", () => {
-  it.each([
-    "feature-group",
-    "serial-number"
-  ])("query canonical resource %s 在非 global 环境先拒绝且不发请求", async (resource) => {
-    let requestCount = 0;
-    const { store } = await createFixtureServer({
-      source: (_request, response) => {
-        requestCount += 1;
-        respond(response, { rows: [], total: 0 });
-      },
-      target: (_request, response) => respond(response, { rows: [], total: 0 })
-    });
-    await store.update((config) => {
-      config.environments.source!.tenantCode = "tenant-a";
-    });
-
-    await expect(
-      createProgram(store).parseAsync(
-        ["query", resource, "--env", "source"],
-        { from: "user" }
-      )
-    ).rejects.toThrow("必须使用 global 租户");
-    expect(requestCount).toBe(0);
+describe("resource-first command workflow", () => {
+  it("exposes list/describe with declarative capabilities", async () => {
+    const output = captureOutput();
+    const program = createProgram().exitOverride();
+    await program.parseAsync(["resource", "list"], { from: "user" });
+    expect(output.text()).toContain('"feature"');
+    await createProgram().parseAsync(["resource", "describe", "feature"], { from: "user" });
+    expect(output.text()).toContain('"identityFields"');
   });
 
-  it("sync serial-number 按 entityClassName 幂等同步给号配置且不复制源 ID", async () => {
-    const targetConfigs: Array<Record<string, unknown>> = [];
-    const savedBodies: Array<Record<string, unknown>> = [];
+  it("query aggregates every page using the registered pagination contract", async () => {
+    let pages = 0;
     const { store } = await createFixtureServer({
       source: async (request, response) => {
-        const body = (await readBody(request)) as { filters?: unknown[] };
-        expect(body.filters).toEqual([
-          { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
-          { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
-        ]);
-        respond(response, {
-          rows: [{
-            id: "source-config-id",
-            appModuleCode: "ORDER",
-            appModuleName: "订单",
-            entityClassName: "com.example.Order",
-            configType: "CODE_TYPE",
-            name: "订单编号",
-            expressionConfig: "#{00000}",
-            minNumber: 1,
-            maxNumber: 0,
-            useDeleted: false,
-            cycleStrategy: "MAX_CYCLE",
-            returnStrategy: null,
-            activated: true,
-            genFlag: true,
-            tenantCode: "source-tenant",
-            publicFlag: true,
-            tenantIsolation: true,
-            isolationExpression: "",
-            configItem: [{
-              id: "source-item-id",
-              configId: "source-config-id",
-              elementName: "流水号编码",
-              elementCode: "SERIAL_CODE",
-              elementValue: "5",
-              isolation: false,
-              linkCharacter: "EMPTY",
-              sort: 0
-            }]
-          }],
-          total: 1
-        });
+        if (!requestPath(request).endsWith("/feature/findByPage")) return respond(response, []);
+        pages += 1;
+        respond(response, pages === 1
+          ? { rows: [{ code: "A", name: "A" }, ...Array.from({ length: 499 }, (_, index) => ({ code: `A-${index}`, name: `A-${index}` }))] }
+          : { rows: [{ code: "B", name: "B" }] });
       },
+      target: (_request, response) => respond(response, [])
+    });
+    const output = captureOutput();
+    await createProgram(store).parseAsync(["resource", "query", "feature", "--env", "source"], { from: "user" });
+    const result = JSON.parse(output.text()) as { items: Array<{ code: string }>; total: number };
+    expect(result.items[0]!.code).toBe("A");
+    expect(result.items.at(-1)!.code).toBe("B");
+    expect(result.total).toBe(501);
+    expect(pages).toBe(2);
+  });
+
+  it("write defaults to preview and --apply writes then verifies without delete", async () => {
+    const targetRows: Array<Record<string, unknown>> = [];
+    let saves = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => respond(response, []),
       target: async (request, response) => {
         const path = requestPath(request);
-        if (path.endsWith("/serialNumberConfig/findByPage")) {
-          respond(response, { rows: targetConfigs, total: targetConfigs.length });
+        if (path.endsWith("/feature/findByPage")) {
+          respond(response, { rows: targetRows });
           return;
         }
-        if (path.endsWith("/serialNumberConfig/save")) {
-          const body = (await readBody(request)) as Record<string, unknown>;
-          savedBodies.push(body);
-          const saved = { ...body, id: "target-config-id" };
-          targetConfigs.splice(0, targetConfigs.length, saved);
+        if (path.endsWith("/appModule/findAll")) {
+          respond(response, [{ id: "module-1", code: "BASIC" }]);
+          return;
+        }
+        if (path.endsWith("/featureGroup/findAll")) {
+          respond(response, []);
+          return;
+        }
+        if (path.endsWith("/feature/save")) {
+          saves += 1;
+          const body = await readBody(request) as Record<string, unknown>;
+          const saved = { ...body, id: `feature-${saves}` };
+          targetRows.splice(0, targetRows.length, saved);
           respond(response, saved);
           return;
         }
-        respond(response, undefined, 404);
+        respond(response, [], 404);
+      }
+    });
+    const data = JSON.stringify({ code: "A", name: "A", appModuleCode: "BASIC" });
+    const output = captureOutput();
+    await createProgram(store).parseAsync(["resource", "write", "feature", "--env", "target", "--data", data], { from: "user" });
+    expect(JSON.parse(output.text()).applied).toBe(false);
+    expect(saves).toBe(0);
+    output.clear();
+    await createProgram(store).parseAsync(["resource", "write", "feature", "--env", "target", "--data", data, "--apply"], { from: "user" });
+    const result = JSON.parse(output.text());
+    expect(result.applied).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(result.operationId).toEqual(expect.any(String));
+    expect(saves).toBe(1);
+  });
+
+  it("compare is read-only and sync reuses the plan for an idempotent apply", async () => {
+    const sourceRows = [{ code: "A", name: "new", appModuleCode: "BASIC" }];
+    const targetRows: Array<Record<string, unknown>> = [{ id: "target-a", code: "A", name: "old", appModuleId: "module-1" }];
+    let saves = 0;
+    const { store } = await createFixtureServer({
+      source: (request, response) => {
+        if (requestPath(request).endsWith("/feature/findByPage")) return respond(response, { rows: sourceRows });
+        respond(response, [], 404);
+      },
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) return respond(response, { rows: targetRows });
+        if (path.endsWith("/appModule/findAll")) return respond(response, [{ id: "module-1", code: "BASIC" }]);
+        if (path.endsWith("/featureGroup/findAll")) return respond(response, []);
+        if (path.endsWith("/feature/save")) {
+          saves += 1;
+          const body = await readBody(request) as Record<string, unknown>;
+          targetRows.splice(0, targetRows.length, body);
+          return respond(response, { ...body, id: "target-a" });
+        }
+        respond(response, [], 404);
       }
     });
     const output = captureOutput();
-    const args = [
-      "--compact", "sync", "serial-number",
-      "--source", "source", "--target", "target",
-      "--entity-class", "com.example.Order", "--apply"
-    ];
-
-    await createProgram(store).parseAsync(args, { from: "user" });
-    await createProgram(store).parseAsync(args, { from: "user" });
-
-    expect(savedBodies).toHaveLength(1);
-    expect(savedBodies[0]).toMatchObject({
-      entityClassName: "com.example.Order",
-      configType: "CODE_TYPE",
-      returnStrategy: "NEW",
-      tenantCode: "global"
-    });
-    expect(savedBodies[0]).not.toHaveProperty("id");
-    expect(savedBodies[0]!.configItem).toEqual([
-      expect.not.objectContaining({ id: expect.anything(), configId: expect.anything() })
-    ]);
-    const results = output.text().trim().split("\n").map((line) => JSON.parse(line));
-    expect(results[0].kind).toBe("eadp.resource.sync.v1");
-    expect(results[0].summary.create).toBe(1);
-    expect(results[1].summary.unchanged).toBe(1);
+    await createProgram(store).parseAsync(["resource", "compare", "feature", "--source", "source", "--target", "target"], { from: "user" });
+    const comparison = JSON.parse(output.text());
+    expect(comparison.summary).toEqual({ create: 0, update: 1, unchanged: 0, blocked: 0 });
+    expect(saves).toBe(0);
+    output.clear();
+    await createProgram(store).parseAsync(["resource", "sync", "feature", "--source", "source", "--target", "target", "--apply"], { from: "user" });
+    expect(JSON.parse(output.text()).verified).toBe(true);
+    expect(saves).toBe(1);
+    output.clear();
+    await createProgram(store).parseAsync(["resource", "sync", "feature", "--source", "source", "--target", "target", "--apply"], { from: "user" });
+    expect(JSON.parse(output.text()).summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(saves).toBe(1);
   });
 
-  it("sync serial-number 按 entityClassName 和目标 tenantCode 匹配，忽略其他租户同名配置", async () => {
-    const targetConfigs: Array<Record<string, unknown>> = [{
-      id: "other-tenant-config-id",
-      entityClassName: "com.example.Order",
-      configType: "CODE_TYPE",
-      tenantCode: "other-tenant",
-      name: "其他租户编号",
-      returnStrategy: "NEW",
-      configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
+  it("checks both migration tenants before reading either environment", async () => {
+    let requests = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => { requests += 1; respond(response, []); },
+      target: (_request, response) => { requests += 1; respond(response, []); }
+    });
+    await store.update((config) => { config.environments.target!.tenantCode = "tenant-a"; });
+    await expect(createProgram(store).parseAsync([
+      "resource", "compare", "feature", "--source", "source", "--target", "target"
+    ], { from: "user" })).rejects.toThrow("必须使用 global 租户");
+    expect(requests).toBe(0);
+  });
+
+  it("rejects the same migration environment and unsupported time filters before remote reads", async () => {
+    let requests = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => { requests += 1; respond(response, []); },
+      target: (_request, response) => { requests += 1; respond(response, []); }
+    });
+
+    await expect(createProgram(store).parseAsync([
+      "resource", "compare", "feature", "--source", "source", "--target", "source"
+    ], { from: "user" })).rejects.toThrow("源环境和目标环境不能相同");
+    await expect(createProgram(store).parseAsync([
+      "resource", "compare", "menu", "--source", "source", "--target", "target",
+      "--created-in", "2026-08"
+    ], { from: "user" })).rejects.toThrow("资源 menu 不支持时间过滤");
+    await expect(createProgram(store).parseAsync([
+      "resource", "query", "feature", "--env", "source", "--filter", "code:IN:A"
+    ], { from: "user" })).rejects.toThrow("不支持的过滤操作符：IN");
+    expect(requests).toBe(0);
+  });
+
+  it("applies time filters to the source query only", async () => {
+    const sourceBodies: Array<Record<string, unknown>> = [];
+    const targetBodies: Array<Record<string, unknown>> = [];
+    const { store } = await createFixtureServer({
+      source: async (request, response) => {
+        sourceBodies.push(await readBody(request) as Record<string, unknown>);
+        respond(response, { rows: [] });
+      },
+      target: async (request, response) => {
+        targetBodies.push(await readBody(request) as Record<string, unknown>);
+        respond(response, { rows: [] });
+      }
+    });
+    captureOutput();
+
+    await createProgram(store).parseAsync([
+      "resource", "compare", "feature", "--source", "source", "--target", "target",
+      "--created-in", "2026-08"
+    ], { from: "user" });
+
+    expect(sourceBodies[0]!.filters).toEqual([
+      { fieldName: "createdDate", operator: "GE", value: "2026-08-01 00:00:00" },
+      { fieldName: "createdDate", operator: "LT", value: "2026-09-01 00:00:00" }
+    ]);
+    expect(targetBodies[0]!.filters).toEqual([]);
+  });
+
+  it("binds serial-number tenant and applies NEW only on create without overriding explicit or target values", async () => {
+    const item = [{
+      elementName: "流水号", elementCode: "SERIAL_CODE", elementValue: "5",
+      isolation: false, linkCharacter: "EMPTY", sort: 0
+    }];
+    const targetRows: Array<Record<string, unknown>> = [{
+      id: "serial-a", entityClassName: "com.example.A", tenantCode: "global",
+      configType: "CODE_TYPE", name: "old", returnStrategy: "PATCH", configItem: item
     }];
     const savedBodies: Array<Record<string, unknown>> = [];
     const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        const body = (await readBody(request)) as { filters?: unknown[] };
-        expect(body.filters).toEqual([
-          { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
-          { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
-        ]);
-        respond(response, {
-          rows: [{
-            entityClassName: "com.example.Order",
-            configType: "CODE_TYPE",
-            tenantCode: "source-tenant",
-            name: "源租户编号",
-            returnStrategy: "NEW",
-            configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-          }],
-          total: 1
-        });
-      },
+      source: (_request, response) => respond(response, []),
       target: async (request, response) => {
         const path = requestPath(request);
-        if (path.endsWith("/serialNumberConfig/findByPage")) {
-          respond(response, { rows: targetConfigs, total: targetConfigs.length });
-          return;
-        }
+        if (path.endsWith("/serialNumberConfig/findByPage")) return respond(response, { rows: targetRows });
         if (path.endsWith("/serialNumberConfig/save")) {
-          const body = (await readBody(request)) as Record<string, unknown>;
+          const body = await readBody(request) as Record<string, unknown>;
           savedBodies.push(body);
-          const saved = { ...body, id: "target-global-config-id" };
-          targetConfigs.push(saved);
-          respond(response, saved);
-          return;
+          const id = typeof body.id === "string" ? body.id : `serial-${savedBodies.length + 1}`;
+          const saved = { ...body, id };
+          const index = targetRows.findIndex((row) => row.entityClassName === body.entityClassName);
+          if (index >= 0) targetRows[index] = saved;
+          else targetRows.push(saved);
+          return respond(response, saved);
         }
-        respond(response, undefined, 404);
+        respond(response, [], 404);
       }
     });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "--compact", "sync", "serial-number",
-        "--source", "source", "--target", "target",
-        "--entity-class", "com.example.Order", "--apply"
-      ],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
-    expect(savedBodies).toHaveLength(1);
-    expect(savedBodies[0]).not.toHaveProperty("id");
-    expect(savedBodies[0]).toMatchObject({
-      entityClassName: "com.example.Order",
-      tenantCode: "global"
-    });
-  });
-
-  it("sync serial-number 检测多个源租户映射到同一目标复合键并在写入前失败", async () => {
-    let targetSaveCount = 0;
-    const { store } = await createFixtureServer({
-      source: (_request, response) =>
-        respond(response, {
-          rows: [
-            {
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "source-a",
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            },
-            {
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "source-b",
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            }
-          ],
-          total: 2
-        }),
-      target: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/serialNumberConfig/findByPage")) {
-          respond(response, { rows: [], total: 0 });
-          return;
-        }
-        if (path.endsWith("/serialNumberConfig/save")) {
-          targetSaveCount += 1;
-          respond(response, { id: `target-${targetSaveCount}` });
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-
-    await expect(
-      createProgram(store).parseAsync(
-        [
-          "sync", "serial-number",
-          "--source", "source", "--target", "target"
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow("映射到目标环境后业务唯一键重复");
-    expect(targetSaveCount).toBe(0);
-  });
-
-  it("sync serial-number 预览时按实体过滤目标环境，避免无关非法枚举记录导致查询失败", async () => {
-    const expectedFilters = [
-      { fieldName: "entityClassName", operator: "EQ", value: "com.test.cli.demo" },
-      { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" }
-    ];
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        const body = (await readBody(request)) as { filters?: unknown[] };
-        expect(body.filters).toEqual(expectedFilters);
-        respond(response, {
-          rows: [{
-            id: "source-config-id",
-            entityClassName: "com.test.cli.demo",
-            configType: "CODE_TYPE",
-            tenantCode: "source-tenant",
-            name: "CLI 测试编号",
-            returnStrategy: "NEW",
-            configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-          }],
-          total: 1
-        });
-      },
-      target: async (request, response) => {
-        const body = (await readBody(request)) as { filters?: unknown[] };
-        if (!body.filters || body.filters.length === 0) {
-          respond(
-            response,
-            "IllegalArgumentException: No enum constant com.changhong.sei.serial.entity.enumclass.ReturnStrategy.",
-            500
-          );
-          return;
-        }
-        expect(body.filters).toEqual(expectedFilters);
-        respond(response, { rows: [], total: 0 });
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "--compact", "sync", "serial-number",
-        "--source", "source", "--target", "target",
-        "--entity-class", "com.test.cli.demo"
-      ],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.applied).toBe(false);
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
-  });
-
-  it("sync serial-number 新增时将缺失、null 和空白 returnStrategy 默认成 NEW", async () => {
-    const { store } = await createFixtureServer({
-      source: (_request, response) => {
-        respond(response, {
-          rows: [
-            {
-              entityClassName: "com.example.MissingStrategy",
-              configType: "CODE_TYPE",
-              tenantCode: "source-tenant",
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            },
-            {
-              entityClassName: "com.example.NullStrategy",
-              configType: "CODE_TYPE",
-              tenantCode: "source-tenant",
-              returnStrategy: null,
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            },
-            {
-              entityClassName: "com.example.BlankStrategy",
-              configType: "CODE_TYPE",
-              tenantCode: "source-tenant",
-              returnStrategy: "  ",
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            }
-          ],
-          total: 3
-        });
-      },
-      target: (_request, response) => respond(response, { rows: [], total: 0 })
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["--compact", "sync", "serial-number", "--source", "source", "--target", "target"],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.changes).toHaveLength(3);
-    expect(result.changes.every(
-      (change: { desired: { returnStrategy?: unknown } }) =>
-        change.desired.returnStrategy === "NEW"
-    )).toBe(true);
-  });
-
-  it("sync serial-number 将单条非法 configItem 标记为 blocked 并应用安全记录", async () => {
-    const targetConfigs: Array<Record<string, unknown>> = [];
-    const savedEntities: string[] = [];
-    const { store } = await createFixtureServer({
-      source: (_request, response) => {
-        respond(response, {
-          rows: [
-            {
-              id: "source-valid",
-              entityClassName: "com.example.ValidOrder",
-              configType: "CODE_TYPE",
-              tenantCode: "source-tenant",
-              name: "有效编号",
-              configItem: [{ elementName: "流水号", elementCode: "SERIAL_CODE", sort: 0 }]
-            },
-            {
-              id: "source-invalid",
-              entityClassName: "com.example.InvalidOrder",
-              configType: "CODE_TYPE",
-              tenantCode: "source-tenant",
-              name: "无效编号",
-              configItem: null
-            }
-          ],
-          total: 2
-        });
-      },
-      target: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/serialNumberConfig/findByPage")) {
-          respond(response, { rows: targetConfigs, total: targetConfigs.length });
-          return;
-        }
-        if (path.endsWith("/serialNumberConfig/save")) {
-          const body = (await readBody(request)) as Record<string, unknown>;
-          savedEntities.push(String(body.entityClassName));
-          const saved = { ...body, id: "target-valid" };
-          targetConfigs.push(saved);
-          respond(response, saved);
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "--compact", "sync", "serial-number",
-        "--source", "source", "--target", "target", "--apply"
-      ],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
-    expect(result.skippedBlocked).toBe(1);
-    expect(result.verified).toBe(true);
-    expect(savedEntities).toEqual(["com.example.ValidOrder"]);
-    expect(result.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        key: JSON.stringify({ entityClassName: "com.example.invalidorder", tenantCode: "global" }),
-        action: "blocked",
-        desired: null,
-        blockingIssues: [expect.objectContaining({
-          resource: "serial-number",
-          field: "configItem",
-          reason: "invalid"
-        })]
-      })
-    ]));
-    expect(result.blockingIssues).toEqual([
-      expect.objectContaining({
-        resource: "serial-number",
-        field: "configItem",
-        reason: "invalid"
-      })
+    const data = JSON.stringify([
+      { entityClassName: "com.example.A", name: "updated", configItem: item },
+      { entityClassName: "com.example.B", name: "created-default", configItem: item },
+      { entityClassName: "com.example.C", name: "created-explicit", returnStrategy: "REPEAT", configItem: item }
     ]);
-  });
-
-  it("query 给号配置时默认限定 CODE_TYPE，并按 entityClassName 校验唯一性", async () => {
-    let requestBody: unknown;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        requestBody = await readBody(request);
-        respond(response, {
-          rows: [
-            {
-              id: "serial-1",
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "global"
-            }
-          ],
-          total: 1
-        });
-      }
-    });
-    await store.update((config) => {
-      config.environments.source!.tenantCode = "global";
-    });
     const output = captureOutput();
 
-    await createProgram(store).parseAsync(
-      [
-        "query",
-         "serial-number",
-        "--env",
-        "source",
-        "--entity-class",
-        "com.example.Order"
-      ],
-      { from: "user" }
-    );
+    await createProgram(store).parseAsync([
+      "resource", "write", "serial-number", "--env", "target", "--data", data, "--apply"
+    ], { from: "user" });
 
-    expect(requestBody).toMatchObject({
-      filters: [
-        { fieldName: "entityClassName", operator: "EQ", value: "com.example.Order" },
-        { fieldName: "configType", operator: "EQ", value: "CODE_TYPE" },
-        {
-          fieldName: "publicFlag",
-          fieldType: "java.lang.Boolean",
-          operator: "EQ",
-          value: true
-        }
-      ]
-    });
-    const events = parseNdjson(output.text());
-    expect(events.at(-1)?.identity).toEqual({
-      fields: ["entityClassName", "tenantCode"],
-      values: [{ entityClassName: "com.example.order", tenantCode: "global" }],
-      exists: true,
-      unique: true
-    });
+    expect(savedBodies).toHaveLength(3);
+    expect(savedBodies.map((body) => body.tenantCode)).toEqual(["global", "global", "global"]);
+    expect(savedBodies.map((body) => body.returnStrategy)).toEqual(["PATCH", "NEW", "REPEAT"]);
+    expect(JSON.parse(output.text())).toMatchObject({ applied: true, verified: true });
   });
 
-  it("query 给号配置发现重复 entityClassName 时终止", async () => {
+  it("preserves target-only feature fields and defaults tenantCanUse only for creates", async () => {
+    const targetRows: Array<Record<string, unknown>> = [{
+      id: "feature-a", code: "A", name: "old", appModuleId: "module-1",
+      url: "/existing", canMenu: true, mobileUse: true,
+      tenantCanUse: false, specialProjectId: "project-1"
+    }];
+    const savedBodies: Array<Record<string, unknown>> = [];
     const { store } = await createFixtureServer({
-      source: (_request, response) =>
-        respond(response, {
-          rows: [
-            {
-              id: "serial-1",
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "global"
-            },
-            {
-              id: "serial-2",
-              entityClassName: "com.example.Order",
-              configType: "BAR_TYPE",
-              tenantCode: "global"
-            }
-          ],
-          total: 2
-        })
-    });
-    await store.update((config) => {
-      config.environments.source!.tenantCode = "global";
-    });
-
-    await expect(
-      createProgram(store).parseAsync(
-        [
-          "query",
-          "serial-number",
-          "--env",
-          "source",
-          "--entity-class",
-          "com.example.Order"
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow("业务唯一键 entityClassName+tenantCode 重复");
-  });
-
-  it("query 给号配置按 entityClassName 和 tenantCode 逐条判重并输出全部复合键", async () => {
-    const { store } = await createFixtureServer({
-      source: (_request, response) =>
-        respond(response, {
-          rows: [
-            {
-              id: "serial-global",
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "global"
-            },
-            {
-              id: "serial-tenant-a",
-              entityClassName: "com.example.Order",
-              configType: "CODE_TYPE",
-              tenantCode: "tenant-a"
-            }
-          ],
-          total: 2
-        })
-    });
-    await store.update((config) => {
-      config.environments.source!.tenantCode = "global";
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "query",
-        "serial-number",
-        "--env",
-        "source",
-        "--entity-class",
-        "com.example.Order"
-      ],
-      { from: "user" }
-    );
-
-    const events = parseNdjson(output.text());
-    expect(events.at(-1)?.identity).toEqual({
-      fields: ["entityClassName", "tenantCode"],
-      values: [
-        { entityClassName: "com.example.order", tenantCode: "global" },
-        { entityClassName: "com.example.order", tenantCode: "tenant-a" }
-      ],
-      exists: true,
-      unique: true
-    });
-  });
-
-  it("query 给号配置缺少 tenantCode 时明确失败", async () => {
-    const { store } = await createFixtureServer({
-      source: (_request, response) =>
-        respond(response, {
-          rows: [{
-            id: "serial-missing-tenant",
-            entityClassName: "com.example.Order",
-            configType: "CODE_TYPE"
-          }],
-          total: 1
-        })
-    });
-
-    await expect(
-      createProgram(store).parseAsync(
-        [
-          "query",
-          "serial-number",
-          "--env",
-          "source",
-          "--entity-class",
-          "com.example.Order"
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow("tenantCode");
-  });
-
-  it("query 自动读取全部分页结果", async () => {
-    const requestedPages: number[] = [];
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        const body = (await readBody(request)) as {
-          pageInfo: { page: number; rows: number };
-        };
-        requestedPages.push(body.pageInfo.page);
-        const rows =
-          body.pageInfo.page === 1
-            ? Array.from({ length: body.pageInfo.rows }, (_, index) => ({
-                id: `feature-${index}`,
-                code: `FEATURE_${index}`
-              }))
-            : [{ id: "feature-last", code: "FEATURE_LAST" }];
-        respond(response, { rows, total: body.pageInfo.rows + 1 });
-      },
-      target: (_request, response) => respond(response, { rows: [], total: 0 })
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["query", "feature", "--env", "source"],
-      { from: "user" }
-    );
-
-    const events = parseNdjson(output.text());
-    const items = events
-      .filter((event) => event.kind === "eadp.resource.query.item.v1")
-      .map((event) => event.item);
-    expect(requestedPages).toEqual([1, 2]);
-    expect(items).toHaveLength(501);
-    expect(events.at(-1)).toMatchObject({
-      kind: "eadp.resource.query.summary.v1",
-      total: 501
-    });
-  });
-
-  it("query --output compact-ndjson emits schema-first rows without a success summary", async () => {
-    const { store } = await createFixtureServer({
-      source: async (_request, response) => {
-        respond(response, {
-          rows: [{ id: "feature-a", code: "FEATURE_A" }],
-          total: 1
-        });
-      },
-      target: (_request, response) => respond(response, { rows: [], total: 0 })
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["query", "feature", "--env", "source", "--output", "compact-ndjson"],
-      { from: "user" }
-    );
-
-    const lines = parseNdjson(output.text());
-    expect(lines[0]).toMatchObject({ type: "meta", schema: ["code", "id"], count: 1 });
-    expect(lines[1]).toEqual({ type: "row", key: "FEATURE_A", v: ["FEATURE_A", "feature-a"] });
-    expect(lines.every((line) => !("kind" in line))).toBe(true);
-  });
-
-  it("query 聚合开发环境的 1855 条功能项", async () => {
-    const requestedPages: number[] = [];
-    const expectedCount = 1_855;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        const body = (await readBody(request)) as {
-          pageInfo: { page: number; rows: number };
-        };
-        const { page, rows: pageSize } = body.pageInfo;
-        requestedPages.push(page);
-        const start = (page - 1) * pageSize;
-        const count = Math.max(0, Math.min(pageSize, expectedCount - start));
-        const rows = Array.from({ length: count }, (_, index) => ({
-          id: `feature-${start + index}`,
-          code: `FEATURE_${start + index}`
-        }));
-        respond(response, { rows, total: 11 });
-      },
-      target: (_request, response) => respond(response, { rows: [], total: 0 })
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["query", "feature", "--env", "source"],
-      { from: "user" }
-    );
-
-    const events = parseNdjson(output.text());
-    const items = events
-      .filter((event) => event.kind === "eadp.resource.query.item.v1")
-      .map((event) => event.item as { id: string });
-    expect(requestedPages).toEqual([1, 2, 3, 4]);
-    expect(items).toHaveLength(expectedCount);
-    expect(new Set(items.map((item) => item.id)).size).toBe(expectedCount);
-    expect(events.at(-1)).toMatchObject({
-      kind: "eadp.resource.query.summary.v1",
-      total: expectedCount
-    });
-  });
-
-  it("query 将月份转换成创建时间的左闭右开过滤条件", async () => {
-    let requestBody: unknown;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        requestBody = await readBody(request);
-        respond(response, {
-          rows: [{ id: "feature-a", code: "NEW_FEATURE", createdDate: "2026-07-10 08:00:00" }],
-          total: 1
-        });
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "query",
-        "feature",
-        "--env",
-        "source",
-        "--created-in",
-        "2026-07",
-      ],
-      { from: "user" }
-    );
-
-    expect(requestBody).toMatchObject({
-      filters: [
-        { fieldName: "createdDate", operator: "GE", value: "2026-07-01 00:00:00" },
-        { fieldName: "createdDate", operator: "LT", value: "2026-08-01 00:00:00" }
-      ]
-    });
-    const events = parseNdjson(output.text());
-    expect(events.map((event) => event.kind)).toEqual([
-      "eadp.resource.query.meta.v1",
-      "eadp.resource.query.item.v1",
-      "eadp.resource.query.summary.v1"
-    ]);
-    expect(events[1]?.item).toMatchObject({ code: "NEW_FEATURE" });
-  });
-
-  it("sync 功能项时按业务代码映射依赖和目标记录，默认只预览", async () => {
-    let targetSaveCount = 0;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [
-              {
-                id: "source-feature-id",
-                code: "NEW_FEATURE",
-                name: "新功能",
-                url: "//new///",
-                featureType: "Operate",
-                canMenu: false,
-                mobileUse: false,
-                appModuleId: "source-app-id",
-                appModuleCode: "BASIC",
-                featureGroupId: "source-group-id",
-                featureGroupCode: "BASE_CONFIG",
-                createdDate: "2026-07-10 08:00:00"
-              }
-            ],
-            total: 1
-          });
-          return;
-        }
-        respond(response, undefined, 404);
-      },
+      source: (_request, response) => respond(response, []),
       target: async (request, response) => {
         const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, { rows: [], total: 0 });
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, [{ id: "target-group-id", code: "BASE_CONFIG" }]);
-          return;
-        }
+        if (path.endsWith("/feature/findByPage")) return respond(response, { rows: targetRows });
+        if (path.endsWith("/appModule/findAll")) return respond(response, [{ id: "module-1", code: "BASIC" }]);
         if (path.endsWith("/feature/save")) {
-          targetSaveCount += 1;
-          respond(response, { id: "target-feature-id" });
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      [
-        "sync",
-        "feature",
-        "--source",
-        "source",
-        "--target",
-        "target",
-        "--created-in",
-        "2026-07",
-      ],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.kind).toBe("eadp.resource.sync.v1");
-    expect(result.applied).toBe(false);
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
-    expect(result.changes[0].desired).toMatchObject({
-      code: "NEW_FEATURE",
-      appModuleId: "target-app-id",
-      featureGroupId: "target-group-id",
-      url: "/new",
-      tenantCanUse: true
-    });
-    expect(result.changes[0].desired).not.toHaveProperty("id");
-    expect(result.changes[0].desired).not.toHaveProperty("createdDate");
-    expect(targetSaveCount).toBe(0);
-  });
-
-  it("sync 功能项创建时保留源端显式 tenantCanUse=false", async () => {
-    let savedBody: Record<string, unknown> | undefined;
-    const targetFeatures: Record<string, unknown>[] = [];
-    const { store } = await createFixtureServer({
-      source: (request, response) => {
-        if (requestPath(request).endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [{
-              id: "source-feature-id",
-              code: "EXPLICIT_FALSE",
-              name: "显式关闭",
-              url: "//false//",
-              featureType: "Operate",
-              canMenu: false,
-              tenantCanUse: false,
-              mobileUse: false,
-              appModuleCode: "BASIC"
-            }],
-            total: 1
-          });
-          return;
-        }
-        respond(response, undefined, 404);
-      },
-      target: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, { rows: targetFeatures, total: targetFeatures.length });
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, []);
-          return;
-        }
-        if (path.endsWith("/feature/save")) {
-          savedBody = (await readBody(request)) as Record<string, unknown>;
-          const saved = {
-            ...savedBody,
-            ...(typeof savedBody.url === "string"
-              ? { url: savedBody.url.replace(/^\/+|\/+$/g, "") }
-              : {}),
-            id: "target-feature-id"
-          };
-          targetFeatures.push(saved);
-          respond(response, saved);
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["sync", "feature", "--source", "source", "--target", "target", "--apply"],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.changes[0].desired).toMatchObject({
-          url: "/false",
-          tenantCanUse: false
-        });
-    expect(savedBody).toMatchObject({
-      url: "/false",
-      tenantCanUse: false
-    });
-    expect(result.operationId).toEqual(expect.any(String));
-    await expect(new OperationLogStore(store.directory).load(result.operationId)).resolves.toMatchObject({
-      status: "completed",
-      actions: [expect.objectContaining({
-        resource: "feature",
-        expected: expect.objectContaining({
-          url: "/false",
-          tenantCanUse: false
-        })
-      })]
-    });
-  });
-
-  it("sync 功能项更新时源端缺少 tenantCanUse 会保留目标值", async () => {
-    const { store } = await createFixtureServer({
-      source: (request, response) => {
-        if (requestPath(request).endsWith("/feature/findByPage")) {
-          respond(response, { rows: [{
-            id: "source-feature-id", code: "EXISTING_FEATURE", name: "新名称",
-            featureType: "Operate", canMenu: false, mobileUse: false, appModuleCode: "BASIC"
-          }], total: 1 });
-          return;
-        }
-        respond(response, undefined, 404);
-      },
-      target: (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, { rows: [{
-            id: "target-feature-id", code: "EXISTING_FEATURE", name: "旧名称",
-            featureType: "Operate", canMenu: false, tenantCanUse: false, mobileUse: false,
-            appModuleId: "target-app-id"
-          }], total: 1 });
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, []);
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["sync", "feature", "--source", "source", "--target", "target"],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.changes[0]).toMatchObject({
-      action: "update",
-      desired: { tenantCanUse: false }
-    });
-    expect(result.changes[0].changedFields).not.toContain("tenantCanUse");
-  });
-
-  it("sync 功能项时忽略源 specialProjectId 并保留目标环境关联", async () => {
-    const { store } = await createFixtureServer({
-      source: (request, response) => {
-        if (requestPath(request).endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [{
-              id: "source-feature-id",
-              code: "FSSC-FMS-11",
-              name: "新名称",
-              featureType: "Operate",
-              canMenu: false,
-              tenantCanUse: true,
-              mobileUse: false,
-              appModuleCode: "FSSC",
-              specialProjectId: "source-project-id"
-            }],
-            total: 1
-          });
-          return;
-        }
-        respond(response, undefined, 404);
-      },
-      target: (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [{
-              id: "target-feature-id",
-              code: "FSSC-FMS-11",
-              name: "旧名称",
-              featureType: "Operate",
-              canMenu: false,
-              tenantCanUse: true,
-              mobileUse: false,
-              appModuleId: "target-app-id",
-              specialProjectId: "target-project-id"
-            }],
-            total: 1
-          });
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "FSSC" }]);
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["sync", "feature", "--source", "source", "--target", "target"],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.summary).toEqual({ create: 0, update: 1, unchanged: 0, blocked: 0 });
-    expect(result.changes[0].changedFields).not.toContain("specialProjectId");
-    expect(result.changes[0].desired.specialProjectId).toBe("target-project-id");
-  });
-
-  it("sync 功能项时完整报告缺失依赖并仅应用安全记录", async () => {
-    const targetFeatures: Array<Record<string, unknown>> = [];
-    const savedCodes: string[] = [];
-    const { store } = await createFixtureServer({
-      source: (request, response) => {
-        if (requestPath(request).endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [
-              {
-                id: "source-blocked",
-                code: "ISRM-BLOCKED",
-                name: "依赖缺失功能",
-                featureType: "Operate",
-                canMenu: false,
-                tenantCanUse: true,
-                mobileUse: false,
-                appModuleCode: "ISRM",
-                featureGroupCode: "ISRM-PA-OLD-2"
-              },
-              {
-                id: "source-safe",
-                code: "ISRM-SAFE",
-                name: "安全功能",
-                featureType: "Operate",
-                canMenu: false,
-                tenantCanUse: true,
-                mobileUse: false,
-                appModuleCode: "ISRM"
-              }
-            ],
-            total: 2
-          });
-          return;
-        }
-        respond(response, undefined, 404);
-      },
-      target: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, { rows: targetFeatures, total: targetFeatures.length });
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "ISRM" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, []);
-          return;
-        }
-        if (path.endsWith("/feature/save")) {
-          const body = (await readBody(request)) as Record<string, unknown>;
-          savedCodes.push(String(body.code));
-          targetFeatures.push({ ...body, id: "target-safe-id" });
-          respond(response, targetFeatures[0]);
-          return;
-        }
-        respond(response, undefined, 404);
-      }
-    });
-    const output = captureOutput();
-
-    await createProgram(store).parseAsync(
-      ["sync", "feature", "--source", "source", "--target", "target", "--apply"],
-      { from: "user" }
-    );
-
-    const result = JSON.parse(output.text());
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
-    expect(result.applied).toBe(true);
-    expect(result.verified).toBe(true);
-    expect(result.skippedBlocked).toBe(1);
-    expect(savedCodes).toEqual(["ISRM-SAFE"]);
-    expect(result.changes).toHaveLength(2);
-    expect(result.changes[0]).toMatchObject({
-      key: "ISRM-BLOCKED",
-      action: "blocked",
-      missingDependencies: [{
-        resource: "feature-group",
-        identityField: "code",
-        value: "ISRM-PA-OLD-2",
-        reason: "missing"
-      }]
-    });
-    expect(result.missingDependencies).toEqual([{
-      resource: "feature-group",
-      identityField: "code",
-      value: "ISRM-PA-OLD-2",
-      reason: "missing"
-    }]);
-  });
-
-  it("sync feature-group 按代码映射应用模块并创建后回查", async () => {
-    const targetGroups: Array<Record<string, unknown>> = [];
-    let sourceRequestPath: string | undefined;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        if (requestPath(request).endsWith("/featureGroup/findAll")) {
-          sourceRequestPath = requestPath(request);
-          // findAll has no request body; filtering is intentionally local.
-          respond(response, [{
-              id: "source-group-id",
-              code: "ISRM-PA-OLD-2",
-              name: "旧采购功能组",
-              appModuleId: "source-app-id",
-              appModuleCode: "ISRM"
-            }, {
-              id: "source-other-id",
-              code: "OTHER-GROUP",
-              name: "其他功能组",
-              appModuleId: "source-app-id",
-              appModuleCode: "ISRM"
-          }]);
-          return;
-        }
-        respond(response, undefined, 404);
-      },
-      target: async (request, response) => {
-        const path = requestPath(request);
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, targetGroups);
-          return;
-        }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "ISRM" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/save")) {
-          const body = (await readBody(request)) as Record<string, unknown>;
+          const body = await readBody(request) as Record<string, unknown>;
+          savedBodies.push(body);
           const saved = {
             ...body,
-            id: "target-group-id",
-            appModuleCode: "ISRM"
+            id: typeof body.id === "string" ? body.id : `feature-${String(body.code).toLocaleLowerCase()}`
           };
-          targetGroups.push(saved);
-          respond(response, saved);
-          return;
+          const index = targetRows.findIndex((row) => row.code === body.code);
+          if (index >= 0) targetRows[index] = saved;
+          else targetRows.push(saved);
+          return respond(response, saved);
         }
-        respond(response, undefined, 404);
+        respond(response, [], 404);
       }
     });
-    const output = captureOutput();
+    const data = JSON.stringify([
+      { code: "A", name: "updated", appModuleCode: "BASIC" },
+      { code: "B", name: "created", appModuleCode: "BASIC" },
+      { code: "C", name: "created-disabled", appModuleCode: "BASIC", tenantCanUse: false }
+    ]);
+    captureOutput();
 
-    await createProgram(store).parseAsync(
-      [
-        "sync", "feature-group",
-        "--source", "source",
-        "--target", "target",
-        "--code", "ISRM-PA-OLD-2",
-        "--apply"
-      ],
-      { from: "user" }
-    );
+    await createProgram(store).parseAsync([
+      "resource", "write", "feature", "--env", "target", "--data", data, "--apply"
+    ], { from: "user" });
 
-    expect(sourceRequestPath).toContain("/featureGroup/findAll");
-    const result = JSON.parse(output.text());
-    expect(result.resource).toBe("feature-group");
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 0 });
-    expect(result.changes).toHaveLength(1);
-    expect(result.changes[0].key).toBe("ISRM-PA-OLD-2");
-    expect(result.applied).toBe(true);
-    expect(result.verified).toBe(true);
-    expect(targetGroups[0]).toMatchObject({
-      code: "ISRM-PA-OLD-2",
-      name: "旧采购功能组",
-      appModuleId: "target-app-id"
+    expect(savedBodies[0]).toMatchObject({
+      code: "A", url: "/existing", canMenu: true, mobileUse: true,
+      tenantCanUse: false, specialProjectId: "project-1"
     });
-    expect(targetGroups[0]?.appModuleId).not.toBe("source-app-id");
+    expect(savedBodies[1]).toMatchObject({ code: "B", tenantCanUse: true });
+    expect(savedBodies[2]).toMatchObject({ code: "C", tenantCanUse: false });
   });
 
-  it("sync --apply 写入后重新查询验证", async () => {
-    const targetFeatures: Array<Record<string, unknown>> = [];
-    let savedBody: Record<string, unknown> | undefined;
-    const { store } = await createFixtureServer({
-      source: async (request, response) => {
-        if (requestPath(request).endsWith("/feature/findByPage")) {
-          respond(response, {
-            rows: [
-              {
-                id: "source-id",
-                code: "NEW_FEATURE",
-                name: "新功能",
-                featureType: "Operate",
-                canMenu: false,
-                tenantCanUse: true,
-                mobileUse: false,
-                appModuleCode: "BASIC"
-              }
-            ],
-            total: 1
-          });
-          return;
-        }
-        respond(response, undefined, 404);
+  it("syncs serial-number by composite key, strips source IDs, blocks invalid records, and stays idempotent", async () => {
+    const validItem = {
+      id: "source-item", configId: "source-config", elementName: "流水号",
+      elementCode: "SERIAL_CODE", elementValue: "5", isolation: false,
+      linkCharacter: "EMPTY", sort: 0
+    };
+    const sourceRows = [
+      {
+        id: "source-a", entityClassName: "com.example.A", tenantCode: "global",
+        configType: "CODE_TYPE", name: "A", returnStrategy: "REPEAT", configItem: [validItem]
       },
+      {
+        id: "source-b", entityClassName: "com.example.B", tenantCode: "global",
+        configType: "CODE_TYPE", name: "B", configItem: []
+      }
+    ];
+    const targetRows: Array<Record<string, unknown>> = [];
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const { store } = await createFixtureServer({
+      source: (request, response) => requestPath(request).endsWith("/serialNumberConfig/findByPage")
+        ? respond(response, { rows: sourceRows })
+        : respond(response, [], 404),
       target: async (request, response) => {
         const path = requestPath(request);
-        if (path.endsWith("/feature/findByPage")) {
-          respond(response, { rows: targetFeatures, total: targetFeatures.length });
-          return;
+        if (path.endsWith("/serialNumberConfig/findByPage")) return respond(response, { rows: targetRows });
+        if (path.endsWith("/serialNumberConfig/save")) {
+          const body = await readBody(request) as Record<string, unknown>;
+          savedBodies.push(body);
+          const saved = { ...body, id: "target-a" };
+          targetRows.splice(0, targetRows.length, saved);
+          return respond(response, saved);
         }
-        if (path.endsWith("/appModule/findAll")) {
-          respond(response, [{ id: "target-app-id", code: "BASIC" }]);
-          return;
-        }
-        if (path.endsWith("/featureGroup/findAll")) {
-          respond(response, []);
-          return;
-        }
-        if (path.endsWith("/feature/save")) {
-          savedBody = (await readBody(request)) as Record<string, unknown>;
-          const saved = { ...savedBody, id: "target-id" };
-          targetFeatures.push(saved);
-          respond(response, saved);
-          return;
-        }
-        respond(response, undefined, 404);
+        respond(response, [], 404);
       }
     });
     const output = captureOutput();
 
-    await createProgram(store).parseAsync(
-      [
-        "sync",
-        "feature",
-        "--source",
-        "source",
-        "--target",
-        "target",
-        "--apply"
-      ],
-      { from: "user" }
-    );
+    await createProgram(store).parseAsync([
+      "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" });
 
-    const result = JSON.parse(output.text());
-    expect(result.applied).toBe(true);
-    expect(result.verified).toBe(true);
-    expect(savedBody).toMatchObject({
-      code: "NEW_FEATURE",
-      appModuleId: "target-app-id"
-    });
+    const first = JSON.parse(output.text());
+    expect(first.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(first.skippedBlocked).toBe(1);
+    expect(first.blockingIssues[0]).toMatchObject({ resource: "serial-number", field: "configItem" });
+    expect(savedBodies[0]).not.toHaveProperty("id");
+    expect(savedBodies[0]).toMatchObject({ tenantCode: "global", returnStrategy: "REPEAT" });
+    const savedItems = savedBodies[0]!.configItem as Array<Record<string, unknown>>;
+    expect(savedItems[0]).not.toHaveProperty("id");
+    expect(savedItems[0]).not.toHaveProperty("configId");
+
+    output.clear();
+    await createProgram(store).parseAsync([
+      "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" });
+    expect(JSON.parse(output.text()).summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 1 });
+    expect(savedBodies).toHaveLength(1);
   });
 
-  it("迁移前先校验源和目标租户，任一不满足时不发起远程请求", async () => {
-    let sourceRequestCount = 0;
-    let targetRequestCount = 0;
+  it("rejects source serial-number records that map to one target composite key", async () => {
+    const item = [{
+      elementName: "流水号", elementCode: "SERIAL_CODE", elementValue: "5",
+      isolation: false, linkCharacter: "EMPTY", sort: 0
+    }];
+    let saves = 0;
     const { store } = await createFixtureServer({
-      source: (_request, response) => {
-        sourceRequestCount += 1;
-        respond(response, { rows: [], total: 0 });
-      },
-      target: (_request, response) => {
-        targetRequestCount += 1;
-        respond(response, { rows: [], total: 0 });
+      source: (request, response) => requestPath(request).endsWith("/serialNumberConfig/findByPage")
+        ? respond(response, { rows: [
+            { entityClassName: "com.example.Order", tenantCode: "tenant-a", configItem: item },
+            { entityClassName: "com.example.Order", tenantCode: "tenant-b", configItem: item }
+          ] })
+        : respond(response, [], 404),
+      target: (request, response) => {
+        if (requestPath(request).endsWith("/serialNumberConfig/save")) saves += 1;
+        respond(response, { rows: [] });
       }
     });
 
-    await store.update((config) => {
-      config.environments.target!.tenantCode = "tenant-a";
+    await expect(createProgram(store).parseAsync([
+      "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" })).rejects.toThrow("源环境记录映射后业务唯一键重复");
+    expect(saves).toBe(0);
+  });
+
+  it("maps feature-group dependencies by code and never copies source IDs", async () => {
+    const targetRows: Array<Record<string, unknown>> = [];
+    let savedBody: Record<string, unknown> | undefined;
+    const { store } = await createFixtureServer({
+      source: (request, response) => requestPath(request).endsWith("/featureGroup/findAll")
+        ? respond(response, [{
+            id: "source-group", code: "GROUP", name: "Group",
+            appModuleId: "source-module", appModuleCode: "BASIC"
+          }])
+        : respond(response, [], 404),
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/featureGroup/findAll")) return respond(response, targetRows);
+        if (path.endsWith("/appModule/findAll")) return respond(response, [{ id: "target-module", code: "BASIC" }]);
+        if (path.endsWith("/featureGroup/save")) {
+          savedBody = await readBody(request) as Record<string, unknown>;
+          const saved = { ...savedBody, id: "target-group", appModuleCode: "BASIC" };
+          targetRows.push(saved);
+          return respond(response, saved);
+        }
+        respond(response, [], 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync([
+      "resource", "sync", "feature-group", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" });
+
+    expect(savedBody).toEqual({ code: "GROUP", name: "Group", appModuleId: "target-module" });
+    expect(JSON.parse(output.text())).toMatchObject({ applied: true, verified: true });
+  });
+
+  it("uses the app-module create default without inventing unrelated fields", async () => {
+    const targetRows: Array<Record<string, unknown>> = [];
+    let savedBody: Record<string, unknown> | undefined;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => respond(response, []),
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/appModule/findAll")) return respond(response, targetRows);
+        if (path.endsWith("/appModule/save")) {
+          savedBody = await readBody(request) as Record<string, unknown>;
+          const saved = { ...savedBody, id: "module-order" };
+          targetRows.push(saved);
+          return respond(response, saved);
+        }
+        respond(response, [], 404);
+      }
+    });
+    captureOutput();
+
+    await createProgram(store).parseAsync([
+      "resource", "write", "app-module", "--env", "target", "--data",
+      JSON.stringify({ code: "ORDER", name: "订单", remark: "订单服务" }), "--apply"
+    ], { from: "user" });
+
+    expect(savedBody).toEqual({ code: "ORDER", name: "订单", remark: "订单服务", rank: 1 });
+    expect(savedBody).not.toHaveProperty("description");
+    expect(savedBody).not.toHaveProperty("url");
+  });
+
+  it("completes the full diff, marks missing dependencies blocked, and applies only safe records", async () => {
+    const sourceRows = [
+      { code: "SAFE", name: "safe", appModuleCode: "BASIC" },
+      { code: "BLOCKED", name: "blocked", appModuleCode: "MISSING" }
+    ];
+    const targetRows: Array<Record<string, unknown>> = [];
+    let saves = 0;
+    const { store } = await createFixtureServer({
+      source: (request, response) => requestPath(request).endsWith("/feature/findByPage")
+        ? respond(response, { rows: sourceRows })
+        : respond(response, [], 404),
+      target: async (request, response) => {
+        const path = requestPath(request);
+        if (path.endsWith("/feature/findByPage")) return respond(response, { rows: targetRows });
+        if (path.endsWith("/appModule/findAll")) return respond(response, [{ id: "module-1", code: "BASIC" }]);
+        if (path.endsWith("/feature/save")) {
+          saves += 1;
+          const body = await readBody(request) as Record<string, unknown>;
+          const saved = { ...body, id: "feature-safe" };
+          targetRows.push(saved);
+          return respond(response, saved);
+        }
+        respond(response, [], 404);
+      }
+    });
+    const output = captureOutput();
+
+    await createProgram(store).parseAsync([
+      "resource", "sync", "feature", "--source", "source", "--target", "target", "--apply"
+    ], { from: "user" });
+
+    const result = JSON.parse(output.text());
+    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(result.missingDependencies).toEqual([
+      { resource: "app-module", identityField: "code", value: "MISSING", reason: "missing" }
+    ]);
+    expect(result.skippedBlocked).toBe(1);
+    expect(result.verified).toBe(true);
+    expect(saves).toBe(1);
+  });
+
+  it("stops after the first failed resource request without retrying or writing", async () => {
+    let requests = 0;
+    let saves = 0;
+    const { store } = await createFixtureServer({
+      source: (_request, response) => respond(response, []),
+      target: (request, response) => {
+        requests += 1;
+        if (requestPath(request).endsWith("/feature/save")) saves += 1;
+        respond(response, { error: "boom" }, 500);
+      }
     });
 
-    await expect(
-      createProgram(store).parseAsync(
-        [
-          "sync",
-          "feature",
-          "--source",
-          "source",
-          "--target",
-          "target"
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow("必须使用 global 租户");
-    expect(sourceRequestCount).toBe(0);
-    expect(targetRequestCount).toBe(0);
+    await expect(createProgram(store).parseAsync([
+      "resource", "write", "feature", "--env", "target", "--data",
+      JSON.stringify({ code: "A", name: "A", appModuleCode: "BASIC" }), "--apply"
+    ], { from: "user" })).rejects.toThrow("HTTP 500");
+    expect(requests).toBe(1);
+    expect(saves).toBe(0);
+  });
 
-    await store.update((config) => {
-      config.environments.source!.tenantCode = "tenant-a";
-      config.environments.target!.tenantCode = "global";
+  it("routes menu through its special handler and keeps BPM special capabilities discoverable", async () => {
+    const { store } = await createFixtureServer({
+      source: (_request, response) => respond(response, [{ code: "ROOT", name: "Root", children: [] }]),
+      target: (_request, response) => respond(response, [{ code: "ROOT", name: "Root", children: [] }])
     });
-    sourceRequestCount = 0;
-    targetRequestCount = 0;
-
-    await expect(
-      createProgram(store).parseAsync(
-        [
-          "sync",
-          "feature",
-          "--source",
-          "source",
-          "--target",
-          "target"
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow("必须使用 global 租户");
-    expect(sourceRequestCount).toBe(0);
-    expect(targetRequestCount).toBe(0);
+    const output = captureOutput();
+    await createProgram(store).parseAsync(["resource", "query", "menu", "--env", "source"], { from: "user" });
+    expect(JSON.parse(output.text()).items[0]).toMatchObject({ code: "ROOT", parentCode: null });
+    output.clear();
+    await createProgram().parseAsync(["resource", "describe", "bpm"], { from: "user" });
+    expect(output.text()).toContain('"handler": "bpm"');
   });
 });
 
-async function createFixtureServer(
-  handlers: Record<
-    "source" | "target",
-    (request: IncomingMessage, response: ServerResponse) => void | Promise<void>
-  >
-): Promise<{ store: ConfigStore }> {
+async function createFixtureServer(handlers: Record<"source" | "target", (request: IncomingMessage, response: ServerResponse) => void | Promise<void>>): Promise<{ store: ConfigStore }> {
   const urls: Record<string, string> = {};
   for (const name of ["source", "target"] as const) {
     const server = createServer((request, response) => void handlers[name](request, response));
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("测试服务器启动失败");
-    }
+    if (!address || typeof address === "string") throw new Error("测试服务器启动失败");
     urls[name] = `http://127.0.0.1:${address.port}`;
   }
-  const directory = await mkdtemp(join(tmpdir(), "eadp-resource-"));
+  const directory = await mkdtemp(join(tmpdir(), "eadp-resource-new-"));
   temporaryDirectories.push(directory);
   const store = new ConfigStore(join(directory, "config"));
-  await store.save({
-    currentEnvironment: "source",
-    environments: {
-      source: { baseUrl: urls.source!, token: "source-secret", tenantCode: "global" },
-      target: { baseUrl: urls.target!, token: "target-secret", tenantCode: "global" }
-    }
-  });
+  await store.save({ currentEnvironment: "source", environments: {
+    source: { baseUrl: urls.source!, token: "source-secret", tenantCode: "global" },
+    target: { baseUrl: urls.target!, token: "target-secret", tenantCode: "global" }
+  } });
   return { store };
 }
 
@@ -1361,35 +527,20 @@ function requestPath(request: IncomingMessage): string {
   return new URL(request.url ?? "/", "http://localhost").pathname;
 }
 
-function captureOutput(): { text: () => string } {
+function captureOutput(): { text: () => string; clear: () => void } {
   let value = "";
-  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-    value += String(chunk);
-    return true;
-  });
-  return { text: () => value };
-}
-
-function parseNdjson(value: string): Array<Record<string, any>> {
-  return value.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { value += String(chunk); return true; });
+  return { text: () => value, clear: () => { value = ""; } };
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.from(chunk));
-  }
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
   const source = Buffer.concat(chunks).toString("utf8");
   return source ? JSON.parse(source) : undefined;
 }
 
 function respond(response: ServerResponse, data: unknown, status = 200): void {
   response.writeHead(status, { "content-type": "application/json" });
-  response.end(
-    JSON.stringify({
-      success: status >= 200 && status < 300,
-      message: status >= 400 ? "not found" : "ok",
-      data
-    })
-  );
+  response.end(JSON.stringify({ success: status >= 200 && status < 300, message: status >= 400 ? "not found" : "ok", data }));
 }

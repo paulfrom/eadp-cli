@@ -1,7 +1,7 @@
 import type { ResolvedEnvironment } from "../config/resolve.js";
 import { CliError, errorMessage } from "../errors.js";
 import { sendRequest } from "../http/client.js";
-import { assertPathTenantScope } from "../tenant.js";
+import { assertPathTenantScope, assertTenantScope } from "../tenant.js";
 import { OperationLogStore, type AssignDataValuesAction, type AssignRelationsAction,
   type CreateEntityAction, type OperationAction, type OperationRecord } from "./store.js";
 
@@ -77,7 +77,7 @@ async function rollbackAction(action: OperationAction, env: ResolvedEnvironment,
 
 async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {
   const path = `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`;
-  assertPathTenantScope(env.config.tenantCode, path, env.name);
+  assertRollbackActionTenantScope(action, env);
   const current = await findEntity(action, env, timeoutMs);
   if (current === null) return false;
   await call(env, timeoutMs, action.deleteMethod, path);
@@ -88,6 +88,16 @@ async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironme
 }
 
 function assertRollbackActionTenantScope(action: OperationAction, env: ResolvedEnvironment): void {
+  if (action.type === "create-entity" && action.tenantPolicy) {
+    if (action.tenantPolicy === "any") {
+      if (!env.config.tenantCode) {
+        throw new CliError(`环境 ${env.name} 未记录 tenantCode，请重新执行 env add 验证 Token`);
+      }
+      return;
+    }
+    assertTenantScope(env.config.tenantCode, action.tenantPolicy, env.name);
+    return;
+  }
   const path = action.type === "create-entity"
     ? `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`
     : `${gateway(action.service)}/${action.resource}`;
@@ -159,7 +169,7 @@ async function call(env: ResolvedEnvironment, timeoutMs: number, method: string,
   return envelope.data;
 }
 
-function gateway(service: "sei-basic" | "sei-bpm"): string { return `/api-gateway/${service}`; }
+function gateway(service: string): string { return `/api-gateway/${service}`; }
 function result(record: OperationRecord, rolledBack: number, alreadyAbsent: number, verified: boolean): Record<string, unknown> {
   return { kind: "eadp.rollback.v1", operationId: record.id, environment: record.environment,
     command: record.command, status: record.status, rolledBack, alreadyAbsent, verified };

@@ -44,7 +44,7 @@ describe("rollback 命令", () => {
       dev: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "tenant-a" }
     }});
     await new OperationLogStore(directory).save({
-      version: 1, id: "copy-permission", command: "eadp assign permission",
+      version: 1, id: "copy-permission", command: "eadp permission assign permission",
       environment: "dev", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       status: "completed", actions: [{ id: "position-action", type: "assign-relations",
         service: "sei-basic", resource: "employeePosition", parentId: "employee-2",
@@ -106,7 +106,7 @@ describe("rollback 命令", () => {
     await new OperationLogStore(directory).save({
       version: 1,
       id: "feature-operation",
-      command: "eadp apply feature",
+      command: "eadp permission apply feature",
       environment: "dev",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -168,7 +168,7 @@ describe("rollback 命令", () => {
     await new OperationLogStore(directory).save({
       version: 1,
       id: "operation-1",
-      command: "eadp apply functional-role && eadp assign feature",
+      command: "eadp permission apply functional-role && eadp permission assign feature",
       environment: "dev",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -242,7 +242,7 @@ describe("rollback 命令", () => {
     await new OperationLogStore(directory).save({
       version: 1,
       id: "serial-operation",
-      command: "eadp sync serial-number",
+      command: "eadp resource sync serial-number",
       environment: "global",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -295,7 +295,7 @@ describe("rollback 命令", () => {
       dev: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "tenant-a" }
     }});
     await new OperationLogStore(directory).save({
-      version: 1, id: "conflict-operation", command: "eadp apply functional-role",
+      version: 1, id: "conflict-operation", command: "eadp permission apply functional-role",
       environment: "dev", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       status: "completed", actions: [{ id: "create-role", type: "create-entity", service: "sei-basic",
         resource: "featureRole", entityId: "role-1", expected: { code: "TEST_ROLE", name: "原名称" },
@@ -335,7 +335,7 @@ describe("rollback 命令", () => {
       global: { baseUrl: `http://127.0.0.1:${address.port}`, token: "secret", tenantCode: "global" }
     }});
     await new OperationLogStore(directory).save({
-      version: 1, id: "verify-delete-operation", command: "eadp apply feature",
+      version: 1, id: "verify-delete-operation", command: "eadp permission apply feature",
       environment: "global", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       status: "completed", actions: [{ id: "create-feature", type: "create-entity", service: "sei-basic",
         resource: "feature", entityId: "feature-1", expected: { code: "FEATURE_1" },

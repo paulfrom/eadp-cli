@@ -65,7 +65,7 @@ describe("统一权限命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["inspect", "permission", "users", "--feature", "BASIC_VIEW"],
+      ["permission", "inspect", "users", "--feature", "BASIC_VIEW"],
       { from: "user" }
     );
 
@@ -91,7 +91,7 @@ describe("统一权限命令", () => {
 
     await expect(
       createProgram(store).parseAsync(
-        ["verify", "--user", "lin"],
+        ["permission", "verify", "--user", "lin"],
         { from: "user" }
       )
     ).rejects.toThrow("必须使用非 global 租户");
@@ -135,8 +135,7 @@ describe("统一权限命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "inspect",
-        "permission",
+        "permission", "inspect",
         "functional",
         "--app",
         "BASIC",
@@ -189,7 +188,7 @@ describe("统一权限命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["inspect", "permission", "data", "--role", "ORG_ADMIN"],
+      ["permission", "inspect", "data", "--role", "ORG_ADMIN"],
       { from: "user" }
     );
 
@@ -236,7 +235,7 @@ describe("统一权限命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "verify",
+        "permission", "verify",
         "--user",
         "lin",
         "--user-id",
@@ -292,8 +291,7 @@ describe("统一权限命令", () => {
 
     const previewOutput = captureOutput();
     const args = [
-      "apply",
-      "functional-role",
+      "permission", "apply", "functional-role",
       "--role-code",
       "BASIC_READER",
       "--role-name",
@@ -389,8 +387,7 @@ describe("统一权限命令", () => {
     });
 
     const args = [
-      "apply",
-      "feature",
+      "permission", "apply", "feature",
       "--code",
       "BASIC_VIEW",
       "--name",
@@ -554,8 +551,7 @@ describe("统一权限命令", () => {
     });
 
     const args = [
-      "apply",
-      "feature",
+      "permission", "apply", "feature",
       "--code",
       "BASIC_EXPORT",
       "--name",
@@ -626,8 +622,7 @@ describe("统一权限命令", () => {
     const output = captureOutput();
     await createProgram(store).parseAsync(
       [
-        "apply",
-        "feature",
+        "permission", "apply", "feature",
         "--code",
         "BASIC_EXPORT_NO_URL",
         "--name",
@@ -677,8 +672,7 @@ describe("统一权限命令", () => {
     const previewOutput = captureOutput();
     await createProgram(store).parseAsync(
       [
-        "apply",
-        "feature",
+        "permission", "apply", "feature",
         "--code",
         "BASIC_EXPORT_OPERATE",
         "--name",
@@ -701,8 +695,7 @@ describe("统一权限命令", () => {
     const applyOutput = captureOutput();
     await createProgram(store).parseAsync(
       [
-        "apply",
-        "feature",
+        "permission", "apply", "feature",
         "--code",
         "BASIC_EXPORT_OPERATE",
         "--name",
@@ -736,13 +729,13 @@ describe("统一权限命令", () => {
     });
 
     const program = createProgram(store).exitOverride();
-    const apply = program.commands.find((command) => command.name() === "apply");
+    const permission = program.commands.find((command) => command.name() === "permission");
+    const apply = permission?.commands.find((command) => command.name() === "apply");
     apply?.commands.find((command) => command.name() === "feature")?.exitOverride();
     await expect(
       program.parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -763,7 +756,8 @@ describe("统一权限命令", () => {
   });
 
   it("feature apply 帮助只展示 Page 的 --url 示例并移除 --group-code", () => {
-    const apply = createProgram().commands.find((command) => command.name() === "apply");
+    const permission = createProgram().commands.find((command) => command.name() === "permission");
+    const apply = permission?.commands.find((command) => command.name() === "apply");
     const feature = apply?.commands.find((command) => command.name() === "feature");
     let help = "";
     const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -792,8 +786,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -809,8 +802,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -860,8 +852,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -913,8 +904,7 @@ describe("统一权限命令", () => {
       await expect(
         createProgram(store).parseAsync(
           [
-            "apply",
-            "feature",
+            "permission", "apply", "feature",
             "--code",
             "BASIC_VIEW",
             "--name",
@@ -961,8 +951,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -979,8 +968,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
-          "feature",
+          "permission", "apply", "feature",
           "--code",
           "BASIC_VIEW",
           "--name",
@@ -1043,8 +1031,7 @@ describe("统一权限命令", () => {
     });
     const output = captureOutput();
     const args = [
-      "assign",
-      "feature",
+      "permission", "assign", "feature",
       "--role",
       "ADMIN",
       "--feature",
@@ -1114,8 +1101,7 @@ describe("统一权限命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "assign",
-        "permission",
+        "permission", "assign", "permission",
         "--source-employee-code",
         "E1001",
         "--target-employee-code",
@@ -1193,8 +1179,7 @@ describe("统一权限命令", () => {
       }
     );
     const args = [
-      "assign",
-      "permission",
+      "permission", "assign", "permission",
       "--source-employee-code",
       "E1001",
       "--target-employee-code",
@@ -1248,8 +1233,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "assign",
-          "permission",
+          "permission", "assign", "permission",
           "--source-employee-code",
           "E1001",
           "--target-employee-code",
@@ -1277,8 +1261,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "assign",
-          "permission",
+          "permission", "assign", "permission",
           "--source-employee-name",
           "重名员工",
           "--target-employee-code",
@@ -1335,8 +1318,7 @@ describe("统一权限命令", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "assign",
-          "permission",
+          "permission", "assign", "permission",
           "--source-employee-code",
           "E1001",
           "--target-employee-code",
@@ -1381,8 +1363,7 @@ describe("统一权限命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "apply",
-      "data-role",
+      "permission", "apply", "data-role",
       "--role-code",
       "ORG_READER",
       "--role-name",
@@ -1459,8 +1440,7 @@ describe("统一权限命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "assign",
-      "data",
+      "permission", "assign", "data",
       "--role",
       "ORG_READER",
       "--auth-type",
@@ -1532,8 +1512,7 @@ describe("统一权限命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "assign",
-      "role",
+      "permission", "assign", "role",
       "--subject-type",
       "user",
       "--subject",
@@ -1582,7 +1561,7 @@ describe("统一权限命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["verify", "--employee-code", "E1001"],
+      ["permission", "verify", "--employee-code", "E1001"],
       { from: "user" }
     );
 
@@ -1656,7 +1635,7 @@ describe("统一权限命令", () => {
 
     await createProgram(store).parseAsync(
       [
-        "verify",
+        "permission", "verify",
         "--employee-code",
         "20017267",
         "--menu",
@@ -1719,8 +1698,7 @@ describe("统一权限命令", () => {
       respond(response, undefined, 404);
     });
     const args = [
-      "revoke",
-      "role",
+      "permission", "revoke", "role",
       "--subject-type",
       "user",
       "--employee-code",

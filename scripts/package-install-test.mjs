@@ -78,13 +78,11 @@ try {
       expected: [
         "EADP 多环境 API 命令行工具",
         "inspect",
-        "query",
         "call",
-        "apply",
-        "assign",
-        "revoke",
-        "sync",
-        "verify",
+        "permission",
+        "menu",
+        "bpm",
+        "resource",
         "rollback",
         "--timeout <ms>",
         "--compact",
@@ -104,31 +102,31 @@ try {
       expected: ["<id-or-method>", "[path]", "--dry-run"]
     },
     {
-      args: ["inspect", "bpm", "--help"],
+      args: ["bpm", "inspect", "--help"],
       expected: ["从真实项目代码发现 BPM 流程骨架及可选集成回调", "无需 YAML 或 BPM 登记册"]
     },
     {
-      args: ["inspect", "permission", "functional", "--help"],
+      args: ["permission", "inspect", "functional", "--help"],
       expected: ["汇总应用、功能项、菜单、角色组和功能角色"]
     },
     {
-      args: ["inspect", "permission", "users", "--help"],
+      args: ["permission", "inspect", "users", "--help"],
       expected: ["最终有效权限", "--feature <code>"]
     },
     {
-      args: ["query", "--help"],
-      expected: ["--entity-class <name>", "CODE_TYPE", "query menu"]
+      args: ["resource", "query", "--help"],
+      expected: ["按资源契约完整查询", "--env <env>", "分页自动聚合"]
     },
     {
-      args: ["apply", "menu", "--help"],
+      args: ["menu", "create", "--help"],
       expected: ["--parent-code <code>", "--feature-code <code>", "--apply", "operationId"]
     },
     {
-      args: ["apply", "functional-role", "--help"],
+      args: ["permission", "apply", "functional-role", "--help"],
       expected: ["功能角色代码", "--apply"]
     },
     {
-      args: ["apply", "feature", "--help"],
+      args: ["permission", "apply", "feature", "--help"],
       expected: [
         "--code <code>",
         "--app <code-or-name-or-id>",
@@ -141,11 +139,11 @@ try {
       ]
     },
     {
-      args: ["assign", "role", "--help"],
+      args: ["permission", "assign", "role", "--help"],
       expected: ["授权主体类型", "--role-type"]
     },
     {
-      args: ["assign", "permission", "--help"],
+      args: ["permission", "assign", "permission", "--help"],
       expected: [
         "复制用户权限",
         "--source-employee-code",
@@ -156,28 +154,22 @@ try {
       ]
     },
     {
-      args: ["revoke", "role", "--help"],
+      args: ["permission", "revoke", "role", "--help"],
       expected: ["授权主体类型", "--role-type"]
     },
     {
-      args: ["verify", "--help"],
+      args: ["permission", "verify", "--help"],
       expected: ["按账号、员工号或员工姓名回查角色", "--employee-code", "--menu"]
     },
     {
-      args: ["sync", "--help"],
+      args: ["resource", "sync", "--help"],
       expected: [
-        "注册资源名",
-        "feature-group",
-        "sync menu",
+        "复用 compare change plan",
+        "<name>",
         "--source",
         "--target",
-        "--code <code>",
         "--apply",
-        "ConfigType: CODE_TYPE, BAR_TYPE",
-        "CycleStrategy: MAX_CYCLE, DAY_CYCLE, MONTH_CYCLE, YEAR_CYCLE",
-        "ReturnStrategy: NEW, REPEAT, PATCH",
-        "LinkCharacter: EMPTY, DASH, DOT, PIPE, COLON",
-        "DefaultElement: FIXED_CODE, DATE_CODE, SERIAL_CODE"
+        "blocked"
       ]
     },
     {
@@ -185,8 +177,12 @@ try {
       expected: ["<operation-id...>", "completedAt 从新到旧", "不要求 --apply"]
     },
     {
-      args: ["inspect", "resource", "feature-group"],
-      expected: ["eadp.resource.catalog.v1", "feature-group", "featureGroup", "code", "appModuleId"]
+      args: ["resource", "describe", "feature-group"],
+      expected: ["eadp.resource.contract.v1", "feature-group", "featureGroup", "code", "appModuleId"]
+    },
+    {
+      args: ["resource", "describe", "serial-number"],
+      expected: ["returnStrategy", "NEW", "REPEAT", "PATCH", "configItem[].linkCharacter"]
     },
     {
       args: ["skill", "--help"],

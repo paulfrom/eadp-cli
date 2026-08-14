@@ -12,7 +12,7 @@ import {
 import { inferProjectModuleName } from "../project/name.js";
 import { getRuntimeOptions } from "../runtime-options.js";
 import { assertTenantScope } from "../tenant.js";
-import type { VerbCommands } from "./verbs.js";
+import type { PermissionVerbCommands } from "./verbs.js";
 
 type NewOperationAction = OperationAction extends infer Action
   ? Action extends OperationAction
@@ -119,14 +119,13 @@ interface ApplyFeatureGroupOptions extends CommonOptions {
 
 export function registerPermissionCommands(
   commands: Pick<
-    VerbCommands,
+    PermissionVerbCommands,
     "inspect" | "apply" | "assign" | "revoke" | "verify"
   >,
   store: ConfigStore,
   root: Command
 ): void {
   const permission = commands.inspect
-    .command("permission")
     .description("查看功能权限、数据权限及用户最终权限");
 
   const functional = permission
@@ -142,8 +141,8 @@ export function registerPermissionCommands(
       "after",
       `
 示例：
-  eadp inspect permission functional
-  eadp inspect permission functional --app BASIC --role ADMIN`
+  eadp permission inspect functional
+  eadp permission inspect functional --app BASIC --role ADMIN`
     )
     .action(async (options: InspectOptions) => {
       const context = await createContext(store, options, root);
@@ -204,7 +203,7 @@ export function registerPermissionCommands(
       "after",
       `
 示例：
-  eadp inspect permission users --feature BASIC_VIEW --env dev
+  eadp permission inspect users --feature BASIC_VIEW --env dev
 
 逐个用户调用服务端最终权限判定，结果包含直接角色、岗位和岗位类别继承权限。`
     )
@@ -267,9 +266,9 @@ export function registerPermissionCommands(
       "after",
       `
 示例：
-  eadp apply feature --env global-dev --code BASIC_VIEW \\
+  eadp permission apply feature --env global-dev --code BASIC_VIEW \\
     --name 查看基础数据 --app BASIC --feature-type Page --url /basic/view
-  eadp apply feature --env global-dev --code BASIC_EXPORT \\
+  eadp permission apply feature --env global-dev --code BASIC_EXPORT \\
     --name 导出基础数据 --app BASIC --group BASIC_DATA \\
     --feature-type Operate --apply
 
@@ -295,9 +294,9 @@ export function registerPermissionCommands(
       "after",
       `
 示例：
-  eadp apply feature-group --env global-dev --app-code AMS \
+  eadp permission apply feature-group --env global-dev --app-code AMS \
     --code AMS_ORDER --name 订单功能组 --project D:/project/order
-  eadp apply feature-group --env global-dev --app-code AMS \
+  eadp permission apply feature-group --env global-dev --app-code AMS \
     --code AMS_ORDER --name 订单功能组 --apply
 
 应用模块按明确 code 唯一解析；缺失时从业务项目名称或代码注释推断不超过 8 个字的名称，
@@ -326,9 +325,9 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
       "after",
       `
 示例：
-  eadp apply functional-role --role-code BASIC_READER \\
+  eadp permission apply functional-role --role-code BASIC_READER \\
     --role-name 基础只读角色 --group BASIC_ROLE
-  eadp apply functional-role --role-code BASIC_READER \\
+  eadp permission apply functional-role --role-code BASIC_READER \\
     --role-name 基础只读角色 --group BASIC_ROLE --apply`
     )
     .action(async (options: ApplyRoleOptions) => {
@@ -376,7 +375,7 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
 
       const saved = await context.client.save("featureRole", desired);
       const operationId = action === "create"
-        ? await recordOperation(store, context.environment, "eadp apply functional-role", {
+        ? await recordOperation(store, context.environment, "eadp permission apply functional-role", {
             type: "create-entity",
             service: "sei-basic",
             resource: "featureRole",
@@ -423,9 +422,9 @@ rank 默认 1，并在同一次 --apply 中先创建应用模块、回查，再�
       "after",
       `
 示例：
-  eadp assign permission --env dev \\
+  eadp permission assign permission --env dev \\
     --source-employee-code E1001 --target-employee-code E1002
-  eadp assign permission --env dev \\
+  eadp permission assign permission --env dev \\
     --source-employee-name 张三 --target-employee-name 李四 --apply
 
 仅复制源员工直接分配的功能角色、数据角色和全部岗位；公共角色（功能/数据角色中存在
@@ -451,9 +450,9 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp assign feature --role BASIC_READER \\
+  eadp permission assign feature --role BASIC_READER \\
     --feature BASIC_VIEW --feature BASIC_EXPORT
-  eadp assign feature --role BASIC_READER \\
+  eadp permission assign feature --role BASIC_READER \\
     --feature BASIC_VIEW --feature BASIC_EXPORT --apply
 
 安全规则：只补充缺失功能项，不会移除角色已有权限。`
@@ -494,7 +493,7 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
           roleId,
           addedFeatureIds
         );
-        operationId = await recordOperation(store, context.environment, "eadp assign feature", {
+        operationId = await recordOperation(store, context.environment, "eadp permission assign feature", {
           type: "assign-relations",
           service: "sei-basic",
           resource: "featureRoleFeature",
@@ -557,8 +556,8 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp inspect permission data
-  eadp inspect permission data --role ORG_ADMIN
+  eadp permission inspect data
+  eadp permission inspect data --role ORG_ADMIN
 
 安全说明：不读取角色已分配的数据值，因为对应查询会自动删除远端失效关系。`
     )
@@ -609,9 +608,9 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp apply data-role --role-code ORG_READER \\
+  eadp permission apply data-role --role-code ORG_READER \\
     --role-name 组织只读角色 --group ORG_ROLE
-  eadp apply data-role --role-code ORG_READER \\
+  eadp permission apply data-role --role-code ORG_READER \\
     --role-name 组织只读角色 --group ORG_ROLE --apply`
     )
     .action(async (options: ApplyDataRoleOptions) => {
@@ -656,7 +655,7 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
 
       const saved = await context.client.save("dataRole", desired);
       const operationId = action === "create"
-        ? await recordOperation(store, context.environment, "eadp apply data-role", {
+        ? await recordOperation(store, context.environment, "eadp permission apply data-role", {
             type: "create-entity",
             service: "sei-basic",
             resource: "dataRole",
@@ -711,9 +710,9 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp assign data --role ORG_READER --auth-type ORG \\
+  eadp permission assign data --role ORG_READER --auth-type ORG \\
     --entity <组织ID>
-  eadp assign data --role ORG_READER --auth-type ORG \\
+  eadp permission assign data --role ORG_READER --auth-type ORG \\
     --entity <组织ID> --apply
 
 预览模式不会读取已分配值。正式执行会先后回查授权值，这些服务端查询可能自动清理
@@ -780,7 +779,7 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
           : { parentEntityId: options.parentEntityId })
       });
       const operationId = addedEntityIds.length > 0
-        ? await recordOperation(store, context.environment, "eadp assign data", {
+        ? await recordOperation(store, context.environment, "eadp permission assign data", {
             type: "assign-data-values",
             service: "sei-basic",
             resource: "dataRoleAuthTypeValue",
@@ -868,9 +867,9 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp assign role --subject-type user --subject lin \\
+  eadp permission assign role --subject-type user --subject lin \\
     --role-type functional --role BASIC_READER
-  eadp assign role --subject-type position --subject FIN_MANAGER \\
+  eadp permission assign role --subject-type position --subject FIN_MANAGER \\
     --role-type data --role ORG_READER --apply
 
 用户可按 account、员工号或员工姓名匹配；岗位和岗位类别可按 code 匹配。
@@ -926,7 +925,7 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
           subjectId,
           addedRoleIds
         );
-        operationId = await recordOperation(store, context.environment, "eadp assign role", {
+        operationId = await recordOperation(store, context.environment, "eadp permission assign role", {
           type: "assign-relations",
           service: "sei-basic",
           resource: relationResource,
@@ -1010,9 +1009,9 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp revoke role --subject-type user --employee-code E1001 \\
+  eadp permission revoke role --subject-type user --employee-code E1001 \\
     --role-type functional --role BASIC_READER
-  eadp revoke role --subject-type user --subject lin \\
+  eadp permission revoke role --subject-type user --subject lin \\
     --role-type data --role ORG_READER --apply
 
 安全规则：默认只预览；只移除明确列出的角色，不影响主体的其他角色。`
@@ -1135,12 +1134,12 @@ publicUserType）会跳过。默认只预览，--apply 只新增缺失关系，�
       "after",
       `
 示例：
-  eadp verify --user lin
-  eadp verify --employee-code E1001
-  eadp verify --employee-name 张三
-  eadp verify --employee-code E1001 --menu 租户管理
-  eadp verify --user lin --user-id <用户ID> --feature BASIC_VIEW
-  eadp verify --user lin --user-id <用户ID> \\
+  eadp permission verify --user lin
+  eadp permission verify --employee-code E1001
+  eadp permission verify --employee-name 张三
+  eadp permission verify --employee-code E1001 --menu 租户管理
+  eadp permission verify --user lin --user-id <用户ID> --feature BASIC_VIEW
+  eadp permission verify --user lin --user-id <用户ID> \\
     --entity-class com.example.Organization --data-feature BASIC_VIEW`
     )
     .action(async (options: VerifyOptions) => {
@@ -1292,7 +1291,7 @@ async function applyFeature(
   }
 
   const saved = await context.client.save("feature", desired);
-  const operationId = await recordOperation(store, context.environment, "eadp apply feature", {
+  const operationId = await recordOperation(store, context.environment, "eadp permission apply feature", {
     type: "create-entity",
     service: "sei-basic",
     resource: "feature",
@@ -1429,7 +1428,7 @@ async function applyFeatureGroup(
 
   const recorder = new OperationRecorder(
     new OperationLogStore(store.directory),
-    "eadp apply feature-group",
+    "eadp permission apply feature-group",
     context.environment
   );
   try {
@@ -1654,7 +1653,7 @@ async function assignPermission(
     if (options.apply && hasChanges) {
       recorder = new OperationRecorder(
         new OperationLogStore(store.directory),
-        "eadp assign permission",
+        "eadp permission assign permission",
         context.environment
       );
       for (const diff of diffs) {

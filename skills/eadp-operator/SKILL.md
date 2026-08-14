@@ -11,9 +11,11 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 
 1. Run `eadp --help`.
 2. Run `eadp env list` and use only environment names configured there.
-3. Run the relevant subcommand help before constructing a command.
-4. Commands output JSON by default; `eadp query` defaults to NDJSON and streams (`meta`, one `item`
-   per record, then `summary`); consume it line by line. For a single-line result, use `--output compact`:
+3. Run the relevant subcommand help before constructing a command. For ordinary resources, start with
+   `eadp resource list`, then `eadp resource describe <name>`.
+4. Commands output JSON by default. `eadp resource query` completes pagination and returns a structured
+   result with `items` and `total`; use `--output compact-ndjson` only when a low-token row stream is useful.
+   For a single-line result, use `--output compact`:
    `eadp --output compact <verb> ...`. For query results where low-token NDJSON is useful, use
    `--output compact-ndjson`.
 5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
@@ -21,8 +23,8 @@ Use the installed `eadp` CLI as the only execution layer. Never store, repeat, i
 `env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
 re-run `eadp env add` for that environment; do not infer it or edit the config directly.
 
-Do not use raw `eadp call <METHOD> <PATH>` when a dedicated `query`, `sync`, `inspect`,
-`apply`, `assign`, `revoke`, or `verify` command covers the operation.
+Do not use raw `eadp call <METHOD> <PATH>` when a dedicated `resource query`, `resource write`, `resource compare`,
+`resource sync`, `inspect`, `permission`, `bpm`, or `menu` command covers the operation.
 
 ## Resolve parameters before asking the user or acting
 
@@ -35,9 +37,10 @@ feature group, employee, role, source/target environment, date range, and depend
    Never infer a URL, Token, ID, code, environment, or source/target direction from history or examples.
 3. Query before asking for clarification whenever the current values can discover candidates. Use:
    - `eadp env list` for configured environments;
-   - `eadp query ...` for resources and feature/configuration items;
-   - `eadp sync ...` without `--apply` for read-only target/dependency comparison;
-   - `eadp inspect permission functional ...` and `eadp verify ...`
+   - `eadp resource query ...` for ordinary resources and feature/configuration items;
+   - `eadp resource compare ...` or `eadp resource sync ...` without `--apply` for read-only
+     target/dependency comparison;
+   - `eadp permission inspect functional ...` and `eadp permission verify ...`
      for roles, menus, features, employees, and effective permissions.
 4. If exactly one candidate is returned, show the resolved value and use it in the planned command.
 5. If multiple candidates are returned, show stable distinguishing fields such as environment name,
@@ -60,8 +63,9 @@ user to select one.
 
 ## Select one workflow
 
-Before previewing any workflow that can create a record or relation (`apply`, `assign`, or `sync`,
-including `sync --apply`), read [references/write-contracts.md](references/write-contracts.md) and enforce
+Before previewing any workflow that can create a record or relation (`resource write`, `permission apply`,
+`permission assign`, or `resource sync`,
+including `resource sync --apply`), read [references/write-contracts.md](references/write-contracts.md) and enforce
 its input and mapping gate. Then read the selected workflow reference; do not skip this gate for a
 sync that includes new records.
 
@@ -75,10 +79,10 @@ sync that includes new records.
 
 ### Creating a feature
 
-Use `eadp apply feature` for a new `sei-basic` feature item. Run `eadp apply feature --help`
+Use `eadp permission apply feature` for a new `sei-basic` feature item. Run `eadp permission apply feature --help`
 before constructing the command. The required selectors are `--code`, `--name`, `--app`
 (application module code, name, or ID), and `--feature-type` (`Operate`, `Business`, or `Page`).
-Optionally provide `--group` (feature-group code, name, or ID), `--group-code`, `--url`,
+Optionally provide `--group` (feature-group code, name, or ID), `--url`,
 `--can-menu`, `--tenant-can-use`, and `--mobile-use`.
 
 This workflow is limited to an environment whose recorded `tenantCode` is `global`. The command
@@ -93,7 +97,7 @@ explicit `eadp rollback <operationId>`.
 
 ### Creating a feature group and its application module
 
-Use `eadp apply feature-group --help` before constructing this command. Provide the feature-group
+Use `eadp permission apply feature-group --help` before constructing this command. Provide the feature-group
 `--code`, `--name`, and an explicit application-module code through `--app-code`. The command is global-only and defaults to a
 preview. It first queries the feature-group by code; an existing match returns `action: "unchanged"`
 without querying or creating an application module. For a missing group, the module code is matched
@@ -112,6 +116,27 @@ environment.
 
 Load only the selected workflow unless the request combines workflows.
 
+### Ordinary resource contract workflow
+
+Use the resource-first grammar:
+
+```text
+eadp resource list
+eadp resource describe <name>
+eadp resource query <name> --env <env>
+eadp resource write <name> --env <env> --data '<json>' [--apply]
+eadp resource compare <name> --source <env> --target <env>
+eadp resource sync <name> --source <env> --target <env> [--apply]
+```
+
+`write` and `sync` default to preview and never delete. Their shared plan uses only `create`,
+`update`, `unchanged`, and `blocked`; record-level missing dependencies are reported in the full
+plan and skipped by `--apply`. An ordinary update preserves target writable fields omitted from the
+input; an explicit value is required to change them, and create defaults never overwrite an existing
+target. A transport/API failure stops immediately and is never retried.
+`compare` is read-only. Before either environment is read, validate both recorded tenant policies;
+after every applied write, require the CLI's post-write verification to be true.
+
 ## Global safety rules
 
 - Resolve relative dates into explicit year-month or timestamps. Ask when the year or timezone changes the result.
@@ -121,7 +146,7 @@ Load only the selected workflow unless the request combines workflows.
 - For cross-environment operations, preserve source/target direction exactly as requested.
 - Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
   Use it for every remote operation on CLI resources `app-module`, `menu`, `feature`, `feature-group`,
-  and `serial-number`, including query, apply, sync, generic `call`, and rollback.
+  and `serial-number`, including query, write, sync, generic `call`, and rollback.
   Use a non-`global` environment for permission and position configuration/assignment, user queries,
   BPM configuration, and all other operations. The generic `call` command enforces
   the same path policy and must not be used to bypass it.

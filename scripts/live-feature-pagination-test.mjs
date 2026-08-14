@@ -14,7 +14,7 @@ if (!Number.isSafeInteger(expectedCount) || expectedCount < 1) {
 
 const query = spawnSync(
   executable,
-  ["--compact", "query", "feature", "--env", environmentName],
+  ["--compact", "resource", "query", "feature", "--env", environmentName],
   {
     encoding: "utf8",
     shell: process.platform === "win32",
@@ -28,16 +28,13 @@ if (query.status !== 0) {
   );
 }
 
-const events = query.stdout.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-const meta = events.find((event) => event.kind === "eadp.resource.query.meta.v1");
-const items = events
-  .filter((event) => event.kind === "eadp.resource.query.item.v1")
-  .map((event) => event.item);
-const summary = events.find((event) => event.kind === "eadp.resource.query.summary.v1");
+const result = JSON.parse(query.stdout.trim());
+const items = Array.isArray(result.items) ? result.items : [];
+const summary = result;
 const uniqueIds = new Set(items.map((item) => item?.id).filter(Boolean));
 
-if (meta?.environment !== environmentName) {
-  throw new Error(`查询环境不符：期望 ${environmentName}，实际 ${meta?.environment}`);
+if (result?.environment !== environmentName) {
+  throw new Error(`查询环境不符：期望 ${environmentName}，实际 ${result?.environment}`);
 }
 if (items.length !== expectedCount) {
   throw new Error(`功能项数量不符：期望 ${expectedCount}，实际 ${items.length}`);

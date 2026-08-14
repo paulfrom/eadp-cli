@@ -35,30 +35,25 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["query", "menu", "--env", "source", "--quick", "申请"],
+      ["resource", "query", "menu", "--env", "source", "--quick", "申请"],
       { from: "user" }
     );
 
-    const lines = parseNdjson(output.text());
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatchObject({ kind: "eadp.resource.query.meta.v1", resource: "menu" });
-    expect(lines[1]).toMatchObject({
-      kind: "eadp.resource.query.item.v1",
-      item: { code: "PURCHASE_APPLY", parentCode: "PURCHASE" }
-    });
-    expect(lines[2]).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
+    const result = JSON.parse(output.text());
+    expect(result).toMatchObject({ kind: "eadp.resource.query.v1", resource: "menu", total: 1 });
+    expect(result.items[0]).toMatchObject({ code: "PURCHASE_APPLY", parentCode: "PURCHASE" });
   });
 
-  it("apply menu 帮助明确菜单 code 最多20个字符", () => {
-    const apply = createProgram().commands.find((command) => command.name() === "apply");
-    const menu = apply?.commands.find((command) => command.name() === "menu");
+  it("menu create 帮助明确菜单 code 最多20个字符", () => {
+    const menu = createProgram().commands.find((command) => command.name() === "menu");
+    const create = menu?.commands.find((command) => command.name() === "create");
     let help = "";
     const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       help += String(chunk);
       return true;
     });
 
-    menu?.outputHelp();
+    create?.outputHelp();
 
     output.mockRestore();
     expect(help).toContain("最多20个字符");
@@ -78,7 +73,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync([
-      "--compact", "apply", "menu", "--env", "source", "--name", "边界菜单", "--code", code
+      "--compact", "menu", "create", "--env", "source", "--name", "边界菜单", "--code", code
     ], { from: "user" });
 
     expect(sourceRequests).toBe(1);
@@ -104,7 +99,7 @@ describe("菜单命令", () => {
     });
 
     await expect(createProgram(store).parseAsync([
-      "--compact", "apply", "menu", "--env", "source", "--name", "超长菜单", "--code", code, "--apply"
+      "--compact", "menu", "create", "--env", "source", "--name", "超长菜单", "--code", code, "--apply"
     ], { from: "user" })).rejects.toThrow("菜单 code 最多20个字符");
     expect(remoteRequests).toBe(0);
   });
@@ -152,7 +147,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync([
-      "--compact", "apply", "menu", "--env", "source",
+      "--compact", "menu", "create", "--env", "source",
       "--name", "采购申请", "--code", "PURCHASE_APPLY",
       "--parent-code", "PURCHASE", "--feature-code", "PURCHASE_APPLY",
       "--rank", "10", "--apply"
@@ -236,7 +231,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync([
-      "--compact", "sync", "menu", "--source", "source", "--target", "target",
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target",
       "--code", "PURCHASE", "--apply"
     ], { from: "user" });
 
@@ -279,7 +274,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["--compact", "sync", "menu", "--source", "source", "--target", "target"],
+      ["--compact", "resource", "sync", "menu", "--source", "source", "--target", "target"],
       { from: "user" }
     );
 
@@ -329,7 +324,7 @@ describe("菜单命令", () => {
     });
 
     await expect(createProgram(store).parseAsync([
-      "--compact", "sync", "menu", "--source", "source", "--target", "target", "--apply"
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--apply"
     ], { from: "user" })).rejects.toThrow("菜单 code 最多20个字符");
     expect(targetSaveRequests).toBe(0);
   });
@@ -385,7 +380,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["--compact", "sync", "menu", "--source", "source", "--target", "target", "--apply"],
+      ["--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--apply"],
       { from: "user" }
     );
 
@@ -434,7 +429,7 @@ describe("菜单命令", () => {
     const output = captureOutput();
 
     await createProgram(store).parseAsync(
-      ["--compact", "sync", "menu", "--source", "source", "--target", "target", "--apply"],
+      ["--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--apply"],
       { from: "user" }
     );
 

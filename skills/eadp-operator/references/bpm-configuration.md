@@ -1,6 +1,7 @@
 # BPM configuration
 
-Use this workflow for `eadp inspect bpm`, `eadp apply bpm`, and `eadp sync bpm`.
+Use this workflow for `eadp bpm inspect`, `eadp bpm configure`, and the BPM special resource handler
+`eadp resource compare/sync bpm --flow <code-or-name>`.
 
 ## Route BPM intent before generic resources
 
@@ -10,17 +11,18 @@ Use this workflow for `eadp inspect bpm`, `eadp apply bpm`, and `eadp sync bpm`.
 - Parse “把开发环境的bpm采购申请配置迁移到ead环境” as:
   source environment = 开发环境, target environment = ead环境, BPM flow selector = 采购申请.
   Resolve both environment names with `eadp env list` and the non-global BPM tenant rule.
-- Use the dedicated command and never substitute `sync feature`, another resource, or a raw request:
+- Use the dedicated command and never substitute `resource sync feature`, another resource, or a raw request:
 
 ```text
-eadp sync bpm --source 开发环境 --target ead环境 --flow 采购申请
+eadp resource compare bpm --source 开发环境 --target ead环境 --flow 采购申请
+eadp resource sync bpm --source 开发环境 --target ead环境 --flow 采购申请 --apply
 ```
 
 - Resolve `--flow` against the source flow code, flow name, Entity code, or Entity name. Require one
   exact match; stop on zero or multiple matches.
 - Require both environments to be non-global before reading source or target BPM data.
 - Preview without `--apply`. After authorization, repeat with `--apply` and require `verified: true`.
-- `sync bpm` does not accept time filters. Select exactly one source flow with `--flow`; never add
+- `resource compare/sync bpm` does not accept time filters. Select exactly one source flow with `--flow`; never add
   `--created-in`, `--from`, `--to`, or `--time-field`.
 - Synchronize the business module, entity, pages, integration interfaces, flow type, and missing
   entity-page/entity-interface relations. Map dependencies to target IDs; never copy source IDs.
@@ -31,7 +33,7 @@ eadp sync bpm --source 开发环境 --target ead环境 --flow 采购申请
 
 ## Select and apply a project flow
 
-- For `apply bpm`, resolve `--flow` only as an Entity fully qualified class name or an existing remote
+- For `bpm configure`, resolve `--flow` only as an Entity fully qualified class name or an existing remote
   BPM flow-type `code`. Never match a flow name or Entity display name.
 - Query remote flow types and business entities read-only before applying. A remote flow-type code
   must map through `businessEntityId` to exactly one Entity fully qualified class name in project code.

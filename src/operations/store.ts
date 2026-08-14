@@ -9,7 +9,7 @@ type ActionStatus = "applied" | "rolled-back" | "not-applied";
 
 interface ActionBase {
   id: string;
-  service: "sei-basic" | "sei-bpm";
+  service: string;
   resource: string;
   status: ActionStatus;
 }
@@ -19,6 +19,7 @@ export interface CreateEntityAction extends ActionBase {
   entityId: string;
   expected: Record<string, unknown>;
   deleteMethod: "DELETE" | "POST";
+  tenantPolicy?: "any" | "global" | "non-global";
 }
 
 export interface AssignRelationsAction extends ActionBase {
@@ -224,12 +225,6 @@ export function isValidCompletedAt(value: unknown): value is string {
   }
 }
 
-const basicEntities = new Set([
-  "appModule", "featureRole", "dataRole", "feature", "featureGroup", "menu", "serialNumberConfig"
-]);
-const bpmEntities = new Set([
-  "conBusinessModule", "conBusinessEntity", "conPage", "conInterface", "conFlowType"
-]);
 const basicRelations = new Set([
   "featureRoleFeature", "userFeatureRole", "userDataRole", "positionFeatureRole",
   "positionDataRole", "positionCategoryFeatureRole", "employeePosition"
@@ -242,24 +237,26 @@ function validateAction(value: unknown): asserts value is OperationAction {
   if (typeof action.id !== "string" || !["applied", "rolled-back", "not-applied"].includes(action.status)) {
     throw new CliError("操作日志动作格式无效");
   }
-  const serviceResources = action.service === "sei-basic"
-    ? { entities: basicEntities, relations: basicRelations }
+  if (!isSafePathSegment(action.service) || !isSafePathSegment(action.resource)) {
+    throw new CliError("操作日志服务或资源无效");
+  }
+  const relationResources = action.service === "sei-basic"
+    ? basicRelations
     : action.service === "sei-bpm"
-      ? { entities: bpmEntities, relations: bpmRelations }
+      ? bpmRelations
       : null;
-  if (!serviceResources) throw new CliError("操作日志服务无效");
   if (action.type === "create-entity") {
-    const validMethod = action.resource === "serialNumberConfig"
-      ? action.deleteMethod === "POST"
-      : action.deleteMethod === "DELETE";
-    if (!serviceResources.entities.has(action.resource) || typeof action.entityId !== "string" ||
-        !isRecord(action.expected) || !validMethod) {
+    const validTenantPolicy = action.tenantPolicy === undefined ||
+      ["any", "global", "non-global"].includes(action.tenantPolicy);
+    if (typeof action.entityId !== "string" || action.entityId.trim() === "" ||
+        !isRecord(action.expected) || !["DELETE", "POST"].includes(action.deleteMethod) ||
+        !validTenantPolicy) {
       throw new CliError("操作日志新增动作格式无效");
     }
     return;
   }
   if (action.type === "assign-relations") {
-    if (!serviceResources.relations.has(action.resource) || typeof action.parentId !== "string" ||
+    if (!relationResources || !relationResources.has(action.resource) || typeof action.parentId !== "string" ||
         !isStringArray(action.childIds)) {
       throw new CliError("操作日志分配动作格式无效");
     }
@@ -271,6 +268,10 @@ function validateAction(value: unknown): asserts value is OperationAction {
       (action.parentEntityId !== undefined && typeof action.parentEntityId !== "string")) {
     throw new CliError("操作日志数据权限动作格式无效");
   }
+}
+
+function isSafePathSegment(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

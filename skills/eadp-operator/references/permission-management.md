@@ -10,17 +10,17 @@ EADP grants permissions through functional or data roles. Resolve the requested 
 
 ## Resolve the requested permission
 
-1. Run `eadp inspect permission --help`.
+1. Run `eadp permission inspect --help`.
 2. Inspect functional roles with:
 
 ```text
-eadp inspect permission functional --env A
+eadp permission inspect functional --env A
 ```
 
 3. Inspect data roles with:
 
 ```text
-eadp inspect permission data --env A
+eadp permission inspect data --env A
 ```
 
 数据角色目录没有 `dataRole/findByPage`。CLI 先调用
@@ -45,13 +45,13 @@ Employee name duplicates must stop the workflow. Position categories do not supp
 Preview:
 
 ```text
-eadp assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
+eadp permission assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
 ```
 
 After authorization:
 
 ```text
-eadp assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
+eadp permission assign role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
 ```
 
 `assign` only adds missing requested roles.
@@ -66,7 +66,7 @@ eadp assign role --env A --subject-type user --employee-code E1001 --role-type f
 
 ## Copy direct employee permissions
 
-Use `eadp assign permission` to compare one employee with another in the same
+Use `eadp permission assign permission` to compare one employee with another in the same
 non-global tenant environment. It copies only directly assigned functional
 roles, data roles, and all positions. Public roles are identified by a
 non-null/non-undefined `publicUserType` and are reported under `skippedPublic`;
@@ -77,14 +77,14 @@ default.
 Preview the complete difference:
 
 ```text
-eadp assign permission --env A \\
+eadp permission assign permission --env A \\
   --source-employee-code E1001 --target-employee-code E1002
 ```
 
 Apply the missing relations after reviewing the preview:
 
 ```text
-eadp assign permission --env A \\
+eadp permission assign permission --env A \\
   --source-employee-name 张三 --target-employee-name 李四 --apply
 ```
 
@@ -100,13 +100,13 @@ one rollback-capable `operationId` covering the relation resources.
 Preview:
 
 ```text
-eadp revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
+eadp permission revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER
 ```
 
 After authorization:
 
 ```text
-eadp revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
+eadp permission revoke role --env A --subject-type user --employee-code E1001 --role-type functional --role BASIC_READER --apply
 ```
 
 `revoke` only removes the explicitly requested roles. Before applying, explain that permissions inherited from positions, position categories, projects, or other roles may remain effective.
@@ -119,7 +119,7 @@ eadp revoke role --env A --subject-type user --employee-code E1001 --role-type f
 After either change:
 
 ```text
-eadp verify --env A --employee-code E1001
+eadp permission verify --env A --employee-code E1001
 ```
 
 Require the mutation result to report `verified: true`, then use `verify` to show the employee’s resulting effective roles. For a named feature, add `--feature FEATURE_CODE`.

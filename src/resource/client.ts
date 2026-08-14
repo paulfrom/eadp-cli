@@ -1,6 +1,7 @@
 import { CliError } from "../errors.js";
 import { sendRequest } from "../http/client.js";
 import { iteratePages } from "../http/pagination.js";
+import type { ResourceContract } from "./contracts.js";
 
 export type ResourceRecord = Record<string, unknown>;
 
@@ -14,6 +15,12 @@ export interface ResourceFilter {
 export interface ResourcePage {
   rows: ResourceRecord[];
   total: number;
+}
+
+export interface ContractQueryOptions {
+  filters?: ResourceFilter[];
+  quickSearchValue?: string;
+  quickSearchProperties?: string[];
 }
 
 export class ResourceClient {
@@ -42,6 +49,70 @@ export class ResourceClient {
       rows.push(...page);
     }
     return { rows, total: rows.length };
+  }
+
+  /** Read a resource through its declarative contract. */
+  async queryContract(
+    contract: ResourceContract,
+    options: ContractQueryOptions = {}
+  ): Promise<ResourceRecord[]> {
+    if (contract.read === "findAll") {
+      const data = await this.requestContract(contract, contract.query, undefined);
+      const rows = extractRows(data);
+      return filterRecords(rows, options.filters, options.quickSearchValue);
+    }
+    if (contract.read === "tree") {
+      const data = await this.requestContract(contract, contract.query, undefined);
+      const rows = extractRows(data);
+      return filterRecords(rows, options.filters, options.quickSearchValue);
+    }
+    if (contract.read === "handler") {
+      throw new CliError(`资源 ${contract.id} 需要专用查询处理器`);
+    }
+    const pagination = contract.pagination;
+    if (!pagination) {
+      throw new CliError(`资源契约 ${contract.id} 缺少分页定义`);
+    }
+    const rows: ResourceRecord[] = [];
+    const maxPages = 10_000;
+    for (let offset = 0; offset < maxPages; offset += 1) {
+      const page = pagination.startPage + offset;
+      const body: ResourceRecord = {
+        [pagination.pageField]: {
+          [pagination.pageNumberField]: page,
+          [pagination.pageSizeField]: pagination.pageSize
+        },
+        filters: options.filters ?? [],
+        sortOrders: [],
+        ...(options.quickSearchValue === undefined
+          ? {}
+          : { quickSearchValue: options.quickSearchValue }),
+        ...(options.quickSearchProperties === undefined
+          ? {}
+          : { quickSearchProperties: options.quickSearchProperties })
+      };
+      const data = await this.requestContract(contract, contract.query, body);
+      const pageRows = extractRows(data, pagination.rowsField);
+      rows.push(...pageRows);
+      if (pageRows.length < pagination.pageSize) return rows;
+    }
+    throw new CliError(`${contract.query.path} 分页数量异常`);
+  }
+
+  /** Save a generic resource. The endpoint and method come from the contract. */
+  async saveContract(
+    contract: ResourceContract,
+    payload: ResourceRecord
+  ): Promise<ResourceRecord> {
+    if (!contract.save) {
+      throw new CliError(`资源 ${contract.id} 未声明保存接口`);
+    }
+    const data = await this.requestContract(contract, contract.save, payload);
+    if (!isRecord(data) || (typeof data.id !== "string" && typeof data.id !== "number")) {
+      throw new CliError(`${contract.save.path} 未返回有效 ID`);
+    }
+    this.findAllCache.clear();
+    return data;
   }
 
   iterateByPage(
@@ -131,10 +202,46 @@ export class ResourceClient {
     }
     return envelope.data;
   }
+
+  private async requestContract(
+    contract: ResourceContract,
+    endpoint: { path: string; method: string },
+    body: unknown
+  ): Promise<unknown> {
+    const path = endpoint.path.startsWith("/api-gateway/")
+      ? endpoint.path
+      : `/api-gateway/${contract.service}/${endpoint.path.replace(/^\/+/, "")}`;
+    const result = await sendRequest({
+      baseUrl: this.options.baseUrl,
+      token: this.options.token,
+      authorization: this.options.authorization,
+      method: endpoint.method,
+      path,
+      ...(body === undefined ? {} : { body }),
+      ...(this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs })
+    });
+    const envelope = result.data;
+    if (!isRecord(envelope) || envelope.success !== true || !("data" in envelope)) {
+      throw new CliError(`资源接口返回格式无效：${endpoint.path}`);
+    }
+    return envelope.data;
+  }
 }
 
 export function isRecord(value: unknown): value is ResourceRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractRows(value: unknown, rowsField = "rows"): ResourceRecord[] {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (!isRecord(value)) throw new CliError("资源接口返回格式无效：缺少记录列表");
+  const rows = value[rowsField];
+  if (Array.isArray(rows)) return rows.filter(isRecord);
+  for (const field of ["items", "records", "content", "list", "data"]) {
+    const nested = value[field];
+    if (Array.isArray(nested)) return nested.filter(isRecord);
+  }
+  throw new CliError(`资源接口返回格式无效：缺少 ${rowsField}`);
 }
 
 const LOCAL_FILTER_OPERATORS = new Set(["EQ", "NE", "LIKE", "GT", "GE", "LT", "LE"]);

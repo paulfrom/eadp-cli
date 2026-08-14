@@ -2,7 +2,7 @@
 
 Use this workflow for migrating 给号配置 between named environments.
 
-1. Run `eadp sync --help` and resolve both environments with `eadp env list`.
+1. Run `eadp resource describe serial-number` and resolve both environments with `eadp env list`.
 2. Require both environments to record `tenantCode === "global"` (the global administrator)
    before any remote read. Use the CLI resource name `serial-number`.
 3. Resolve the entity's fully qualified `entityClassName`; do not use a short class name.
@@ -18,32 +18,25 @@ Use this workflow for migrating 给号配置 between named environments.
    - Built-in `DefaultElement`: `FIXED_CODE` (固定编码), `DATE_CODE` (日期编码),
      `SERIAL_CODE` (流水号编码). `elementCode` may also use a custom element code already
      registered in the target service; resolve it read-only instead of guessing.
-5. Preview with `configType` defaulting to `CODE_TYPE`:
+5. Preview with explicit filters when selecting one entity or configuration type; the command does
+   not guess selection filters:
 
 ```text
-eadp sync serial-number --source A --target B --entity-class com.example.Order
+eadp resource compare serial-number --source A --target B --filter entityClassName:EQ:com.example.Order --filter configType:EQ:CODE_TYPE
 ```
-
-To select only source configurations created in August 2026:
-
-```text
-eadp sync serial-number --source A --target B --created-in 2026-08
-```
-
-Combine `--created-in` with `--entity-class` when both time and entity scope are required. Do not
-combine `--created-in` with `--from` or `--to`.
 
 6. The business identity is the composite `entityClassName + tenantCode`; `configType` is only the
    selection filter and never part of the key. The CLI trims and case-normalizes both fields for
-   comparison, but builds each source key from that record's actual `tenantCode`. Stop if the same
-   composite key is duplicated in either environment or if either key field is missing. A single
+   comparison. It validates each source record's actual composite key, then binds the desired key and
+   target lookup to the target environment's recorded `tenantCode`. Stop if the same composite key is
+   duplicated in either environment or if either key field is missing. A single
    source or target record with a missing or invalid `configItem` is instead reported as `blocked`;
    continue comparing and applying safe records. Review create/update/unchanged/blocked, every
    changed field, and every `blockingIssues` entry before adding `--apply`.
 7. Apply only after authorization and require `verified: true`:
 
 ```text
-eadp sync serial-number --source A --target B --entity-class com.example.Order --apply
+eadp resource sync serial-number --source A --target B --apply
 ```
 
 The CLI replaces source record and `configItem` IDs with target IDs, maps the composite key to the

@@ -2,18 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { createProgram } from "../src/program.js";
 
 describe("统一命令面", () => {
-  it("只暴露动词优先的业务命令和全局运行参数", () => {
+  it("暴露 resource-first 资源命令和领域命令及全局运行参数", () => {
     const help = createProgram().helpInformation();
 
     for (const command of [
       "inspect",
-      "query",
       "call",
-      "apply",
-      "assign",
-      "revoke",
-      "sync",
-      "verify",
+      "permission",
+      "bpm",
+      "menu",
+      "resource",
       "rollback"
     ]) {
       expect(help).toContain(command);
@@ -23,13 +21,7 @@ describe("统一命令面", () => {
     expect(help).toContain("--compact");
     expect(help).toContain("--output <format>");
     expect(help).toContain("compact-ndjson");
-    for (const legacyCommand of [
-      "request",
-      "resource",
-      "api",
-      "bpm",
-      "permission"
-    ]) {
+    for (const legacyCommand of ["request", "api", "apply", "assign", "revoke", "verify"]) {
       expect(help).not.toMatch(new RegExp(`^\\s+${legacyCommand}\\b`, "m"));
     }
   });
@@ -56,16 +48,15 @@ describe("统一命令面", () => {
     ).rejects.toThrow("超时时间无效：invalid");
   });
 
-  it("资源和通用 call 帮助明确四类 global 管理员资源", () => {
+  it("resource 帮助和通用 call 帮助明确资源能力", () => {
     const program = createProgram();
     let help = "";
     const output = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       help += String(chunk);
       return true;
     });
-    for (const name of ["query", "sync", "call"]) {
-      program.commands.find((command) => command.name() === name)?.outputHelp();
-    }
+    program.commands.find((command) => command.name() === "resource")?.outputHelp();
+    program.commands.find((command) => command.name() === "call")?.outputHelp();
     output.mockRestore();
     expect(help).toContain('tenantCode === "global"');
     expect(help).toContain("menu");
@@ -84,10 +75,10 @@ describe("统一命令面", () => {
   it("在业务命令前后都接受 --compact 并压缩只读输出", async () => {
     const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await createProgram().parseAsync(["--compact", "inspect", "resource"], {
+    await createProgram().parseAsync(["--compact", "resource", "list"], {
       from: "user"
     });
-    await createProgram().parseAsync(["inspect", "resource", "--compact"], {
+    await createProgram().parseAsync(["resource", "list", "--compact"], {
       from: "user"
     });
 
@@ -102,10 +93,10 @@ describe("统一命令面", () => {
   it("在业务命令前后都接受 --output compact-ndjson 并输出 meta/row", async () => {
     const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await createProgram().parseAsync(["--output", "compact-ndjson", "inspect", "resource"], {
+    await createProgram().parseAsync(["--output", "compact-ndjson", "resource", "list"], {
       from: "user"
     });
-    await createProgram().parseAsync(["inspect", "resource", "--output", "compact-ndjson"], {
+    await createProgram().parseAsync(["resource", "list", "--output", "compact-ndjson"], {
       from: "user"
     });
 

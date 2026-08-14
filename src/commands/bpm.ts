@@ -13,7 +13,6 @@ import { printValue } from "../io.js";
 import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
 import { getRuntimeOptions } from "../runtime-options.js";
-import type { VerbCommands } from "./verbs.js";
 
 interface InspectOptions {
   project: string;
@@ -28,12 +27,15 @@ interface ApplyOptions {
 }
 
 export function registerBpmCommands(
-  commands: Pick<VerbCommands, "inspect" | "apply">,
   store: ConfigStore,
   root: Command
 ): void {
-  commands.inspect
+  const bpm = root
     .command("bpm")
+    .description("从项目代码发现并配置 BPM 流程基础数据");
+
+  bpm
+    .command("inspect")
     .description("从真实项目代码发现 BPM 流程骨架及可选集成回调，不访问远端")
     .requiredOption("--project <path>", "业务项目根目录")
     .option("--flow <entity-class>", "仅按 Entity 全限定名显示指定流程")
@@ -41,7 +43,7 @@ export function registerBpmCommands(
       "after",
       `
 示例：
-  eadp inspect bpm --project D:\\project\\sdh\\sdh-tbs
+  eadp bpm inspect --project D:\\project\\sdh\\sdh-tbs
 
 项目无需 YAML 或 BPM 登记册。CLI 从 BaseFlowController、Entity 和 API PATH 发现流程；
 BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成接口配置。`
@@ -54,8 +56,8 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       printValue(output, getRuntimeOptions(root).compact);
     });
 
-  commands.apply
-    .command("bpm")
+  bpm
+    .command("configure")
     .description("预览或幂等配置 BPM 基础数据")
     .requiredOption("--project <path>", "业务项目根目录")
     .requiredOption("--flow <entity-or-code>", "Entity 全限定名或远端 BPM 流程类型 code")
@@ -65,8 +67,8 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       "after",
       `
 示例：
-  eadp apply bpm --project D:\\project\\sdh\\sdh-tbs --flow com.sdh.tbs.project.entity.Project
-  eadp apply bpm --project D:\\project\\sdh\\sdh-tbs --flow TBS_PROJECT --apply
+  eadp bpm configure --project D:\\project\\sdh\\sdh-tbs --flow com.sdh.tbs.project.entity.Project
+  eadp bpm configure --project D:\\project\\sdh\\sdh-tbs --flow TBS_PROJECT --apply
 
 选择器只接受 Entity 全限定名或远端 BPM 流程类型 code，不按流程名称匹配。
 安全规则：Entity 按全限定名唯一定位，页面和集成接口只按各自 URL 查重及关联；
@@ -92,7 +94,7 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       const recorder = options.apply
         ? new OperationRecorder(
             new OperationLogStore(store.directory),
-            "eadp apply bpm",
+            "eadp bpm configure",
             resolved.name
           )
         : undefined;

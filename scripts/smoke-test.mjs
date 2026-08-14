@@ -41,21 +41,23 @@ try {
 
   const environments = run(["env", "list"]);
   const rootHelp = run(["--help"]);
+  const resourceHelp = run(["resource", "--help"]);
+  const resourceList = run(["resource", "list"]);
+  const resourceDescribe = run(["resource", "describe", "feature"]);
   const catalog = run(["inspect", "api", "--domain", "serial-number"]);
-  const bpmHelp = run(["inspect", "bpm", "--help"]);
-  const permissionHelp = run(["inspect", "permission", "--help"]);
+  const bpmHelp = run(["bpm", "inspect", "--help"]);
+  const permissionHelp = run(["permission", "inspect", "--help"]);
   const functionalPermissionHelp = run([
-    "inspect",
-    "permission",
+    "permission", "inspect",
     "functional",
     "--help"
   ]);
-  const dataPermissionHelp = run(["inspect", "permission", "data", "--help"]);
-  const functionalRoleHelp = run(["apply", "functional-role", "--help"]);
-  const dataRoleHelp = run(["apply", "data-role", "--help"]);
-  const assignRoleHelp = run(["assign", "role", "--help"]);
-  const revokeRoleHelp = run(["revoke", "role", "--help"]);
-  const verifyHelp = run(["verify", "--help"]);
+  const dataPermissionHelp = run(["permission", "inspect", "data", "--help"]);
+  const functionalRoleHelp = run(["permission", "apply", "functional-role", "--help"]);
+  const dataRoleHelp = run(["permission", "apply", "data-role", "--help"]);
+  const assignRoleHelp = run(["permission", "assign", "role", "--help"]);
+  const revokeRoleHelp = run(["permission", "revoke", "role", "--help"]);
+  const verifyHelp = run(["permission", "verify", "--help"]);
   const skillHelp = run(["skill", "--help"]);
   const skillInstall = run(["skill", "install"]);
   const skillUpgrade = run(["skill", "upgrade"]);
@@ -99,13 +101,22 @@ try {
     throw new Error("接口目录烟雾测试失败");
   }
   if (
-    ["inspect", "query", "call", "apply", "assign", "revoke", "sync", "verify"].some(
+    ["inspect", "call", "permission", "menu", "resource", "bpm"].some(
       (command) => !rootHelp.includes(command)
     ) ||
     !rootHelp.includes("--timeout <ms>") ||
     !rootHelp.includes("--compact")
   ) {
     throw new Error("统一命令树帮助烟雾测试失败");
+  }
+  if (
+    !resourceHelp.includes("声明式资源契约") ||
+    !resourceHelp.includes("resource compare") ||
+    !resourceList.includes('"feature"') ||
+    !resourceDescribe.includes('"identityFields"') ||
+    !resourceDescribe.includes('"capabilities"')
+  ) {
+    throw new Error("声明式资源命令烟雾测试失败");
   }
   if (
     !bpmHelp.includes("从真实项目代码发现 BPM 流程骨架及可选集成回调") ||

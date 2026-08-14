@@ -36,7 +36,7 @@ describe("skill 命令", () => {
     expect(workflow).toContain("Java return contract");
     expect(workflow).toContain("Explicit BPM intent takes precedence");
     expect(workflow).toContain("Never map a BPM flow name to `feature`");
-    expect(workflow).toContain("eadp sync bpm --source");
+    expect(workflow).toContain("eadp resource sync bpm --source");
     expect(workflow).toContain("--flow");
     expect(workflow).toContain("`auditTypeId` and `auditTypeName` to null");
     expect(workflow).not.toContain("dedicated BPM migration command is unavailable");
@@ -45,19 +45,21 @@ describe("skill 命令", () => {
       join(process.cwd(), "skills", "eadp-operator", "references", "serial-number-sync.md"),
       "utf8"
     );
-    expect(serialWorkflow).toContain("eadp sync serial-number");
+    expect(serialWorkflow).toContain("eadp resource sync serial-number");
     expect(serialWorkflow).toContain("CODE_TYPE");
     expect(serialWorkflow).toContain("entityClassName");
     expect(serialWorkflow).toContain("tenantCode");
-    expect(serialWorkflow).toContain("--created-in 2026-08");
+    expect(serialWorkflow).toContain("eadp resource compare serial-number");
     const syncWorkflow = await readFile(
       join(process.cwd(), "skills", "eadp-operator", "references", "resource-sync.md"),
       "utf8"
     );
-    expect(syncWorkflow).toContain("--from \"2026-08-01 00:00:00\"");
-    expect(syncWorkflow).toContain("--to \"2026-09-01 00:00:00\"");
-    expect(syncWorkflow).toContain("create / update / unchanged");
+    expect(syncWorkflow).toContain("eadp resource compare feature --source A --target B");
+    expect(syncWorkflow).toContain("create / update / unchanged / blocked");
     expect(syncWorkflow).toContain("Existing and different");
+    expect(syncWorkflow).toContain("--created-in 2026-07");
+    expect(syncWorkflow).toContain("--from \"2026-07-01 00:00:00\"");
+    expect(syncWorkflow).toContain("`menu` and `bpm` do not");
     expect(workflow).toContain("does not accept time filters");
   });
 

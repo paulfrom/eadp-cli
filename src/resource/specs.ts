@@ -78,7 +78,7 @@ const featureSpec: ResourceSpec = {
       "app-module"
     );
 
-    let featureGroupId: string | undefined;
+    let featureGroupId: string | null | undefined;
     if (typeof source.featureGroupCode === "string" && source.featureGroupCode) {
       const featureGroups = await targetClient.findAll("featureGroup");
       featureGroupId = recordId(
@@ -93,6 +93,8 @@ const featureSpec: ResourceSpec = {
       throw new CliError(
         `功能项 ${String(source.code)} 包含功能项组 ID，但源接口未返回 featureGroupCode`
       );
+    } else if ("featureGroupCode" in source || "featureGroupId" in source) {
+      featureGroupId = null;
     }
 
     const desired: ResourceRecord = {};

@@ -37,21 +37,20 @@ describe("apply feature-group 与 appModule", () => {
     const output = captureOutput();
 
     await createProgram(fixture.store).parseAsync(
-      ["query", "app-module", "--env", "global", "--filter", "code:EQ:ams"],
+      ["resource", "query", "app-module", "--env", "global", "--filter", "code:EQ:ams"],
       { from: "user" }
     );
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toContain("/appModule/findAll");
-    const events = output.text().trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-    expect(events.filter((event) => event.kind === "eadp.resource.query.item.v1").map((event) => event.item.code))
-      .toEqual(["ams"]);
-    expect(events.at(-1)).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
+    const result = JSON.parse(output.text());
+    expect(result.items.map((event: { code: string }) => event.code)).toEqual(["ams"]);
+    expect(result.total).toBe(1);
 
     requests.length = 0;
     await expect(
       createProgram(fixture.store).parseAsync(
-        ["query", "appModule", "--env", "global", "--filter", "code:EQ:ams"],
+        ["resource", "query", "appModule", "--env", "global", "--filter", "code:EQ:ams"],
         { from: "user" }
       )
     ).rejects.toThrow("app-module");
@@ -63,7 +62,7 @@ describe("apply feature-group 与 appModule", () => {
     requests.length = 0;
     await expect(
       createProgram(fixture.store).parseAsync(
-        ["query", "app-module", "--env", "global", "--filter", "code:EQ:ams"],
+        ["resource", "query", "app-module", "--env", "global", "--filter", "code:EQ:ams"],
         { from: "user" }
       )
     ).rejects.toThrow("必须使用 global 租户");
@@ -89,7 +88,7 @@ describe("apply feature-group 与 appModule", () => {
 
     await createProgram(fixture.store).parseAsync(
       [
-        "query", "feature-group", "--env", "global",
+        "resource", "query", "feature-group", "--env", "global",
         "--filter", "code:LIKE:ams", "--quick", "采购"
       ],
       { from: "user" }
@@ -97,10 +96,9 @@ describe("apply feature-group 与 appModule", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toContain("/featureGroup/findAll");
-    const events = output.text().trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-    expect(events.filter((event) => event.kind === "eadp.resource.query.item.v1").map((event) => event.item.code))
-      .toEqual(["AMS_ORDER"]);
-    expect(events.at(-1)).toMatchObject({ kind: "eadp.resource.query.summary.v1", total: 1 });
+    const result = JSON.parse(output.text());
+    expect(result.items.map((event: { code: string }) => event.code)).toEqual(["AMS_ORDER"]);
+    expect(result.total).toBe(1);
   });
 
   it("缺失模块时预览显示 create、推断名称和默认 rank，且不写入", async () => {
@@ -125,7 +123,7 @@ describe("apply feature-group 与 appModule", () => {
 
     await createProgram(fixture.store).parseAsync(
       [
-        "apply", "feature-group", "--env", "global", "--app-code", "ams",
+        "permission", "apply", "feature-group", "--env", "global", "--app-code", "ams",
         "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath
       ],
       { from: "user" }
@@ -169,7 +167,7 @@ describe("apply feature-group 与 appModule", () => {
 
     await createProgram(fixture.store).parseAsync(
       [
-        "apply", "feature-group", "--env", "global", "--app-code", "ams",
+        "permission", "apply", "feature-group", "--env", "global", "--app-code", "ams",
         "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath,
         "--apply"
       ],
@@ -201,7 +199,7 @@ describe("apply feature-group 与 appModule", () => {
     const output = captureOutput();
 
     await createProgram(fixture.store).parseAsync(
-      ["apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组"],
+      ["permission", "apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组"],
       { from: "user" }
     );
 
@@ -227,7 +225,7 @@ describe("apply feature-group 与 appModule", () => {
 
     await createProgram(fixture.store).parseAsync(
       [
-        "apply", "feature-group", "--env", "global", "--app-code", "ams",
+        "permission", "apply", "feature-group", "--env", "global", "--app-code", "ams",
         "--code", "AMS_ORDER", "--name", "订单功能组", "--project", join(fixture.projectPath, "missing")
       ],
       { from: "user" }
@@ -255,7 +253,7 @@ describe("apply feature-group 与 appModule", () => {
 
     await expect(
       createProgram(fixture.store).parseAsync(
-        ["apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组"],
+        ["permission", "apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组"],
         { from: "user" }
       )
     ).rejects.toThrow("应用模块 code 不唯一");
@@ -288,7 +286,7 @@ describe("apply feature-group 与 appModule", () => {
 
     const error = await captureError(
       createProgram(fixture.store).parseAsync(
-        ["apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath, "--apply"],
+        ["permission", "apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath, "--apply"],
         { from: "user" }
       )
     );
@@ -338,7 +336,7 @@ describe("apply feature-group 与 appModule", () => {
     });
     const output = captureOutput();
     await createProgram(fixture.store).parseAsync(
-      ["--compact", "apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath, "--apply"],
+      ["--compact", "permission", "apply", "feature-group", "--env", "global", "--app-code", "ams", "--code", "AMS_ORDER", "--name", "订单功能组", "--project", fixture.projectPath, "--apply"],
       { from: "user" }
     );
     const applied = JSON.parse(output.text().trim().split("\n")[0]!) as { operationId: string };

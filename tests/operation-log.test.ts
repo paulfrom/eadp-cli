@@ -145,6 +145,30 @@ describe("OperationLogStore", () => {
     await expect(store.load("../escape")).rejects.toThrow("operation-id 格式无效");
     await expect(store.save(record("bad/id", "2026-08-11T00:00:00.000Z"))).rejects.toThrow("operation-id 格式无效");
   });
+
+  it("accepts a syntactically safe registered-service create action", async () => {
+    const store = new OperationLogStore(await makeDirectory());
+    const custom = record("custom-service", "2026-08-11T00:00:00.000Z");
+    custom.actions.push({
+      id: "create-warehouse",
+      type: "create-entity",
+      service: "sei-inventory",
+      resource: "warehouse",
+      status: "applied",
+      entityId: "warehouse-1",
+      expected: { code: "W1" },
+      deleteMethod: "DELETE",
+      tenantPolicy: "global"
+    });
+
+    await expect(store.save(custom)).resolves.toBeUndefined();
+    await expect(store.load(custom.id)).resolves.toMatchObject({
+      actions: [{ service: "sei-inventory", resource: "warehouse", tenantPolicy: "global" }]
+    });
+
+    custom.actions[0]!.service = "../unsafe";
+    await expect(store.save(custom)).rejects.toThrow("服务或资源无效");
+  });
 });
 
 async function makeDirectory(): Promise<string> {
@@ -157,7 +181,7 @@ function record(id: string, createdAt: string): OperationRecord {
   return {
     version: 1,
     id,
-    command: "eadp assign feature",
+    command: "eadp permission assign feature",
     environment: "dev",
     createdAt,
     updatedAt: createdAt,

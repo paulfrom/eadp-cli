@@ -11,10 +11,12 @@ Menu, feature, feature-group, and serial-number synchronization is a global-admi
 operation: both source and target must record `tenantCode === "global"`. The CLI enforces this
 before any remote read.
 
-1. Run `eadp inspect resource --help` and `eadp sync --help`.
+1. Run `eadp resource list`, `eadp resource describe <name>`, and the selected
+   `eadp resource compare/sync --help`.
 2. Confirm the source and target environment names are distinct.
 3. Confirm the requested resource is listed as a registered sync resource.
-4. Resolve “新增” to an explicit creation month or range.
+4. Use only selectors supported by the selected contract; the generic resource grammar does not
+   guess or synthesize a time field.
 5. Before reading either environment, confirm both environments satisfy the resource's tenant
    scope. Stop immediately if either tenant is invalid; do not read migration data or write the target.
 6. Never use arbitrary API calls to imitate synchronization for an unregistered resource.
@@ -29,36 +31,42 @@ Treat the preview as create / update / unchanged / blocked, not as create-only s
 - A selected record whose target dependency is missing or ambiguous → `blocked`; keep comparing the
   remaining records and report the dependency under `missingDependencies`.
 
+For updates, omitted writable fields preserve the target value. Only an explicitly supplied source
+value changes a field; create-only defaults do not replace existing target configuration.
+
 Time options filter source records only. After filtering, always compare every selected source record
 with the target by its registered business identity.
 
+Executable time-scoped previews and applies:
+
+```text
+eadp resource compare feature --source A --target B --created-in 2026-07
+eadp resource sync feature --source A --target B --from "2026-07-01 00:00:00" --to "2026-08-01 00:00:00"
+eadp resource sync feature --source A --target B --created-in 2026-07 --apply
+```
+
+`--to` is exclusive. `app-module`, `feature`, `feature-group`, and `serial-number` declare time-filter
+support; `menu` and `bpm` do not. For an unsupported resource, stop instead of substituting another
+field or raw endpoint. A menu subtree uses `--code`; BPM uses `--flow`.
+
 For `serial-number`, the registered identity is the composite `entityClassName + tenantCode`;
 `configType` is only a filter. Normalize case and surrounding whitespace when checking duplicates.
-Build source keys from each source record's actual `tenantCode`, then map the desired key and
+Validate source keys from each source record's actual `tenantCode`, then map the desired key and
 post-write lookup to the target environment's recorded `tenantCode`. Missing identity fields or
 duplicate composite keys stop the workflow before any write.
 
-Preview source records created in one month:
+Compare the complete contract-selected source records:
 
 ```text
-eadp sync feature --source A --target B --created-in 2026-08
+eadp resource compare feature --source A --target B
 ```
-
-Preview an explicit left-closed, right-open source time range:
-
-```text
-eadp sync feature --source A --target B --from "2026-08-01 00:00:00" --to "2026-09-01 00:00:00"
-```
-
-Use `--time-field updatedDate` only when the user explicitly requests update-time filtering and the
-resource actually exposes that field. Never reinterpret “新增” as update time.
 
 ## Compare and preview first
 
 Run:
 
 ```text
-eadp sync feature --source A --target B --created-in 2026-07
+eadp resource compare feature --source A --target B
 ```
 
 Review:
@@ -82,7 +90,7 @@ The absence of `--apply` is mandatory during planning. Present create/update cou
 Only after authorization:
 
 ```text
-eadp sync feature --source A --target B --created-in 2026-07 --apply
+eadp resource sync feature --source A --target B --apply
 ```
 
 Require `verified: true`. During `--apply`, the CLI applies `create` and `update` records, skips
@@ -103,13 +111,13 @@ is a successful idempotent outcome.
 
 - Match feature groups by exact `code`.
 - Resolve the target application module by `appModuleCode`; never copy the source `appModuleId`.
-- Use `--code` to select one feature group exactly.
+- Use `--filter code:EQ:<code>` to select one source feature group exactly.
 
 Preview and then apply a missing feature-group dependency:
 
 ```text
-eadp sync feature-group --source A --target B --code ISRM-PA-2
-eadp sync feature-group --source A --target B --code ISRM-PA-2 --apply
+eadp resource sync feature-group --source A --target B --filter code:EQ:GROUP_CODE
+eadp resource sync feature-group --source A --target B --filter code:EQ:GROUP_CODE --apply
 ```
 
 ## Menu synchronization semantics
@@ -117,7 +125,7 @@ eadp sync feature-group --source A --target B --code ISRM-PA-2 --apply
 - Apply the shared field and ID checks from `references/write-contracts.md` via the SKILL.md
   write-contracts gate; keep this
   section focused on menu hierarchy, dependency resolution, and synchronization semantics.
-- Query menus with `eadp query menu --env <global-env>`; the CLI uses `getMenuTree`, flattens the
+- Query menus with `eadp resource query menu --env <global-env>`; the CLI uses `getMenuTree`, flattens the
   tree, and emits `parentCode` for every item.
 - Match menus by exact `code`.
 - Use `--code` to select one menu and all of its descendants; omit it to compare the full tree.
@@ -138,8 +146,8 @@ eadp sync feature-group --source A --target B --code ISRM-PA-2 --apply
 Preview and then apply a menu subtree:
 
 ```text
-eadp sync menu --source A --target B --code PURCHASE
-eadp sync menu --source A --target B --code PURCHASE --apply
+eadp resource sync menu --source A --target B --code PURCHASE
+eadp resource sync menu --source A --target B --code PURCHASE --apply
 ```
 
 ## Menu creation semantics
@@ -159,14 +167,14 @@ Before constructing any write, perform these read-only checks in the selected gl
 The selected `<global-env>` must record `tenantCode === "global"`; if it does not, stop before
 reading menu or feature data.
 
-1. Run `eadp query menu --env <global-env>` and inspect the flattened `parentCode` tree. Resolve the
+1. Run `eadp resource query menu --env <global-env>` and inspect the flattened `parentCode` tree. Resolve the
    project's application menu by the project's known application identity and exact menu `code`.
    If exactly one level-1 menu exists, reuse its code. If more than one candidate exists, stop and
    ask the user to choose; if none exists, plan at most one new level-1 menu only after confirming
    that the project has no application menu. Never create a duplicate root.
 2. Resolve the application/module identity with a read-only query such as
-   `eadp query app-module --env <global-env> --filter code:EQ:<app-code>`. Query the relevant feature
-   with `eadp query feature --env <global-env> --filter code:EQ:<feature-code>` (and verify its
+   `eadp resource query app-module --env <global-env> --filter code:EQ:<app-code>`. Query the relevant feature
+   with `eadp resource query feature --env <global-env> --filter code:EQ:<feature-code>` (and verify its
    application module when applicable). Stop on a missing or ambiguous identity; do not guess.
 3. Under the reused level-1 code, find the requested business-module category in the menu tree.
    Reuse one exact level-2 `code`; if it is absent, plan one level-2 menu with that level-1
@@ -180,13 +188,13 @@ the complete create set, and add `--apply` only after explicit authorization:
 
 ```text
 # Only when the read-only check proved that the project has no level-1 menu:
-eadp apply menu --env A --name <application> --code <application-menu-code>
+eadp menu create --env A --name <application> --code <application-menu-code>
 
 # Only when the business-module category is missing:
-eadp apply menu --env A --name <module-category> --code <module-menu-code> --parent-code <application-menu-code>
+eadp menu create --env A --name <module-category> --code <module-menu-code> --parent-code <application-menu-code>
 
 # A feature-bound menu is always level 3:
-eadp apply menu --env A --name <feature-menu> --code <feature-menu-code> --parent-code <module-menu-code> --feature-code <feature-code>
+eadp menu create --env A --name <feature-menu> --code <feature-menu-code> --parent-code <module-menu-code> --feature-code <feature-code>
 ```
 
 If any read-only query or CLI call fails, stop immediately and report the failure; do not retry or
@@ -196,8 +204,8 @@ verification, and return an `operationId`.
 To create one menu, preview and then apply the dedicated command:
 
 ```text
-eadp apply menu --env A --name 采购申请 --code PURCHASE_APPLY --parent-code PURCHASE --feature-code PURCHASE_APPLY
-eadp apply menu --env A --name 采购申请 --code PURCHASE_APPLY --parent-code PURCHASE --feature-code PURCHASE_APPLY --apply
+eadp menu create --env A --name 采购申请 --code PURCHASE_APPLY --parent-code PURCHASE --feature-code PURCHASE_APPLY
+eadp menu create --env A --name 采购申请 --code PURCHASE_APPLY --parent-code PURCHASE --feature-code PURCHASE_APPLY --apply
 ```
 
 Successful menu creates return an `operationId`; rollback still requires a separate explicit user

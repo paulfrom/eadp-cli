@@ -27,7 +27,7 @@ afterEach(async () => {
   );
 });
 
-describe("apply bpm", () => {
+describe("bpm configure", () => {
   it("sync bpm 按流程代码迁移完整基础配置并映射目标关系 ID", async () => {
     const sourceState = createBpmServerState();
     sourceState.modules[0] = {
@@ -112,7 +112,7 @@ describe("apply bpm", () => {
     });
     const output = captureOutput();
     const args = [
-      "--compact", "sync", "bpm", "--source", "source", "--target", "target",
+      "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
       "--flow", "采购申请", "--apply"
     ];
 
@@ -153,7 +153,7 @@ describe("apply bpm", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "sync", "bpm", "--source", "source", "--target", "target",
+          "resource", "sync", "bpm", "--source", "source", "--target", "target",
           "--flow", "PURCHASE_REQUEST", "--apply"
         ],
         { from: "user" }
@@ -176,7 +176,7 @@ describe("apply bpm", () => {
 
     await createProgram(store).parseAsync(
       [
-        "--compact", "sync", "bpm", "--source", "source", "--target", "target",
+        "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
         "--flow", "PURCHASE_REQUEST", "--apply"
       ],
       { from: "user" }
@@ -242,8 +242,8 @@ describe("apply bpm", () => {
 
     const args = [
       "--compact",
-      "apply",
       "bpm",
+      "configure",
       "--project",
       project,
       "--flow",
@@ -261,7 +261,7 @@ describe("apply bpm", () => {
     expect(state.interfaceRelations.get("entity-1")).toHaveLength(2);
   });
 
-  it("apply bpm 可按远端流程类型 code 定位本地 Entity", async () => {
+  it("bpm configure 可按远端流程类型 code 定位本地 Entity", async () => {
     const project = await createProjectFixture();
     const state = createBpmServerState();
     state.entities.push({
@@ -299,7 +299,7 @@ describe("apply bpm", () => {
     });
 
     await createProgram(store).parseAsync([
-      "apply", "bpm", "--project", project, "--flow", "PROJECT_APPROVAL", "--apply"
+      "bpm", "configure", "--project", project, "--flow", "PROJECT_APPROVAL", "--apply"
     ], { from: "user" });
 
     expect(state.entities).toHaveLength(1);
@@ -401,8 +401,8 @@ describe("apply bpm", () => {
     await expect(
       createProgram(store).parseAsync(
         [
-          "apply",
           "bpm",
+          "configure",
           "--project",
           project,
           "--flow",

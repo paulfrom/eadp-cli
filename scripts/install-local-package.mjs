@@ -35,24 +35,28 @@ const checks = [
     expected: "查看接口目录"
   },
   {
-    args: ["verify", "--help"],
+    args: ["permission", "verify", "--help"],
     expected: "--menu"
   },
   {
-    args: ["query", "--help"],
-    expected: "--entity-class"
+    args: ["resource", "--help"],
+    expected: "声明式资源契约"
   },
   {
-    args: ["inspect", "permission", "users", "--help"],
+    args: ["resource", "query", "--help"],
+    expected: "--env <env>"
+  },
+  {
+    args: ["permission", "inspect", "users", "--help"],
     expected: "最终有效权限"
   },
   {
-    args: ["assign", "role", "--help"],
+    args: ["permission", "assign", "role", "--help"],
     expected: "授权主体类型"
   },
   {
-    args: ["sync", "--help"],
-    expected: "注册资源名"
+    args: ["resource", "sync", "--help"],
+    expected: "--source <env>"
   },
   {
     args: ["update", "--help"],

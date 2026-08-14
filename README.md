@@ -62,8 +62,8 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 请求时通过 `--env dev2` 显式选择环境；省略 `--env` 时使用 `--default` 指定的默认环境。
 
 `--timeout <ms>` 和 `--compact` 是全局运行参数，可放在业务命令之前或之后。例如：
-`eadp --timeout 60000 --compact inspect resource`。所有命令默认输出 JSON；
-`--compact` 将普通 JSON 压缩为单行。`query` 始终输出 NDJSON，每行都是独立 JSON。
+`eadp --timeout 60000 --compact resource list`。所有命令默认输出 JSON；
+`--compact` 将普通 JSON 压缩为单行。资源查询默认返回带环境和总数的 JSON 结果。
 
 ## 回滚新增与分配
 
@@ -150,20 +150,20 @@ AI 在全新上下文中只需从帮助开始：
 
 ```bash
 eadp --help
-eadp inspect bpm --help
+eadp bpm inspect --help
 ```
 
 先检查项目中可发现的流程：
 
 ```bash
-eadp inspect bpm \
+eadp bpm inspect \
   --project "D:\project\sdh\sdh-tbs"
 ```
 
 预览指定流程的基础配置：
 
 ```bash
-eadp apply bpm \
+eadp bpm configure \
   --project "D:\project\sdh\sdh-tbs" \
   --flow com.sdh.tbs.project.entity.Project
 ```
@@ -171,17 +171,17 @@ eadp apply bpm \
 确认后写入默认环境：
 
 ```bash
-eadp apply bpm \
+eadp bpm configure \
   --project "D:\project\sdh\sdh-tbs" \
   --flow com.sdh.tbs.project.entity.Project \
   --apply
 ```
 
-`apply bpm` 是幂等操作：按模块代码、Entity 全限定名、页面 URL、接口 URL 和流程代码
+`bpm configure` 是幂等操作：按模块代码、Entity 全限定名、页面 URL、接口 URL 和流程代码
 查重；只创建缺失项，只补充缺失关系，完成后回查验证。它只完成 BPM 基础配置，不创建
 流程图、审批节点或组织执行人。
 
-`apply bpm --flow` 只接受 Entity 全限定名或目标环境中已有的 BPM 流程类型 `code`，不按
+`bpm configure --flow` 只接受 Entity 全限定名或目标环境中已有的 BPM 流程类型 `code`，不按
 流程名称匹配。Entity 全限定名唯一且不冲突时可以新增基础流程配置；页面和集成接口分别
 只以 `pcUrl` 和 `url` 作为唯一定位、查重及关联边界。明确选择的 Entity 即使不在常规
 流程候选清单中也可以建立基础定义；缺少可解析 API PATH 时，服务名默认采用 Entity 简单
@@ -195,13 +195,13 @@ eadp apply bpm \
 检查全部功能权限元数据：
 
 ```bash
-eadp inspect permission functional
+eadp permission inspect functional
 ```
 
 按应用查看功能项，并读取指定功能角色的授权树：
 
 ```bash
-eadp inspect permission functional \
+eadp permission inspect functional \
   --app BASIC \
   --role ADMIN
 ```
@@ -209,14 +209,14 @@ eadp inspect permission functional \
 检查权限对象、权限类型和数据角色：
 
 ```bash
-eadp inspect permission data
-eadp inspect permission data --role ORG_ADMIN
+eadp permission inspect data
+eadp permission inspect data --role ORG_ADMIN
 ```
 
 按功能代码反查拥有最终有效权限的用户（包括直接角色、岗位和岗位类别继承）：
 
 ```bash
-eadp inspect permission users --feature BASIC_VIEW --env dev
+eadp permission inspect users --feature BASIC_VIEW --env dev
 ```
 
 该命令逐个用户调用服务端最终权限判定；任一请求失败时立即终止，不会重试。
@@ -227,14 +227,14 @@ eadp inspect permission users --feature BASIC_VIEW --env dev
 按账号回查功能角色和数据角色：
 
 ```bash
-eadp verify --user lin
+eadp permission verify --user lin
 ```
 
 也可以直接按员工号或员工姓名查询，CLI 会自动解析用户账号和用户 ID：
 
 ```bash
-eadp verify --employee-code E1001
-eadp verify --employee-name 张三
+eadp permission verify --employee-code E1001
+eadp permission verify --employee-name 张三
 ```
 
 员工姓名匹配到多人时命令会终止并提示改用员工号，不会自动选择。
@@ -242,7 +242,7 @@ eadp verify --employee-name 张三
 按菜单代码、名称或路径判断员工是否拥有菜单权限：
 
 ```bash
-eadp verify \
+eadp permission verify \
   --employee-code 20017267 \
   --menu 租户管理
 ```
@@ -253,7 +253,7 @@ eadp verify \
 校验指定用户 ID 是否拥有功能项：
 
 ```bash
-eadp verify \
+eadp permission verify \
   --user lin \
   --user-id "<用户 ID>" \
   --feature BASIC_VIEW \
@@ -263,7 +263,7 @@ eadp verify \
 校验用户对业务实体的数据范围：
 
 ```bash
-eadp verify \
+eadp permission verify \
   --user lin \
   --user-id "<用户 ID>" \
   --entity-class com.example.Organization \
@@ -279,7 +279,7 @@ eadp verify \
 解析，写入时使用解析出的目标 ID。功能类型只能是 `Operate`、`Business` 或 `Page`：
 
 ```bash
-eadp apply feature \
+eadp permission apply feature \
   --env global-dev \
   --code BASIC_VIEW \
   --name 查看基础数据 \
@@ -299,7 +299,7 @@ eadp apply feature \
 并返回 `unchanged`，不会读取或创建应用模块：
 
 ```bash
-eadp apply feature-group \
+eadp permission apply feature-group \
   --env global-dev \
   --app-code AMS \
   --code AMS_ORDER \
@@ -315,7 +315,7 @@ eadp apply feature-group \
 预览创建或更新功能角色：
 
 ```bash
-eadp apply functional-role \
+eadp permission apply functional-role \
   --role-code BASIC_READER \
   --role-name 基础只读角色 \
   --group BASIC_ROLE
@@ -324,7 +324,7 @@ eadp apply functional-role \
 确认预览后执行：
 
 ```bash
-eadp apply functional-role \
+eadp permission apply functional-role \
   --role-code BASIC_READER \
   --role-name 基础只读角色 \
   --group BASIC_ROLE \
@@ -334,7 +334,7 @@ eadp apply functional-role \
 给角色补充功能项：
 
 ```bash
-eadp assign feature \
+eadp permission assign feature \
   --role BASIC_READER \
   --feature BASIC_VIEW \
   --feature BASIC_EXPORT
@@ -348,7 +348,7 @@ eadp assign feature \
 创建或更新数据角色同样默认只预览：
 
 ```bash
-eadp apply data-role \
+eadp permission apply data-role \
   --role-code ORG_READER \
   --role-name 组织只读角色 \
   --group ORG_ROLE
@@ -357,7 +357,7 @@ eadp apply data-role \
 确认后追加 `--apply`。给数据角色分配业务数据 ID：
 
 ```bash
-eadp assign data \
+eadp permission assign data \
   --role ORG_READER \
   --auth-type ORG \
   --entity "<组织 ID 1>" \
@@ -374,21 +374,21 @@ eadp assign data \
 记录额外包含 `parentCode`，可使用 `--quick` 或 `--filter` 在本地筛选：
 
 ```bash
-eadp query menu --env global-dev --quick 采购
+eadp resource query menu --env global-dev --quick 采购
 ```
 
 新增菜单默认只预览。父菜单和功能项均按代码唯一解析，正式新增后返回可供事后回滚的
 `operationId`：
 
 ```bash
-eadp apply menu \
+eadp menu create \
   --env global-dev \
   --name 采购申请 \
   --code PURCHASE_APPLY \
   --parent-code PURCHASE \
   --feature-code PURCHASE_APPLY
 
-eadp apply menu \
+eadp menu create \
   --env global-dev \
   --name 采购申请 \
   --code PURCHASE_APPLY \
@@ -402,7 +402,7 @@ eadp apply menu \
 查询 A 环境在 2026 年 7 月创建的功能项：
 
 ```bash
-eadp query feature \
+eadp resource query feature \
   --env A \
   --created-in 2026-07
 ```
@@ -411,30 +411,28 @@ eadp query feature \
 必须以查询结果为准，不能把 `sei.application.code` 配置值当作已注册结论：
 
 ```bash
-eadp query app-module --env global-dev --filter code:EQ:ams
+eadp resource query app-module --env global-dev --filter code:EQ:ams
 ```
 
-查询命令适用于具有 `findByPage` 接口的资源，也可通过
-`--filter field:operator:value` 增加过滤条件。查询结果以 NDJSON 流式输出：第一行是
-`eadp.resource.query.meta.v1`，随后每条记录对应一个
-`eadp.resource.query.item.v1`，最后一行是包含实际记录总数的
-`eadp.resource.query.summary.v1`。可以逐行消费，不需要将全部结果保存在内存中。
+查询命令统一覆盖 `paged`、`findAll` 和菜单树读取策略，也可通过
+`--filter field:operator:value` 增加过滤条件。默认输出包含完整 `items` 与实际 `total` 的
+`eadp.resource.query.v1` JSON；需要低 token 的逐行结果时使用全局
+`--output compact-ndjson`。
 
-查询给号配置时，`configType` 默认是 `CODE_TYPE`，仅用于筛选，不参与业务唯一键。
-CLI 按 `entityClassName + tenantCode` 复合键逐条判重；同一实体在不同租户可以同时返回，
-缺少任一键字段会明确失败。指定 `--entity-class` 时，summary 的 `identity` 会输出全部匹配
-记录的 `fields` 和 `values`，并以规范化后的键判断 `exists`：
+查询给号配置时，`configType` 仅用于筛选，不参与业务唯一键；查询不会隐式添加该筛选。
+CLI 按 `entityClassName + tenantCode` 复合键逐条判重，缺少任一键字段会明确失败：
 
 ```bash
-eadp query serial-number \
+eadp resource query serial-number \
   --env global \
-  --entity-class com.example.Order
+  --filter entityClassName:EQ:com.example.Order \
+  --filter configType:EQ:CODE_TYPE
 ```
 
 预览比较 A、B 环境的功能项：
 
 ```bash
-eadp sync feature \
+eadp resource compare feature \
   --source A \
   --target B \
   --created-in 2026-07
@@ -443,12 +441,12 @@ eadp sync feature \
 预览同步和正式同步：
 
 ```bash
-eadp sync feature \
+eadp resource sync feature \
   --source A \
   --target B \
   --created-in 2026-07
 
-eadp sync feature \
+eadp resource sync feature \
   --source A \
   --target B \
   --created-in 2026-07 \
@@ -463,15 +461,15 @@ ID；不会复制源环境数据库 ID。若个别功能项的目标依赖缺失
 功能项组按 `code` 精确选择和匹配，应用模块也按代码映射到目标环境：
 
 ```bash
-eadp sync feature-group \
+eadp resource sync feature-group \
   --source A \
   --target B \
-  --code ISRM-PA-OLD-2
+  --filter code:EQ:ISRM-PA-OLD-2
 
-eadp sync feature-group \
+eadp resource sync feature-group \
   --source A \
   --target B \
-  --code ISRM-PA-OLD-2 \
+  --filter code:EQ:ISRM-PA-OLD-2 \
   --apply
 ```
 
@@ -480,38 +478,39 @@ eadp sync feature-group \
 `parentId`、`featureId`：
 
 ```bash
-eadp sync menu --source global-dev --target global-test --code PURCHASE
-eadp sync menu --source global-dev --target global-test --code PURCHASE --apply
+eadp resource sync menu --source global-dev --target global-test --code PURCHASE
+eadp resource sync menu --source global-dev --target global-test --code PURCHASE --apply
 ```
 
 目标父菜单或功能项缺失/不唯一时，相关菜单标记为 `blocked`，其余菜单继续完成差异预览；
 正式同步跳过 `blocked`。已有菜单需要变更父节点（包括移动到根节点）时，CLI 使用服务端
 `menu/move` 的 `TreeNodeMoveParam` 契约，不会尝试通过普通 `save` 改父节点。
 
-同步默认只预览，当前支持 `feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
+同步默认只预览，当前支持 `app-module`、`feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
 执行 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
 不会读取迁移数据，也不会写入目标环境。
 
 按流程代码、名称或 Entity 代码同步 BPM 基础配置：
 
 ```bash
-eadp sync bpm --source dev --target ead --flow 采购申请
-eadp sync bpm --source dev --target ead --flow 采购申请 --apply
+eadp resource compare bpm --source dev --target ead --flow 采购申请
+eadp resource sync bpm --source dev --target ead --flow 采购申请 --apply
 ```
 
-按实体完整类名同步给号配置，`configType` 默认使用 `CODE_TYPE`（仅筛选）：
+按实体完整类名同步给号配置；`configType` 需要筛选时显式传入：
 
 ```bash
-eadp sync serial-number \
+eadp resource sync serial-number \
   --source global-dev \
   --target global-ead \
-  --entity-class com.example.Order \
+  --filter entityClassName:EQ:com.example.Order \
+  --filter configType:EQ:CODE_TYPE \
   --apply
 ```
 
 BPM 同步重新映射模块、实体、页面、接口、流程类型及关系 ID；给号同步按
-`entityClassName + tenantCode` 匹配，源记录使用实际 `tenantCode` 判重，目标匹配和写入时
-将 `desired.tenantCode` 映射为目标环境由 `env add` 获取的值；`configType` 不参与键计算。
+`entityClassName + tenantCode` 匹配，先校验源记录复合键，再将目标匹配和写入使用的
+`tenantCode` 绑定为目标环境由 `env add` 获取的值；`configType` 不参与键计算。
 CLI 会清除源配置和 `configItem` ID，两者重复执行均只处理差异。
 BPM 业务实体的 `auditTypeId`、`auditTypeName` 不随源环境迁移，目标环境始终置空。
 
@@ -523,12 +522,25 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 批量给号同步中，单条配置缺少或包含非法 `configItem` 时同样标记为 `blocked`，不会阻断
 其他安全配置；源或目标的 `entityClassName + tenantCode` 复合键重复仍属于全局唯一性错误并立即终止。
 
+## 扩展普通资源与特殊操作
+
+普通资源通过 `src/resource/catalog.ts` 中的 `ResourceContract` 声明接入，不需要新增命令。
+契约必须同时描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、
+能力开关、时间过滤边界、创建默认值及安全回滚目标；注册后自动获得
+`resource query/write/compare/sync`。存在目标依赖 ID 映射或字段规范化时，再实现
+`ResourceAdapter` 并登记到适配器注册表。普通资源更新按补丁语义处理：输入中未出现的
+可写字段保留目标值，只有显式提供的值才参与更新；契约声明的创建默认值只作用于新增。
+
+菜单树、BPM 聚合、权限分配这类无法抽象为独立记录 CRUD 的操作继续使用代码处理器。
+资源型特殊处理器由契约的 `handler` 选择；权限使用独立的 `permission` 领域命令树，避免把
+审批、树移动或关系分配逻辑塞进通用资源引擎。
+
 ## 给用户或岗位分配和移除角色
 
 按用户账号分配功能角色：
 
 ```bash
-eadp assign role \
+eadp permission assign role \
   --subject-type user \
   --subject lin \
   --role-type functional \
@@ -538,7 +550,7 @@ eadp assign role \
 按岗位代码分配数据角色：
 
 ```bash
-eadp assign role \
+eadp permission assign role \
   --subject-type position \
   --subject FIN_MANAGER \
   --role-type data \
@@ -550,7 +562,7 @@ eadp assign role \
 用户主体还可以使用 `--employee-code` 或 `--employee-name`：
 
 ```bash
-eadp assign role \
+eadp permission assign role \
   --subject-type user \
   --employee-code E1001 \
   --role-type functional \
@@ -561,7 +573,7 @@ eadp assign role \
 移除指定角色默认只预览：
 
 ```bash
-eadp revoke role \
+eadp permission revoke role \
   --subject-type user \
   --employee-code E1001 \
   --role-type functional \
@@ -573,11 +585,14 @@ eadp revoke role \
 
 ## AI Skill
 
-项目只维护一个 `eadp-operator` Skill，内部包含三个按需加载的工作流：
+项目只维护一个 `eadp-operator` Skill，内部按需加载查询审计、资源同步、权限管理、BPM、
+给号和回滚等工作流；后续新增工作流也继续加入该 Skill，不拆分为多个 Skill。主要入口包括：
 
 - 查询与审计
 - 跨环境资源同步
 - 权限授予与撤销
+- BPM 与给号
+- 回滚
 
 Skill 源码位于 `skills/eadp-operator`，不包含任何环境 URL 或 Token。AI 使用 Skill 时
 仍会先通过 `eadp --help`、`eadp env list` 和相关子命令帮助发现当前 CLI 能力。
