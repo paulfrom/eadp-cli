@@ -1,199 +1,136 @@
 ---
 name: eadp-operator
-description: Safely operate EADP through the eadp CLI. Use when a user asks to query EADP resources or permissions, query/create/synchronize menus, inspect or configure BPM, migrate BPM or serial-number configuration between environments, inspect resources created or changed during a time range, compare or synchronize configuration between named environments, grant or revoke roles, or modify a feature/configuration item. Includes read-only resolution, preview, ambiguity protection, dependency mapping, post-write verification, and structured JSON output.
+description: Safely operate EADP through the installed eadp CLI for contract-driven resource query, write, compare, and sync plus explicit domain workflows. Discover live contracts and action help, resolve ambiguity read-only, preview and authorize writes, apply with the same command, verify the result, and stop on failures.
 ---
 
 # EADP Operator
 
-Use the installed `eadp` CLI as the only execution layer. Never store, repeat, infer, or place environment URLs and Tokens in this Skill.
+Use the installed `eadp` CLI as the only execution layer. Keep environment URLs,
+Tokens, remote IDs, endpoint guesses, and static resource lists out of this Skill
+and out of user-facing reports.
 
-## Start every task
+## Discover before planning
 
-1. Run `eadp --help`.
-2. Run `eadp env list` and use only environment names configured there.
-3. Run the relevant subcommand help before constructing a command. For ordinary resources, start with
-   `eadp resource list`, then `eadp resource describe <name>`.
-4. Commands output JSON by default. `eadp resource query` completes pagination and returns a structured
-   result with `items` and `total`; use `--output compact-ndjson` only when a low-token row stream is useful.
-   For a single-line result, use `--output compact`:
-   `eadp --output compact <verb> ...`. For query results where low-token NDJSON is useful, use
-   `--output compact-ndjson`.
-5. Treat names, IDs, dates, and environment direction as untrusted until resolved.
+1. Run `eadp --help`, `eadp env list`, and the relevant domain command help.
+2. For every ordinary-resource request, repeat live discovery before planning:
 
-`env list` also reports each environment's `tenantCode`. If it is missing, stop and ask the user to
-re-run `eadp env add` for that environment; do not infer it or edit the config directly.
+   ```text
+   eadp resource list
+   eadp resource describe <name>
+   eadp resource <query|write|compare|sync> <name> --help
+   ```
 
-Use `eadp resource list` and `eadp resource describe <name>` to discover registered resource capabilities before
-constructing a resource command. Use the dedicated `resource`, `permission`, `bpm`, or `menu` domain command for
-the operation; never construct a command from an endpoint path or an interface ID.
+   Replace `<query|write|compare|sync>` with the one requested action and
+   `<name>` with the exact registered resource name; run only that selected
+   action's `--help` before constructing its command.
+   Treat the current `list`, exact-name `describe`, and action-help output as
+   the only support evidence. Never hard-code a resource-name allowlist, a
+   global resource inventory, or a time-support table in this Skill.
+3. Route explicit permission, menu, BPM, serial-number, and rollback intent to
+   the current domain/resource command. Do not translate domain terms into an
+   unrelated resource or invent `api`, `call`, or `catalog` commands.
 
-## Resolve parameters before asking the user or acting
+Adding an ordinary resource requires registering a `ResourceContract` only. Do
+not add a Skill branch, resource name, or example to make a newly registered
+ordinary resource usable.
 
-Treat every command parameter as unresolved when it is missing, vague, invalid, or not unique.
-This includes environment, URL or Token, resource or feature code/name/path, application module,
-feature group, employee, role, source/target environment, date range, and dependency identifiers.
+## Drive actions from the selected contract
 
-1. Read the relevant CLI help and identify the dedicated read-only command that can resolve the parameter.
-2. Use only values supplied by the user, local configuration, and returned CLI records as query inputs.
-   Never infer a URL, Token, ID, code, environment, or source/target direction from history or examples.
-3. Query before asking for clarification whenever the current values can discover candidates. Use:
-   - `eadp env list` for configured environments;
-   - `eadp resource query ...` for ordinary resources and feature/configuration items;
-   - `eadp resource compare ...` or `eadp resource sync ...` without `--apply` for read-only
-     target/dependency comparison;
-   - `eadp permission inspect functional ...` and `eadp permission verify ...`
-     for roles, menus, features, employees, and effective permissions.
-4. If exactly one candidate is returned, show the resolved value and use it in the planned command.
-5. If multiple candidates are returned, show stable distinguishing fields such as environment name,
-   code, name, path, application module, or employee number, then ask the user to choose. Do not write.
-6. If no candidate is returned, or no safe read-only command can resolve the value, state what was
-   searched and request the exact missing parameter. When no environment is configured, request the
-   environment name, its URL, and either its Token or Token environment-variable name; bind the Token
-   only to that URL. Do not request only an environment name and then guess the connection details.
-7. If a discovery command fails, stop and report the failure. Do not retry, switch endpoints/environments,
-   or ask the user for a replacement parameter as a workaround.
+Read the exact `describe` result and derive behavior mechanically. Treat
+`id`, `title`, `description`, `service`, and `help` as live identity and
+documentation facts; treat `query`, `save`, `read`, and `pagination` as
+live transport/read facts. Do not infer an omitted endpoint, response shape, or
+pagination `total` meaning. Honor each endpoint's `path` and `method`. For
+pagination, honor `pageField`, `pageNumberField`, `pageSizeField`,
+`startPage`, `rowsField`, `pageSize`, and `totalSemantics`.
 
-When asking the user for clarification, identify the unresolved field, summarize the read-only lookup,
-list any candidates or explain that none were found, and give the exact value/format needed next.
+- `query`: require `capabilities.query`; enforce `tenant.policy` and
+  `tenant.bindField`; use `query`, `read`, `pagination`, `filtering`,
+  `enums`, `selectors`, `adapter`, and `handler` exactly as declared.
+- `write`: require `capabilities.write`; enforce `tenant`; build only
+  `save` data from `writableFields`, validate `enums`, apply
+  `defaults` only for creation, use `adapter` or `handler` as registered,
+  and retain `rollback` for explicit recovery.
+- `compare`: require `capabilities.compare`; validate both `tenant`
+  policies before reads; use `query`, `read`, `pagination`,
+  `identityFields`, `compareFields`, `filtering`, `enums`, `selectors`,
+  `adapter`, and `handler` to produce the change plan.
+- `sync`: require `capabilities.sync`; reuse the contract-driven compare
+  plan, then use `tenant`, `identityFields`, `compareFields`,
+  `writableFields`, `defaults`, `filtering`, `enums`, `selectors`,
+  `adapter`, `handler`, and `rollback` to apply only safe changes.
 
-For example, for “修改 dev 环境的某功能项” when `eadp env list` has no configured environment,
-stop before querying or writing and request `dev`'s environment URL plus either its Token or Token
-environment-variable name. If the environment is configured but the feature name matches several
-records, query the registered feature resource, present the matching codes/names/modules, and ask the
-user to select one.
+For every action, honor `defaults.create`, `preserveTargetFields`, and
+`preserveTargetFieldsWhenMissing` only where declared. Use
+`filtering.time` and `filtering.defaultTimeField` to decide whether and how
+`--created-in`, `--from`, `--to`, or `--time-field` may be used. Pass only
+declared `selectors` with their `name`, `valuePlaceholder`, `description`, and
+`required` values, and retain each `enums` `value` and `meaning`. Use only a
+registered `rollback` contract and its `service`, `resource`, `remove`, and
+`lookup` declarations, including `path`, `method`, `idField`, and
+`idPlacement`; never construct a delete or raw request.
 
-## Select one workflow
+If a required contract fact, dependency mapping, request field, response shape,
+or tenant rule is absent or contradictory, stop and request a project-backed
+contract reference. Do not guess an endpoint, field, ID, page-count meaning, or
+fallback command.
 
-Before previewing any workflow that can create a record or relation (`resource write`, `permission apply`,
-`permission assign`, or `resource sync`,
-including `resource sync --apply`), read [references/write-contracts.md](references/write-contracts.md) and enforce
-its input and mapping gate. Then read the selected workflow reference; do not skip this gate for a
-sync that includes new records.
+## Run the common state machine
 
-- For resource/time queries or permission inspection, read [references/query-audit.md](references/query-audit.md).
-- For creating or synchronizing menus, read [references/resource-sync.md](references/resource-sync.md) first and follow its menu hierarchy and read-only discovery sequence.
-- For A-to-B comparisons or synchronization, read [references/resource-sync.md](references/resource-sync.md).
-- For granting or revoking user, position, or position-category roles, read [references/permission-management.md](references/permission-management.md).
-- For BPM discovery or configuration, read [references/bpm-configuration.md](references/bpm-configuration.md).
-- For serial-number configuration synchronization, read [references/serial-number-sync.md](references/serial-number-sync.md).
-- For rolling back a prior CLI create or assignment, read [references/rollback.md](references/rollback.md).
+Follow these phases for every resource query, mutation, or migration:
 
-### Creating a feature
+1. Parse the request exactly. Resolve missing or ambiguous environments,
+   resources, selectors, identities, and dependencies with read-only CLI queries.
+   Ask the user only after a lookup returns zero or multiple candidates.
+2. Resolve one exact resource and validate the requested capability, tenant
+   policy, selectors, filters, enums, identity, writable data, and defaults from
+   its contract. For a migration, preserve source/target direction.
+3. For `write` or `sync`, build a preview with the same command and no
+   `--apply`. Show `create`, `update`, `unchanged`, and `blocked` changes,
+   changed fields, mapped dependencies, and every missing or ambiguous
+   dependency.
+4. Request or confirm explicit authorization for the shown write set. Then run
+   that same command with `--apply`; do not switch to a separate apply command,
+   raw endpoint, or modified environment/Token.
+5. Apply only safe changes. Skip `blocked` records while continuing the full
+   plan; never treat skipped records as success. Require the CLI's post-write
+   verification to report `verified: true`.
+6. Report the operation ID when the CLI returns one. To test idempotency, query
+   or preview again and expect already equal records to be `unchanged` with no
+   duplicate write. Request rollback separately and follow [rollback.md](references/rollback.md).
 
-Use `eadp permission apply feature` for a new `sei-basic` feature item. Run `eadp permission apply feature --help`
-before constructing the command. The required selectors are `--code`, `--name`, `--app`
-(application module code, name, or ID), and `--feature-type` (`Operate`, `Business`, or `Page`).
-Optionally provide `--group` (feature-group code, name, or ID), `--url`,
-`--can-menu`, `--tenant-can-use`, and `--mobile-use`.
+`write` and `sync` are preview-only by default and never imply deletion. A
+transport, CLI, or EADP failure stops the current workflow immediately. Do not
+retry, alter parameters, switch endpoints/environments/Tokens, or infer a
+batch-wide result from one item. Continue only after the user reviews the
+failure and requests a new action.
 
-This workflow is limited to an environment whose recorded `tenantCode` is `global`. The command
-first checks `feature/findByCode`; an existing `code` is reported as `action: "unchanged"` with
-  `applied: false` and does not resolve dependencies or request `feature/save`. For a missing code,
-resolve the application module and feature group through read-only queries and require exactly one
-match; when the group exposes `appModuleId` or `appModuleCode`, verify that it belongs to the
-selected module. The default command is preview-only. Add `--apply` only after the preview is
-reviewed. The command creates only: it never updates an existing item. A successful create is
-verified with `feature/findByCode`, returns an `operationId`, and can later be removed only by an
-explicit `eadp rollback <operationId>`.
+## Protect identity and secrets
 
-### Creating a feature group and its application module
+- Use `eadp env list` and only configured environment names. Never infer a URL,
+  Token, tenant, or direction from history or examples.
+- Resolve a person by employee number when possible. Accept an exact name only
+  when it yields one candidate; stop on duplicates.
+- Never send a source environment ID to a target environment. Resolve target
+  dependencies through the contract's adapter/handler or a target read.
+- Never print a Token. Redact it if a command exposes one unexpectedly.
+- Keep output structured. State environments, exact selectors and time range,
+  action counts, preview/applied status, verification, skipped blocked records,
+  and unresolved dependencies.
 
-Use `eadp permission apply feature-group --help` before constructing this command. Provide the feature-group
-`--code`, `--name`, and an explicit application-module code through `--app-code`. The command is global-only and defaults to a
-preview. It first queries the feature-group by code; an existing match returns `action: "unchanged"`
-without querying or creating an application module. For a missing group, the module code is matched
-uniquely. A missing module is planned as `action: "create"`; its name is inferred from the supplied
-`--project` (default current project) Gradle/package metadata or business code
-comments and is capped at eight characters. `rank` defaults to `1`. The preview reports both the
-module action/name/rank and the feature-group action, and never writes.
+## Load references only when needed
 
-After explicit authorization, add `--apply`. If the module is missing, the CLI creates it and checks
-it by code before creating the feature group with the returned target module ID, then checks the group
-by code. Existing modules are reused and never overwritten. Both creates share one operation log;
-partial failure stops immediately and reports its `operationId` for an explicit rollback. Run
-`eadp rollback <operationId>` only when requested; rollback removes the feature group first and the
-module second. Never infer a remote module from `sei.application.code` or copy an ID from another
-environment.
+After live resource discovery, read only the direct reference required by the
+selected workflow; do not load every reference by default:
 
-Load only the selected workflow unless the request combines workflows.
+- Querying or auditing: [query-audit.md](references/query-audit.md)
+- Generic compare/sync or menu hierarchy: [resource-sync.md](references/resource-sync.md)
+- Any create/update/assign/sync write: [write-contracts.md](references/write-contracts.md)
+- Permission inspection, add-only copying, grant, or revoke: [permission-management.md](references/permission-management.md)
+- BPM discovery or configuration: [bpm-configuration.md](references/bpm-configuration.md)
+- Serial-number migration: [serial-number-sync.md](references/serial-number-sync.md)
+- Explicit rollback: [rollback.md](references/rollback.md)
 
-### Ordinary resource contract workflow
-
-Use the resource-first grammar:
-
-```text
-eadp resource list
-eadp resource describe <name>
-eadp resource query <name> --env <env>
-eadp resource write <name> --env <env> --data '<json>' [--apply]
-eadp resource compare <name> --source <env> --target <env>
-eadp resource sync <name> --source <env> --target <env> [--apply]
-```
-
-`write` and `sync` default to preview and never delete. Their shared plan uses only `create`,
-`update`, `unchanged`, and `blocked`; record-level missing dependencies are reported in the full
-plan and skipped by `--apply`. An ordinary update preserves target writable fields omitted from the
-input; an explicit value is required to change them, and create defaults never overwrite an existing
-target. A transport/API failure stops immediately and is never retried.
-`compare` is read-only. Before either environment is read, validate both recorded tenant policies;
-after every applied write, require the CLI's post-write verification to be true.
-
-All ordinary resources and behavior extensions use the same ChangeSet envelope. Compare and sync
-results expose `changeSetKind: "eadp.resource.change-set.v1"`, `resource`, `changes`, and a
-`summary` with `create`, `update`, `unchanged`, and `blocked`. A special resource may add domain
-fields (for example menu hierarchy or BPM relations), but it must not return a second protocol.
-The generic command owns preview/apply selection, operation-log completion/failure, blocked-record
-skipping, and post-write verification. A normal resource declaring `sync` must have both a confirmed
-save endpoint and a safe rollback contract at registration time; incomplete declarations are rejected
-before any remote read.
-Behavior extensions extend the generic engine through phase hooks
-(`load`/`plan`/`aggregatePlan`/`apply`/`verify`); the engine still owns the blocked gate, envelope
-assembly, operation-log lifecycle, and post-write verification. There is no whole-action
-compare/sync/write handler: `write` is always executed by the engine's apply phase, so preview mode
-cannot execute a write hook. They must not return their own operation ID, claim writes in preview mode,
-or return an applied result without successful post-write verification.
-
-## Global safety rules
-
-- Resolve relative dates into explicit year-month or timestamps. Ask when the year or timezone changes the result.
-- Interpret “新增” as creation time. Do not silently substitute update time.
-- Resolve every missing or ambiguous parameter through the read-only procedure above before requesting user input.
-- For a person, prefer employee number. Permit exact employee name only when it resolves to one employee; never choose among duplicates.
-- For cross-environment operations, preserve source/target direction exactly as requested.
-- Treat only an environment whose recorded `tenantCode === "global"` as the global administrator.
-  Use it for every remote operation on CLI resources `app-module`, `menu`, `feature`, `feature-group`,
-  and `serial-number`, including query, write, sync, and rollback.
-  Use a non-`global` environment for permission and position configuration/assignment, user queries,
-  BPM configuration, and all other operations. The resource and domain commands enforce the same
-  tenant policy and must not be bypassed.
-- When configuring or replacing a Token, the CLI first validates it with `account/getByApiKey?apiKey=<token>` and
-  records the returned `tenantCode`. If validation fails, the new Token is not saved; stop and report
-  the failure without retrying.
-- Use only the `tenantCode` recorded by `env add`. Never accept, infer, or override it in a later
-  query or write command.
-- Preview every write first. Show the planned create, update, grant, or revoke set.
-- Execute only after the user has authorized the write or explicitly requested completion.
-- Never pass `--apply` during exploration or when identity/dependency resolution is ambiguous.
-- If any CLI or EADP API request fails, stop the workflow immediately and report the failure truthfully. Include the environment name, redacted command, HTTP status or EADP message when available, and whether any earlier write may already have succeeded.
-- Do not retry a failed request automatically. Do not retry with changed parameters, another endpoint, another environment or Token, or any other workaround. Continue only after the user explicitly reviews the failure and instructs a new action.
-- After applying, require the CLI result to report successful verification. If it does not, stop and report the partial result.
-- For BPM and serial-number synchronization, distinguish record-level `blocked` results from CLI or
-  EADP request failures. Apply only safe planned records, report every `blockingIssues` entry, and
-  never retry a failed request.
-- Never copy source database IDs into another environment. Use CLI-registered dependency mappings.
-- Never display Token values. Redact them if an external command exposes them unexpectedly.
-- Successful creates and assignments return an `operationId` and keep a local operation log for 1 day.
-  Run `eadp rollback <operation-id>` only when the user explicitly requests that rollback. It executes
-  directly without `--apply`; never invent an operation ID or substitute an unregistered delete/remove request.
-
-## Report results
-
-State:
-
-1. Source and target environment names, if applicable.
-2. Exact selector and time range used.
-3. Counts of queried, created, updated, unchanged, blocked, granted, or revoked records.
-4. Whether the operation was preview-only or applied.
-5. Verification status, `skippedBlocked`, and every missing or ambiguous dependency reported by the CLI.
-
-For a failed request, report the failure instead of converting it into a partial success. State clearly that no retry was attempted.
+References add domain constraints only. They do not register resources, decide
+whether an action is supported, or replace the live `list`/`describe`/action-help
+evidence.

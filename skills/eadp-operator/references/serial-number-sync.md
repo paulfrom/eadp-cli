@@ -2,7 +2,18 @@
 
 Use this workflow for migrating 给号配置 between named environments.
 
-1. Run `eadp resource describe serial-number` and resolve both environments with `eadp env list`.
+This file supplies serial-number domain enum meanings and identity rules only.
+Use the current `resource list`, `resource describe serial-number`, and
+`eadp resource compare serial-number --help` or
+`eadp resource sync serial-number --help` to establish registration,
+capabilities, selectors, fields, and defaults.
+If the live contract disagrees with a detail below, stop and request the updated
+project-backed contract; do not guess or silently widen support.
+
+1. Run `eadp resource list`, `eadp resource describe serial-number`, and
+   `eadp resource compare serial-number --help` or
+   `eadp resource sync serial-number --help`; resolve both environments with
+   `eadp env list`.
 2. Require both environments to record `tenantCode === "global"` (the global administrator)
    before any remote read. Use the CLI resource name `serial-number`.
 3. Resolve the entity's fully qualified `entityClassName`; do not use a short class name.

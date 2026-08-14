@@ -6,6 +6,19 @@ Use this workflow for:
 - 去掉某用户的某权限
 - 给岗位或岗位类别分配角色
 
+Use the current `eadp permission ... --help` output as the command authority.
+This reference adds permission-domain rules only; it does not register ordinary
+resources or decide resource capabilities.
+
+## Contents
+
+- [Resolve the requested permission](#resolve-the-requested-permission)
+- [Resolve the principal](#resolve-the-principal)
+- [Grant](#grant)
+- [Copy direct employee permissions](#copy-direct-employee-permissions)
+- [Revoke](#revoke)
+- [Verify](#verify)
+
 EADP grants permissions through functional or data roles. Resolve the requested “权限” to a role before changing a principal. Do not claim that assigning a role is equivalent to a direct feature grant without inspecting that role.
 
 ## Resolve the requested permission

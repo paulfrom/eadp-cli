@@ -3,6 +3,11 @@
 Use this workflow for `eadp bpm inspect`, `eadp bpm configure`, and the BPM special resource handler
 `eadp resource compare/sync bpm --flow <code-or-name>`.
 
+Before planning, run `eadp resource list`, `eadp resource describe bpm`, and the selected
+`eadp bpm ... --help` or `eadp resource compare/sync --help`. Use those outputs to confirm the
+current registration, capability, selector, tenant policy, and accepted options. This reference
+adds BPM rules only; it does not register BPM or decide support for another resource.
+
 ## Route BPM intent before generic resources
 
 - Explicit BPM intent takes precedence over generic resource, configuration, or migration wording.
@@ -22,8 +27,9 @@ eadp resource sync bpm --source 开发环境 --target ead环境 --flow 采购申
   exact match; stop on zero or multiple matches.
 - Require both environments to be non-global before reading source or target BPM data.
 - Preview without `--apply`. After authorization, repeat with `--apply` and require `verified: true`.
-- `resource compare/sync bpm` does not accept time filters. Select exactly one source flow with `--flow`; never add
-  `--created-in`, `--from`, `--to`, or `--time-field`.
+- Select exactly one source flow with `--flow`. Add time options only when the live `describe` result
+  declares `filtering.time: true` and the action help accepts them; otherwise stop instead of
+  substituting a time field or another resource.
 - Synchronize the business module, entity, pages, integration interfaces, flow type, and missing
   entity-page/entity-interface relations. Map dependencies to target IDs; never copy source IDs.
 - Always set target business-entity `auditTypeId` and `auditTypeName` to null. Ignore source audit

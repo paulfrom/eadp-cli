@@ -1,4 +1,4 @@
 interface:
   display_name: "EADP Operator"
-  short_description: "Safe EADP query, sync, and permission workflows"
-  default_prompt: "Use $eadp-operator to inspect, synchronize, or change EADP permissions safely."
+  short_description: "Adaptive EADP operations from live resource contracts"
+  default_prompt: "Use $eadp-operator to run resource list, exact resource describe, and matching action help before contract-driven query/write/compare/sync or domain work; preview, authorize, apply with the same command, and verify."

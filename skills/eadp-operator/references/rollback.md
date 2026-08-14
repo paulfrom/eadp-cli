@@ -1,6 +1,8 @@
 # Rollback workflow
 
 Use this workflow only when the user asks to undo a prior create or assignment made by the EADP CLI.
+Use `eadp rollback --help` as the command authority. This reference supplements
+rollback safety and does not add resource registration or deletion support.
 
 1. Require one or more exact `operationId` values returned by the original applied commands. Do not infer
    them from names, timestamps, remote IDs, or shell history.

@@ -1,80 +1,81 @@
-# Query and audit workflow
+# Query and audit
 
-Use this workflow for requests such as:
+Use this reference for read-only resource queries, time-scoped audits, and
+permission verification. Treat the live CLI contract as the authority; this
+file contains no resource or time-support allowlist.
 
-- 查询 A 环境 7 月新增的功能项
-- 查询某时间段创建或修改的配置
-- 按员工号或员工姓名查询权限
+## Query an ordinary resource
 
-## Resource query
+1. Run `eadp resource list`, `eadp resource describe <name>`, and
+   `eadp resource query <name> --help`.
+2. Select one exact registered name and confirm `query` in `capabilities`.
+3. Confirm the environment's recorded `tenantCode` satisfies `tenant.policy`
+   before making the query.
+4. Use only fields declared by the contract and only `--filter` operators shown
+   by the action help (`EQ`, `NE`, `LIKE`, `GT`, `GE`, `LT`, `LE`).
+5. Read all pages according to `read`, `pagination`, and verified
+   `totalSemantics`. Never infer whether `total` means records or pages from
+   its name. Treat the returned `items` and `total` as complete only after the
+   contract-driven reader finishes.
 
-Remote queries for CLI resources `app-module`, `menu`, `feature`, `feature-group`, and
-`serial-number` require an environment whose recorded `tenantCode === "global"` (the global
-administrator).
-
-1. Run `eadp resource --help` and `eadp resource query --help`.
-2. Resolve the environment name and canonical CLI resource name.
-3. Use only filters declared by the resource contract; do not infer a time field or date semantics.
-4. Add exact filters with `--filter field:operator:value`.
-5. Run the query; pagination is completed before the structured `items`/`total` result is emitted.
-   Use `--output compact-ndjson` when a row stream is explicitly needed.
-
-Examples:
+The following commands demonstrate the grammar only. `feature` is not a
+capability claim or a static resource list; rediscover it with `list` and
+`describe` before executing.
 
 ```text
-eadp resource query feature --env A --filter appModuleCode:EQ:BASIC
-eadp resource query app-module --env GLOBAL --filter code:EQ:ams
-eadp resource query serial-number --env GLOBAL --filter entityClassName:EQ:com.example.Order --filter configType:EQ:CODE_TYPE
+eadp resource describe feature
+eadp resource query feature --env A --filter code:EQ:EXAMPLE_CODE
 ```
 
-`--to` is exclusive. For a full month, prefer `--created-in` to avoid end-of-month mistakes.
+Use `--output compact-ndjson` only when a row stream is needed. Keep the
+schema/meta line and row count; do not diagnose a user from an empty result
+without reporting the exact selector and environment used.
 
-The resource contract declares whether the read strategy is `paged`, `findAll`, or `tree`. If the server rejects a declared field or resource, inspect the corresponding backend controller rather than guessing another field.
+## Query by time
 
-For `serial-number`, use a `global` environment. `configType` is only a filter and is not part of the
-business key; the query command does not add an implicit value. Use
-`--filter configType:EQ:CODE_TYPE` when that selection is intended. The CLI uses the composite key
-`entityClassName + tenantCode`, normalizing case and surrounding whitespace consistently. Stop if
-the CLI reports a duplicate composite key or a record is missing either key field. Treat the complete
-`items` result as authoritative; an empty result for the exact entity filter means no matching record
-was returned, not permission to guess missing write fields.
+1. Check `filtering.time` in the selected `describe` result.
+2. Use the declared `defaultTimeField`, or provide `--time-field` only when the
+   user or a project-backed contract establishes the correct field.
+3. Use `--created-in YYYY-MM` for a creation month, or use `--from` inclusive
+   and `--to` exclusive for an explicit range. Treat “新增” as creation time;
+   do not silently use an update field.
+4. Stop when time filtering is false or undeclared. Do not substitute another
+   field, endpoint, or resource.
 
-## Permission query
+Executable grammar example, subject to the live contract check:
 
-1. Run `eadp permission verify --help`.
-2. Prefer `--employee-code`.
-3. Use `--employee-name` only for an exact unique employee name.
-4. Use `--user` only when the account is explicitly known.
-5. For feature checks, repeat `--feature`.
-6. For menu visibility checks, repeat `--menu` with an exact menu code, name, or path.
-7. For data scope checks, provide the entity class and optional feature code.
-8. To reverse-query all users with an effective feature permission, run
-   `eadp permission inspect users --feature <code>`. This uses the server's final permission
-   decision for each user, including direct roles, positions, and position categories.
+```text
+eadp resource compare feature --source A --target B --created-in 2026-07
+eadp resource sync feature --source A --target B --from "2026-07-01 00:00:00" --to "2026-08-01 00:00:00"
+```
 
-Examples:
+Time filters select source records for a migration. The target read must remain
+unfiltered unless the action help and contract explicitly define another
+behavior.
+
+## Verify permissions
+
+1. Run `eadp permission verify --help` or the relevant current permission
+   command help.
+2. Prefer `--employee-code`; use an exact employee name only when it resolves
+   to one candidate; use an account only when it is explicitly known.
+3. Add the exact feature code, menu selector, entity class, or data-scope
+   selector requested by the user. Resolve a missing or ambiguous selector with
+   a read-only permission query before asking the user.
+4. Stop on duplicate people or failed lookups. Do not choose an arbitrary ID.
 
 ```text
 eadp permission verify --env A --employee-code E1001
-eadp permission verify --env A --employee-name 张三
-eadp permission verify --env A --employee-code E1001 --feature BASIC_VIEW
-eadp permission verify --env A --employee-code E1001 --menu 租户管理
-eadp permission inspect users --env A --feature BASIC_VIEW
+eadp permission verify --env A --employee-code E1001 --feature FEATURE_CODE
+eadp permission inspect users --env A --feature FEATURE_CODE
 ```
 
-When the CLI reports duplicate employee names, return the candidate employee numbers and request one; do not retry using an arbitrary ID.
+Interpret `featureChecks`, `menuChecks`, effective role results,
+`authorizedEntityIds`, and `notes` exactly as returned. A missing role
+assignment and an empty authorized-entity result are different findings.
 
-For a directory menu, the CLI checks the feature codes attached to the selected menu and all
-descendant menus. The menu is visible when at least one of those feature checks is true. If a
-menu name matches multiple nodes, stop and request an exact menu code or path.
+## Report read-only results
 
-## Output interpretation
-
-- `eadp.resource.query.v1`: environment, resource, complete `items`, and `total`.
-- `--output compact-ndjson` emits a schema-first `meta` line followed by `row` lines; the count is
-  authoritative only after the contract's pagination strategy has completed.
-- `featureRoles` and `dataRoles`: effective role results returned for the account.
-- `featureChecks`: explicit feature-code decisions.
-- `menuChecks`: resolved menu nodes, related feature codes, individual decisions, and final visibility.
-- `authorizedEntityIds`: effective data-scope IDs.
-- `notes`: important limitations, such as account-only lookup without a user ID.
+State the environment, exact resource or principal selector, exact filters and
+time boundary, pagination completion, result count, and any ambiguity or
+permission limitation. Never expose a Token.
