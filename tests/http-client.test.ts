@@ -1,29 +1,28 @@
-import { createServer, type IncomingMessage } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { sendRequest } from "../src/http/client.js";
-
-const servers: ReturnType<typeof createServer>[] = [];
+import {
+  cleanupAll,
+  createFixture,
+  createMockServer,
+  trackServer
+} from "./helpers/index.js";
 
 afterEach(async () => {
-  await Promise.all(
-    servers.splice(0).map(
-      (server) =>
-        new Promise<void>((resolve, reject) =>
-          server.close((error) => (error ? reject(error) : resolve()))
-        )
-    )
-  );
+  await cleanupAll();
 });
 
-describe("sendRequest", () => {
+describe("sendRequest：统一 HTTP 客户端", () => {
   it("注入 x-api-token 并发送 JSON 请求体", async () => {
+    const server = createMockServer();
+    trackServer(server);
     let capturedToken = "";
     let capturedBody = "";
-    const baseUrl = await listen(async (request) => {
-      capturedToken = String(request.headers["x-api-token"]);
-      capturedBody = await readBody(request);
-      return { success: true, data: { id: "ok" } };
+    server.onRequest("POST", "/api/save", (context) => {
+      capturedToken = String(context.headers["x-api-token"]);
+      capturedBody = context.rawBody;
+      context.raw({ success: true, data: { id: "ok" } });
     });
+    const baseUrl = await server.start();
 
     const result = await sendRequest({
       baseUrl,
@@ -39,13 +38,16 @@ describe("sendRequest", () => {
   });
 
   it("Authorization 优先于 Token，并移除 x-api-token", async () => {
+    const server = createMockServer();
+    trackServer(server);
     let capturedAuthorization = "";
     let capturedToken: string | undefined;
-    const baseUrl = await listen(async (request) => {
-      capturedAuthorization = String(request.headers.authorization);
-      capturedToken = request.headers["x-api-token"];
-      return { success: true, data: { id: "ok" } };
+    server.onRequest("GET", "/api/implicit", (context) => {
+      capturedAuthorization = String(context.headers.authorization);
+      capturedToken = context.headers["x-api-token"];
+      context.raw({ success: true, data: { id: "ok" } });
     });
+    const baseUrl = await server.start();
 
     await sendRequest({
       baseUrl,
@@ -61,54 +63,67 @@ describe("sendRequest", () => {
   });
 
   it("EADP success=false 时返回失败且不泄露 Token", async () => {
-    const baseUrl = await listen(async () => ({
-      success: false,
-      message: "没有权限"
-    }));
+    const server = createMockServer();
+    trackServer(server);
+    server.onRequest("POST", "/api/save", (context) => {
+      context.raw({ success: false, message: "没有权限" });
+    });
+    const baseUrl = await server.start();
 
     await expect(
-      sendRequest({
-        baseUrl,
-        path: "/api/save",
-        method: "POST",
-        token: "must-not-leak"
-      })
+      sendRequest({ baseUrl, path: "/api/save", method: "POST", token: "must-not-leak" })
     ).rejects.toThrow("EADP 请求失败：没有权限");
 
     try {
-      await sendRequest({
-        baseUrl,
-        path: "/api/save",
-        method: "POST",
-        token: "must-not-leak"
-      });
+      await sendRequest({ baseUrl, path: "/api/save", method: "POST", token: "must-not-leak" });
     } catch (error) {
       expect(String(error)).not.toContain("must-not-leak");
     }
   });
+
+  it("非 2xx 响应抛出 HTTP 状态与摘要", async () => {
+    const server = createMockServer();
+    trackServer(server);
+    server.onRequest("GET", "/api/missing", (context) => {
+      context.fail("not found", 404);
+    });
+    const baseUrl = await server.start();
+    await expect(
+      sendRequest({ baseUrl, path: "/api/missing", method: "GET" })
+    ).rejects.toThrow("HTTP 404");
+  });
 });
 
-async function listen(
-  responseFactory: (request: IncomingMessage) => Promise<unknown>
-): Promise<string> {
-  const server = createServer(async (request, response) => {
-    const data = await responseFactory(request);
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify(data));
+describe("sendRequest：与 CLI 环境配置集成", () => {
+  it("请求绑定环境 URL 与 Token，不使用其他环境地址", async () => {
+    const fixture = await createFixture({
+      environments: [
+        { name: "alpha", tenantCode: "tenant-a", token: "alpha-token" },
+        { name: "beta", tenantCode: "tenant-a", token: "beta-token" }
+      ]
+    });
+    const seen: Array<{ host: string; token: string }> = [];
+    for (const name of ["alpha", "beta"]) {
+      fixture.server(name).onRequest("GET", "/probe", (context) => {
+        seen.push({ host: context.headers.host ?? "", token: String(context.headers["x-api-token"]) });
+        context.json({ ok: true });
+      });
+    }
+    await sendRequest({
+      baseUrl: fixture.baseUrl("alpha"),
+      path: "/probe",
+      method: "GET",
+      token: "alpha-token"
+    });
+    await sendRequest({
+      baseUrl: fixture.baseUrl("beta"),
+      path: "/probe",
+      method: "GET",
+      token: "beta-token"
+    });
+    expect(seen).toEqual([
+      { host: new URL(fixture.baseUrl("alpha")).host, token: "alpha-token" },
+      { host: new URL(fixture.baseUrl("beta")).host, token: "beta-token" }
+    ]);
   });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("测试服务器启动失败");
-  }
-  return `http://127.0.0.1:${address.port}`;
-}
-
-async function readBody(request: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
+});
