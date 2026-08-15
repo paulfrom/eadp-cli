@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   cleanupAll,
   createFixture,
+  eadpPage,
   runCommand,
   runExpectError,
   trackDirectory
@@ -74,7 +75,8 @@ function collectionOf(state: BpmState, resource: string): RecordValue[] {
 function registerBpmRoutes(server: MockEadpServer, state: BpmState): void {
   for (const resource of BPM_COLLECTIONS) {
     server.onEndsWith(`/${resource}/findByPage`, (context) => {
-      context.json({ rows: collectionOf(state, resource) });
+      const rows = collectionOf(state, resource);
+      context.json(eadpPage(rows));
     });
     server.onEndsWith(`/${resource}/save`, (context) => {
       const body = context.body as RecordValue;

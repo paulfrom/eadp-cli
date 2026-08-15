@@ -13,10 +13,12 @@ file contains no resource or time-support allowlist.
    before making the query.
 4. Use only fields declared by the contract and only `--filter` operators shown
    by the action help (`EQ`, `NE`, `LIKE`, `GT`, `GE`, `LT`, `LE`).
-5. Read all pages according to `read`, `pagination`, and verified
-   `totalSemantics`. Never infer whether `total` means records or pages from
-   its name. Treat the returned `items` and `total` as complete only after the
-   contract-driven reader finishes.
+5. Read all pages according to `read` and `pagination`. EADP page requests use
+   `pageInfo: { page, rows: 500 }`; the inner response uses `page` for the
+   current page, `records` for the total record count, `total` for the total
+   page count, and `rows` for the current page. Treat the returned `items` as
+   complete only after the contract-driven reader reaches `total` and verifies
+   the aggregate count against `records`.
 
 The following commands demonstrate the grammar only. `feature` is not a
 capability claim or a static resource list; rediscover it with `list` and

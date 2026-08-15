@@ -27,8 +27,8 @@ const futureResource: ResourceContract = {
     pageSizeField: "size",
     startPage: 1,
     rowsField: "rows",
-    pageSize: 100,
-    totalSemantics: "records"
+    pageSize: 500,
+    totalSemantics: "pages"
   },
   identityFields: ["tenantCode", "code"],
   compareFields: ["tenantCode", "code", "name", "state"],
@@ -63,6 +63,26 @@ const futureResource: ResourceContract = {
       method: "GET",
       idField: "id",
       idPlacement: "query"
+    }
+  },
+  deletion: {
+    service: "future-service",
+    resource: "future-resource",
+    remove: {
+      path: "future/delete/{id}",
+      method: "DELETE",
+      idField: "id",
+      idPlacement: "path"
+    },
+    lookup: {
+      path: "future/findOne",
+      method: "GET",
+      idField: "id",
+      idPlacement: "query"
+    },
+    restore: {
+      path: "future/save",
+      method: "POST"
     }
   }
 };
@@ -141,6 +161,8 @@ describe("eadp-operator Skill：普通资源契约自适应", () => {
       "resource",
       "remove",
       "lookup",
+      "deletion",
+      "restore",
       "idField",
       "idPlacement"
     ]) {
@@ -178,12 +200,12 @@ describe("eadp-operator Skill：普通资源契约自适应", () => {
       compare: [
         "capabilities.compare", "tenant", "query", "read", "pagination",
         "identityFields", "compareFields", "filtering", "enums", "selectors",
-        "adapter", "handler"
+        "adapter", "handler", "deletion"
       ],
       sync: [
         "capabilities.sync", "tenant", "identityFields", "compareFields",
         "writableFields", "defaults", "filtering", "enums", "selectors",
-        "adapter", "handler", "rollback"
+        "adapter", "handler", "rollback", "deletion"
       ]
     };
     for (const [action, fields] of Object.entries(actionFields)) {

@@ -109,6 +109,24 @@ describe("OperationLogStore：记录格式与保存", () => {
     custom.actions[0]!.service = "../unsafe";
     await expect(store.save(custom)).rejects.toThrow("服务或资源无效");
   });
+
+  it("动作格式校验：delete-entity 必须完整登记 remove、lookup、restore", async () => {
+    const store = new OperationLogStore(await makeDirectory());
+    const custom = record("invalid-delete", "2026-08-11T00:00:00.000Z");
+    custom.actions.push({
+      id: "delete-warehouse",
+      type: "delete-entity",
+      service: "sei-inventory",
+      resource: "warehouse",
+      status: "applied",
+      entityId: "warehouse-1",
+      expected: { code: "W1" },
+      remove: undefined as never,
+      lookup: undefined as never,
+      restore: undefined as never
+    });
+    await expect(store.save(custom)).rejects.toThrow("操作日志删除动作格式无效");
+  });
 });
 
 describe("OperationLogStore：清理", () => {
@@ -243,6 +261,44 @@ describe("rollback：逆序回滚与回查", () => {
       "POST /api-gateway/sei-inventory/warehouse/remove?warehouseId=warehouse-1",
       "POST /api-gateway/sei-inventory/warehouse/detail"
     ]);
+  });
+
+  it("删除动作保存完整快照并可通过删除契约恢复", async () => {
+    let current: Record<string, unknown> | null = null;
+    const requests: string[] = [];
+    const fixture = await createFixture({
+      environments: [{ name: "global", tenantCode: "global", token: "secret" }]
+    });
+    fixture.server("global").onEndsWith("/appModule/findOne", (context) => {
+      requests.push(`${context.method} lookup`);
+      context.json(current);
+    });
+    fixture.server("global").onEndsWith("/appModule/save", (context) => {
+      requests.push(`${context.method} restore`);
+      current = context.body as Record<string, unknown>;
+      context.json(current);
+    });
+    await new OperationLogStore(fixture.store.directory).save(record("delete-operation", new Date().toISOString(), {
+      environment: "global",
+      command: "eadp resource sync app-module",
+      actions: [{
+        id: "delete-app-module", type: "delete-entity", service: "sei-basic", resource: "appModule",
+        entityId: "module-1", expected: { id: "module-1", code: "OLD", name: "旧模块" },
+        remove: { path: "appModule/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" },
+        lookup: { path: "appModule/findOne", method: "GET", idField: "id", idPlacement: "query" },
+        restore: { path: "appModule/save", method: "POST" },
+        tenantPolicy: "global", status: "applied"
+      }]
+    }));
+
+    const output = JSON.parse(await runCommand(fixture.program(), ["rollback", "delete-operation"])) as {
+      status: string;
+      rolledBack: number;
+      verified: boolean;
+    };
+    expect(output).toMatchObject({ status: "rolled-back", rolledBack: 1, verified: true });
+    expect(current).toEqual({ id: "module-1", code: "OLD", name: "旧模块" });
+    expect(requests).toEqual(["GET lookup", "POST restore", "GET lookup"]);
   });
 
   it("逆序回滚：先移除分配关系，再删除新增角色，并回查确认删除", async () => {

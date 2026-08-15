@@ -10,6 +10,7 @@ import { OperationLogStore } from "../src/operations/store.js";
 import {
   cleanupAll,
   createFixture,
+  eadpPage,
   runCommand,
   runExpectError
 } from "./helpers/index.js";
@@ -47,7 +48,7 @@ describe("permission inspect", () => {
       },
       "/menu/getMenuTree": (context) => context.json([{ id: "menu-1", code: "M1" }]),
       "/featureRoleGroup/findAll": (context) => context.json([{ id: "group-1", code: "ROLES" }]),
-      "/featureRole/findByPage": (context) => context.json({ rows: [{ id: "role-1", code: "ADMIN" }] }),
+      "/featureRole/findByPage": (context) => context.json(eadpPage([{ id: "role-1", code: "ADMIN" }])),
       "/featureRoleFeature/getMenuFeatureTree": (context) => {
         expect(context.query.get("featureRoleId")).toBe("role-1");
         context.json([{ id: "menu-1", children: [{ id: "feature-1", authorized: true }] }]);
@@ -93,10 +94,10 @@ describe("permission inspect", () => {
     const server = fixture.server("dev");
     const checked: string[] = [];
     register(server, {
-      "/feature/findByPage": (context) => context.json({ rows: [{ id: "feature-1", code: "BASIC_VIEW" }] }),
-      "/user/findByPage": (context) => context.json({ rows: [
+      "/feature/findByPage": (context) => context.json(eadpPage([{ id: "feature-1", code: "BASIC_VIEW" }])),
+      "/user/findByPage": (context) => context.json(eadpPage([
         { id: "user-direct" }, { id: "user-position" }, { id: "user-none" }
-      ] }),
+      ])),
       "/user/checkUserFeaturesAuthority": (context) => {
         const body = context.body as { userId: string; featureCodes: string[] };
         expect(body.featureCodes).toEqual(["BASIC_VIEW"]);
@@ -135,7 +136,7 @@ describe("permission apply functional-role：六大场景", () => {
     const saves: unknown[] = [];
     register(server, {
       "/featureRoleGroup/findAll": (context) => context.json([{ id: "group-1", code: "BASIC_ROLE" }]),
-      "/featureRole/findByPage": (context) => context.json({ rows: roles }),
+      "/featureRole/findByPage": (context) => context.json(eadpPage(roles)),
       "/featureRole/save": (context) => {
         const body = context.body as Record<string, unknown>;
         saves.push(body);
@@ -211,7 +212,7 @@ describe("permission apply functional-role：六大场景", () => {
         { id: "group-1", code: "BASIC_ROLE" },
         { id: "group-2", code: "BASIC_ROLE" }
       ]),
-      "/featureRole/findByPage": (context) => context.json({ rows: [] }),
+      "/featureRole/findByPage": (context) => context.json(eadpPage([])),
       "/featureRole/save": (context) => {
         saves.push(context.body);
         context.json({ id: "x" });
@@ -229,7 +230,7 @@ describe("permission apply functional-role：六大场景", () => {
     let saveCount = 0;
     register(fixture.server("dev"), {
       "/featureRoleGroup/findAll": (context) => context.json([{ id: "group-1", code: "G" }]),
-      "/featureRole/findByPage": (context) => context.json({ rows: [] }),
+      "/featureRole/findByPage": (context) => context.json(eadpPage([])),
       "/featureRole/save": (context) => {
         saveCount += 1;
         context.fail("boom", 500);
@@ -298,11 +299,11 @@ describe("permission assign feature：只补差集", () => {
     const assignedIds = new Set(["feature-1"]);
     const inserts: unknown[] = [];
     register(server, {
-      "/featureRole/findByPage": (context) => context.json({ rows: [{ id: "role-1", code: "ADMIN" }] }),
-      "/feature/findByPage": (context) => context.json({ rows: [
+      "/featureRole/findByPage": (context) => context.json(eadpPage([{ id: "role-1", code: "ADMIN" }])),
+      "/feature/findByPage": (context) => context.json(eadpPage([
         { id: "feature-1", code: "BASIC_VIEW" },
         { id: "feature-2", code: "BASIC_EDIT" }
-      ] }),
+      ])),
       "/featureRoleFeature/getChildrenFromParentId": (context) => {
         expect(context.query.get("parentId")).toBe("role-1");
         context.json([...assignedIds].map((id) => ({ id })));
@@ -359,8 +360,8 @@ describe("permission assign feature：只补差集", () => {
     const fixture = await permissionFixture();
     let insertCount = 0;
     register(fixture.server("dev"), {
-      "/featureRole/findByPage": (context) => context.json({ rows: [{ id: "role-1", code: "ADMIN" }] }),
-      "/feature/findByPage": (context) => context.json({ rows: [{ id: "feature-1", code: "BASIC_VIEW" }] }),
+      "/featureRole/findByPage": (context) => context.json(eadpPage([{ id: "role-1", code: "ADMIN" }])),
+      "/feature/findByPage": (context) => context.json(eadpPage([{ id: "feature-1", code: "BASIC_VIEW" }])),
       "/featureRoleFeature/getChildrenFromParentId": (context) => context.json([]),
       "/featureRoleFeature/insertRelations": (context) => {
         insertCount += 1;
@@ -443,11 +444,11 @@ describe("permission assign role / revoke role", () => {
     const assignedIds = new Set(["role-1"]);
     const inserts: unknown[] = [];
     register(fixture.server("dev"), {
-      "/user/findByPage": (context) => context.json({ rows: [{ id: "user-1", account: "lin" }] }),
-      "/featureRole/findByPage": (context) => context.json({ rows: [
+      "/user/findByPage": (context) => context.json(eadpPage([{ id: "user-1", account: "lin" }])),
+      "/featureRole/findByPage": (context) => context.json(eadpPage([
         { id: "role-1", code: "BASIC_READER" },
         { id: "role-2", code: "BASIC_ADMIN" }
-      ] }),
+      ])),
       "/userFeatureRole/getChildrenFromParentId": (context) => {
         expect(context.query.get("parentId")).toBe("user-1");
         context.json([...assignedIds].map((id) => ({ id })));
@@ -489,10 +490,10 @@ describe("permission assign role / revoke role", () => {
       "/employee/findByCode": (context) => context.json({
         id: "user-1", code: "E1001", userName: "张三", userAccount: "zhangsan", tenantCode: "tenant-a"
       }),
-      "/featureRole/findByPage": (context) => context.json({ rows: [
+      "/featureRole/findByPage": (context) => context.json(eadpPage([
         { id: "role-1", code: "BASIC_READER" },
         { id: "role-2", code: "BASIC_ADMIN" }
-      ] }),
+      ])),
       "/userFeatureRole/getChildrenFromParentId": (context) => {
         expect(context.query.get("parentId")).toBe("user-1");
         context.json([...assignedIds].map((id) => ({ id })));
@@ -573,7 +574,7 @@ describe("permission assign permission（复制权限）", () => {
           context.json(null);
         }
       },
-      "/employee/quickSearch": (context) => context.json({ rows: [] }),
+      "/employee/quickSearch": (context) => context.json(eadpPage([])),
       "/userFeatureRole/getChildrenFromParentId": (context) => {
         const parentId = context.query.get("parentId")!;
         context.json(relations[`${parentId}:userFeatureRole`] ?? []);
@@ -678,10 +679,10 @@ describe("permission assign permission（复制权限）", () => {
     const fixture = await permissionFixture();
     const writes: unknown[] = [];
     register(fixture.server("dev"), {
-      "/employee/quickSearch": (context) => context.json({ rows: [
+      "/employee/quickSearch": (context) => context.json(eadpPage([
         { id: "employee-1", code: "E1001", userAccount: "one", userName: "重名员工" },
         { id: "employee-2", code: "E1002", userAccount: "two", userName: "重名员工" }
-      ] }),
+      ])),
       "/employee/findByCode": (context) => context.json({ id: "employee-1", code: "E1001", tenantCode: "tenant-a" }),
       "/userFeatureRole/insertRelations": (context) => {
         writes.push(context.body);

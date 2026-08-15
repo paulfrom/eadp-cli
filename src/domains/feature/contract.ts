@@ -15,7 +15,7 @@ export const featureContract: ResourceContract =   {
       startPage: 1,
       rowsField: "rows",
       pageSize: 500,
-      totalSemantics: "unknown"
+      totalSemantics: "pages"
     },
     identityFields: ["code"],
     compareFields: [
@@ -35,5 +35,7 @@ export const featureContract: ResourceContract =   {
     },
     filtering: { time: true, defaultTimeField: "createdDate" },
     adapter: "feature",
-    rollback: { service: "sei-basic", resource: "feature", remove: { path: "feature/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "feature/findOne", method: "GET", idField: "id", idPlacement: "query" } }
+    dependencies: ["feature-group", "app-module"],
+    rollback: { service: "sei-basic", resource: "feature", remove: { path: "feature/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "feature/findOne", method: "GET", idField: "id", idPlacement: "query" } },
+    deletion: { service: "sei-basic", resource: "feature", remove: { path: "feature/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "feature/findOne", method: "GET", idField: "id", idPlacement: "query" }, restore: { path: "feature/save", method: "POST" } }
   };

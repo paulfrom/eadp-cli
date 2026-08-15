@@ -69,6 +69,15 @@ describe("声明式资源契约：注册校验", () => {
       ]
     })])).toThrow("选择器名称重复");
     expect(() => createResourceRegistry([base({ read: "paged" })])).toThrow("缺少分页契约");
+    expect(() => createResourceRegistry([base({
+      deletion: {
+        service: "other-service",
+        resource: "demo",
+        remove: { path: "demo/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" },
+        lookup: { path: "demo/findOne", method: "GET", idField: "id", idPlacement: "query" },
+        restore: { path: "demo/save", method: "POST" }
+      }
+    })])).toThrow("删除服务必须与资源服务一致");
   });
 
   it("内置契约能力与默认值可被 AI 自主发现", () => {
@@ -78,6 +87,14 @@ describe("声明式资源契约：注册校验", () => {
     expect(getResourceContract("bpm").handler).toBe("bpm");
     expect(getResourceContract("bpm").capabilities).toEqual(["compare", "sync"]);
     expect(getResourceContract("app-module").defaults?.create).toEqual({ rank: 1 });
+    expect(getResourceContract("feature").dependencies).toEqual(["feature-group", "app-module"]);
+    expect(getResourceContract("feature").deletion).toMatchObject({
+      service: "sei-basic",
+      resource: "feature",
+      remove: { path: "feature/delete/{id}", method: "DELETE" },
+      lookup: { path: "feature/findOne", method: "GET" },
+      restore: { path: "feature/save", method: "POST" }
+    });
     expect(getResourceContract("serial-number").defaults?.create).toEqual({
       returnStrategy: "NEW",
       configType: "CODE_TYPE"
@@ -89,10 +106,40 @@ describe("声明式资源契约：注册校验", () => {
     ]);
     expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu"]);
   });
+
+  it("给号配置只暴露 serial-number CLI 资源名，后端路径仍由契约承载", () => {
+    const serialNumberNames = listResourceContracts()
+      .map((contract) => contract.id)
+      .filter((name) => name === "serial-number" || name === "serialNumberConfig");
+    expect(serialNumberNames).toEqual(["serial-number"]);
+    expect(() => getResourceContract("serialNumberConfig")).toThrow("尚未注册");
+
+    const contract = getResourceContract("serial-number");
+    expect(contract.query.path).toBe("serialNumberConfig/findByPage");
+    expect(contract.save?.path).toBe("serialNumberConfig/save");
+  });
+
+  it("目标独有记录没有完整删除契约时保持 blocked", async () => {
+    const contract = base();
+    const sourceClient = { queryContract: async () => [] } as unknown as ResourceClient;
+    const targetClient = { queryContract: async () => [{ code: "ORPHAN", name: "目标独有" }] } as unknown as ResourceClient;
+    const plan = await new ResourceEngine().compare(
+      contract,
+      sourceClient,
+      targetClient,
+      { source: "source", target: "target" }
+    );
+    expect(plan.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 0, blocked: 1 });
+    expect(plan.changes[0]).toMatchObject({
+      action: "blocked",
+      targetOnly: true,
+      blockingIssues: [{ reason: "undeclared-delete" }]
+    });
+  });
 });
 
 describe("分页契约语义", () => {
-  it("按已验证 total 语义聚合，未知语义读到短页为止", () => {
+  it("按 EADP total 页数和 records 总记录数聚合", () => {
     const pagination = {
       pageField: "pageInfo",
       pageNumberField: "page",
@@ -100,24 +147,21 @@ describe("分页契约语义", () => {
       startPage: 1,
       rowsField: "rows",
       pageSize: 500,
-      totalSemantics: "records" as const
+      totalSemantics: "pages" as const
     };
-    expect(shouldFinishContractPagination(pagination, { total: 501 }, 500, 500, 1)).toBe(false);
-    expect(shouldFinishContractPagination(pagination, { total: 501 }, 1, 501, 2)).toBe(true);
-    expect(() => shouldFinishContractPagination(pagination, {}, 1, 1, 1)).toThrow("有效 total");
     expect(shouldFinishContractPagination(
-      { ...pagination, totalSemantics: "pages" },
-      { total: 2 },
+      pagination,
+      { page: 1, records: 501, total: 2, summaryInfo: null, rows: Array.from({ length: 500 }, () => ({ id: "x" })) },
+      500,
+      500,
+      1
+    )).toBe(false);
+    expect(shouldFinishContractPagination(
+      pagination,
+      { page: 2, records: 501, total: 2, summaryInfo: null, rows: [{ id: "y" }] },
       1,
       501,
       2
-    )).toBe(true);
-    expect(shouldFinishContractPagination(
-      { ...pagination, totalSemantics: "unknown" },
-      {},
-      499,
-      499,
-      1
     )).toBe(true);
   });
 });

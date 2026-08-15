@@ -2,6 +2,84 @@
 
 面向 EADP 的多环境资源与权限命令行工具。每个环境名称直接对应一个 URL 和一个 Token。
 
+## 架构
+
+EADP CLI 先区分“资源能力”和“领域工作流”，再选择命令：
+
+1. **统一资源框架**：资源通过 `ResourceContract` 注册。契约声明服务与接口、读取和分页策略、
+   业务唯一键、可比较/可写字段、租户策略、能力开关、枚举、默认值及安全回滚接口。
+2. **通用执行引擎**：已注册资源按契约自动获得 `resource query/write/compare/sync` 中声明的能力，
+   统一执行租户校验、差异规划、默认预览、`--apply`、`blocked` 门禁、操作日志和写后验证。
+3. **资源行为扩展**：普通契约无法表达树结构或聚合规划时，资源可以绑定 adapter 或 handler/hooks，
+   但仍复用同一组 `resource` 命令和 ChangeSet 生命周期，不另建一套同步协议。
+4. **特殊领域命令**：权限关系、菜单新增、BPM 项目发现与配置、显式回滚等任务有独立领域命令；
+   这些命令补充统一资源框架，不是原始接口绕过入口。
+
+领域模块统一在 `src/domains/index.ts` 装配：每项包含一个 contract，并按需绑定 adapter 或 handler。
+新增普通资源只需注册完整契约；只有依赖 ID 重映射、树结构或跨资源聚合等契约无法表达的行为才增加代码扩展。
+
+## 统一资源框架命令
+
+先从运行中的 CLI 发现资源，再依据单个契约执行动作：
+
+```powershell
+eadp resource list
+eadp resource describe <name>
+eadp resource query <name> --help
+eadp resource write <name> --help
+eadp resource compare <name> --help
+eadp resource sync <name> --help
+```
+
+`resource list` 返回当前已注册资源及其能力；`resource describe <name>` 返回该资源的完整契约。
+并非每个资源都支持全部动作，执行前必须以当前契约的 `capabilities`、租户策略、选择器和过滤能力为准。
+
+| 统一命令 | 用途 | 写入语义 |
+| --- | --- | --- |
+| `resource query <name>` | 按契约读取并完成分页聚合 | 只读 |
+| `resource write <name>` | 对目标环境生成新增或更新计划 | 默认预览，`--apply` 后写入并回查 |
+| `resource compare <name>` | 只读比较源、目标环境 | 输出统一 ChangeSet |
+| `resource sync <name>` | 复用 compare 计划迁移安全差异 | 默认预览，`--apply` 执行安全的 create/update 及显式契约 delete |
+
+统一 ChangeSet 使用 `create`、`update`、`delete`、`unchanged`、`blocked`；正式写入跳过 `blocked` 并报告
+`skippedBlocked`，成功必须完成写后验证。任何 CLI 或 EADP 请求失败都会立即停止，不自动重试或切换接口。
+资源依赖由引擎默认编排，不提供额外依赖选项；新增、更新按父到子，删除按子到父。
+
+## 当前注册资源
+
+下表说明当前包内置资源，便于理解能力边界；实际执行仍以当前安装版本的
+`eadp resource list` 和 `eadp resource describe <name>` 为准。
+
+| CLI 资源名 | 类型 | 当前能力 | 租户 | 说明 |
+| --- | --- | --- | --- | --- |
+| `app-module` | 普通契约 | query、write、compare、sync | global | 应用模块，按 `code` 识别 |
+| `feature` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature` |
+| `feature-group` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature-group` |
+| `serial-number` | 普通契约 + adapter | query、write、compare、sync | global | 给号配置，复合键为 `entityClassName + tenantCode`；`serialNumberConfig` 仅是后端接口路径 |
+| `menu` | 行为扩展资源 | query、compare、sync | global | 通用操作走 `resource`；单菜单新增走 `menu create` |
+| `bpm` | 行为扩展资源 | compare、sync | non-global | 跨环境操作走 `resource`；项目发现/配置走 `bpm inspect/configure` |
+
+普通资源与行为扩展资源都从同一个注册表发现，并由同一个 `resource` 命令入口执行其已声明能力。
+`serial-number` 是给号配置唯一的 CLI 资源名；后端 controller/path 名不能作为 `resource` 命令参数。
+
+## 特殊领域命令
+
+仅在任务属于以下领域工作流时使用特殊命令：
+
+| 命令入口 | 使用场景 | 与资源框架的关系 |
+| --- | --- | --- |
+| `eadp permission apply feature ...` | 只创建功能项，同 code 已存在时跳过 | `feature` 的通用查询/写入/比较/同步仍走 `resource` |
+| `eadp permission apply feature-group ...` | 只创建功能项组，并按需解析应用模块 | `feature-group`、`app-module` 的通用操作仍走 `resource` |
+| `eadp permission inspect/apply/assign/revoke/verify ...` | 权限查询、角色配置、关系分配/移除和验证 | 权限关系不是普通资源 CRUD，使用独立领域命令 |
+| `eadp menu create ...` | 按父菜单代码和功能项代码安全新增菜单 | 菜单查询/比较/同步仍使用 `resource ... menu` |
+| `eadp bpm inspect ...` | 从真实项目代码只读发现 BPM 流程骨架 | 不访问远端，不等同于 BPM 资源同步 |
+| `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移仍使用 `resource compare/sync bpm` |
+| `eadp rollback <operation-id...>` | 撤销操作日志记录的新增或分配 | 只接受已登记回滚契约，不提供通用删除 |
+
+`env` 管理环境，`skill` 管理 AI Skill，`update` 升级 CLI 与 Skill；它们属于工具管理命令，
+不参与资源注册。明确出现权限、菜单新增、BPM 项目配置或回滚意图时，应进入对应领域命令，
+不得改用其他资源或原始接口绕过。
+
 ## 安装与开发
 
 ```bash
@@ -87,40 +165,6 @@ eadp rollback <operation-id>
   `appModule`、`featureGroup`、`serialNumberConfig` 同样受租户校验；
 - 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
 - 资源命令和领域命令都会执行对应的租户校验，不能绕过已注册契约和领域规则。
-
-## 写入资源
-
-```powershell
-eadp resource write serial-number `
-  --env global `
-  --data (Get-Content -Raw ./serial-number.json)
-
-eadp resource write serial-number `
-  --env global `
-  --data (Get-Content -Raw ./serial-number.json) `
-  --apply
-```
-
-所有资源写操作都由注册资源的统一引擎执行：默认只生成 ChangeSet 预览，只有 `--apply` 才会
-写入，并统一执行租户校验、blocked 门禁、操作记录、回查和验证。
-
-## 发现资源与领域能力
-
-在全新上下文中先使用资源注册表和领域帮助发现能力，不需要接口 ID 或路径知识：
-
-```powershell
-eadp resource list
-eadp resource describe feature
-eadp resource describe serial-number
-
-eadp permission --help
-eadp menu --help
-eadp bpm --help
-```
-
-`resource list` 列出已注册资源、能力和选择器；`resource describe <name>` 展开单个资源的查询、
-写入、比较、同步、租户和枚举契约。普通资源使用 `resource query/write/compare/sync`，权限、菜单
-和 BPM 能力分别使用对应领域命令。
 
 ## 在全新上下文中配置 BPM
 
@@ -445,9 +489,12 @@ eadp resource sync feature \
 ```
 
 同步按功能项 `code` 匹配目标记录，并使用应用模块代码、功能项组代码重新解析目标环境
-ID；不会复制源环境数据库 ID。若个别功能项的目标依赖缺失或不唯一，该记录会标记为
-`blocked` 并列入 `missingDependencies`，不会中断其余记录的完整差异比较。正式同步只写入
-安全的 `create`、`update` 记录，跳过 `blocked` 记录并报告 `skippedBlocked`。
+ID；不会复制源环境数据库 ID。`feature` 同步默认编排 `app-module`、`feature-group`、
+`feature`，按父先子后创建/更新并在每一步重新映射目标 ID；若依赖缺失或不唯一，该记录会
+标记为 `blocked` 并列入 `missingDependencies`，不会中断其余记录的完整差异比较。
+目标独有记录只有在资源 `describe` 暴露完整 `deletion`（remove、lookup、restore）契约时
+才会计划为 `delete`；删除按 feature→feature-group→app-module 逆序执行，并将目标快照写入
+`operationId` 以支持回滚。正式同步执行安全的 `create`、`update`、`delete`，跳过 `blocked`。
 
 功能项组按 `code` 精确选择和匹配，应用模块也按代码映射到目标环境：
 
@@ -516,7 +563,7 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 批量给号同步中，单条配置缺少或包含非法 `configItem` 时同样标记为 `blocked`，不会阻断
 其他安全配置；源或目标的 `entityClassName + tenantCode` 复合键重复仍属于全局唯一性错误并立即终止。
 
-## 扩展普通资源与特殊操作
+## 扩展资源框架
 
 资源通过单一模块清单接入，不需要新增通用命令：
 
@@ -531,14 +578,15 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 - `src/resource/core/`：通用客户端、契约校验、资源引擎和错误模型；不依赖任何业务领域。
 
 契约必须描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、能力开关、
-时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；具备对应能力的注册资源自动获得
+时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；需要同步目标独有记录时还必须
+声明完整删除契约（remove、lookup、restore）；具备对应能力的注册资源自动获得
 `resource query/write/compare/sync`。
 分页契约中已确认的 `total` 记录数/页数语义会用于校验完整性；语义为 `unknown` 时不猜测，
 持续读取到短页或空页后才返回完整结果。
 声明 `sync` 的普通资源在注册阶段必须同时提供已确认的保存接口和安全回滚契约；查询接口同时
 承担写后回查，不能等到 `--apply` 才发现契约不完整。`compare` 与 `sync` 共用同一个
 ChangeSet 输出，结果包含 `changeSetKind: "eadp.resource.change-set.v1"`、统一的
-`changes` 和 `summary`（`create`、`update`、`unchanged`、`blocked`）。
+`changes` 和 `summary`（`create`、`update`、`delete`、`unchanged`、`blocked`）。
 行为扩展通过 `hooks.apply` 实现同一个 `write` 动作，不另建命令协议；`write` 一律由通用引擎的
 apply 阶段执行，预览模式在结构上不会调用任何写钩子。只有 API 契约无法表达聚合规划、
 依赖重映射或领域写入时才需要处理器代码。

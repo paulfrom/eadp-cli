@@ -36,6 +36,30 @@ export interface CreateEntityAction extends ActionBase {
   tenantPolicy?: "any" | "global" | "non-global";
 }
 
+export interface DeleteEntityAction extends ActionBase {
+  type: "delete-entity";
+  entityId: string;
+  /** Snapshot captured before deletion; rollback restores this exact record. */
+  expected: Record<string, unknown>;
+  remove: {
+    path: string;
+    method: "DELETE" | "POST";
+    idField: string;
+    idPlacement: "path" | "query" | "body";
+  };
+  lookup: {
+    path: string;
+    method: "GET" | "POST";
+    idField: string;
+    idPlacement: "query" | "body";
+  };
+  restore: {
+    path: string;
+    method: "POST" | "PUT" | "PATCH";
+  };
+  tenantPolicy?: "any" | "global" | "non-global";
+}
+
 export interface AssignRelationsAction extends ActionBase {
   type: "assign-relations";
   parentId: string;
@@ -50,7 +74,7 @@ export interface AssignDataValuesAction extends ActionBase {
   parentEntityId?: string;
 }
 
-export type OperationAction = CreateEntityAction | AssignRelationsAction | AssignDataValuesAction;
+export type OperationAction = CreateEntityAction | DeleteEntityAction | AssignRelationsAction | AssignDataValuesAction;
 
 export interface OperationRecord {
   version: 1;
@@ -269,6 +293,17 @@ function validateAction(value: unknown): asserts value is OperationAction {
     }
     return;
   }
+  if (action.type === "delete-entity") {
+    const validTenantPolicy = action.tenantPolicy === undefined ||
+      ["any", "global", "non-global"].includes(action.tenantPolicy);
+    if (typeof action.entityId !== "string" || action.entityId.trim() === "" ||
+        !isRecord(action.expected) || !validTenantPolicy ||
+        !isValidLookup(action.lookup, true) || !isValidRemove(action.remove, true) ||
+        !isValidRestore(action.restore)) {
+      throw new CliError("操作日志删除动作格式无效");
+    }
+    return;
+  }
   if (action.type === "assign-relations") {
     if (!relationResources || !relationResources.has(action.resource) || typeof action.parentId !== "string" ||
         !isStringArray(action.childIds)) {
@@ -284,18 +319,29 @@ function validateAction(value: unknown): asserts value is OperationAction {
   }
 }
 
-function isValidLookup(value: CreateEntityAction["lookup"]): boolean {
-  if (value === undefined) return true;
+function isValidLookup(
+  value: CreateEntityAction["lookup"] | DeleteEntityAction["lookup"],
+  required = false
+): boolean {
+  if (value === undefined) return !required;
   return isSafeRelativePath(value.path) && ["GET", "POST"].includes(value.method) &&
     isSafePathSegment(value.idField) && ["query", "body"].includes(value.idPlacement);
 }
 
-function isValidRemove(value: CreateEntityAction["remove"]): boolean {
-  if (value === undefined) return true;
+function isValidRemove(
+  value: CreateEntityAction["remove"] | DeleteEntityAction["remove"],
+  required = false
+): boolean {
+  if (value === undefined) return !required;
   const idTokens = value.path.split("{id}").length - 1;
   return isSafeTemplatePath(value.path) && ["DELETE", "POST"].includes(value.method) &&
     isSafePathSegment(value.idField) && ["path", "query", "body"].includes(value.idPlacement) &&
     (value.idPlacement === "path" ? idTokens === 1 : idTokens === 0);
+}
+
+function isValidRestore(value: unknown): value is DeleteEntityAction["restore"] {
+  return isRecord(value) && isSafeRelativePath(value.path) &&
+    ["POST", "PUT", "PATCH"].includes(value.method as string);
 }
 
 function isSafeRelativePath(value: unknown): value is string {

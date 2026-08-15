@@ -16,5 +16,7 @@ export const featureGroupContract: ResourceContract =   {
     help: "功能项组通过 appModuleCode 适配到目标应用模块；仅允许 global 租户。",
     filtering: { time: true, defaultTimeField: "createdDate" },
     adapter: "feature-group",
-    rollback: { service: "sei-basic", resource: "featureGroup", remove: { path: "featureGroup/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "featureGroup/findOne", method: "GET", idField: "id", idPlacement: "query" } }
+    dependencies: ["app-module"],
+    rollback: { service: "sei-basic", resource: "featureGroup", remove: { path: "featureGroup/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "featureGroup/findOne", method: "GET", idField: "id", idPlacement: "query" } },
+    deletion: { service: "sei-basic", resource: "featureGroup", remove: { path: "featureGroup/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "featureGroup/findOne", method: "GET", idField: "id", idPlacement: "query" }, restore: { path: "featureGroup/save", method: "POST" } }
   };

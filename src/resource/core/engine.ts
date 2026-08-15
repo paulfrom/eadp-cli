@@ -8,7 +8,7 @@ import {
   DependencyResolutionError,
   RecordMappingError
 } from "./errors.js";
-import type { ResourceContract } from "./contracts.js";
+import type { ResourceContract, ResourceRegistry } from "./contracts.js";
 import { assertTenantScope } from "../../tenant.js";
 import type { OperationRecorder } from "../../operations/recorder.js";
 import {
@@ -102,7 +102,7 @@ export interface ResourceAggregatePlan {
 export interface ResourcePhaseHooks {
   /** Override source/target read (default: client.queryContract). */
   load?(client: ResourceClient, contract: ResourceContract, options: ContractQueryOptions): Promise<ResourceRecord[]>;
-  /** Override planning (default: buildChanges). Must still emit the four actions. */
+  /** Override planning (default: buildChanges). Must still emit the five actions. */
   plan?(source: ResourceRecord[], target: ResourceRecord[], context: ResourcePlanContext): Promise<ResourcePlanChange[]>;
   /**
    * Aggregate planning: load both sides and plan in one phase. Used by
@@ -169,7 +169,8 @@ export function assertMigrationTenants(
 export class ResourceEngine {
   constructor(
     private readonly adapters: ResourceAdapterRegistry = createResourceAdapterRegistry(),
-    private readonly phaseHooks: ResourcePhaseHooksRegistry = createResourcePhaseHooksRegistry()
+    private readonly phaseHooks: ResourcePhaseHooksRegistry = createResourcePhaseHooksRegistry(),
+    private readonly registry?: ResourceRegistry
   ) {}
 
   async query(
@@ -215,7 +216,8 @@ export class ResourceEngine {
       targetRows,
       client,
       options.targetTenantCode,
-      options.selectors
+      options.selectors,
+      false
     );
     return makePlan(contract.id, changes);
   }
@@ -231,6 +233,27 @@ export class ResourceEngine {
   }
 
   async compare(
+    contract: ResourceContract,
+    sourceClient: ResourceClient,
+    targetClient: ResourceClient,
+    environments: { source: string; target: string },
+    options: ResourceEngineOptions = {}
+  ): Promise<ResourcePlan> {
+    const order = this.dependencyOrder(contract);
+    if (order.length > 1) {
+      const planned = await this.planDependencyClosure(
+        order,
+        sourceClient,
+        targetClient,
+        environments,
+        options
+      );
+      return this.mergePlans(contract, planned, environments);
+    }
+    return this.compareSingle(contract, sourceClient, targetClient, environments, options);
+  }
+
+  private async compareSingle(
     contract: ResourceContract,
     sourceClient: ResourceClient,
     targetClient: ResourceClient,
@@ -270,7 +293,8 @@ export class ResourceEngine {
       targetRows,
       targetClient,
       options.targetTenantCode,
-      options.selectors
+      options.selectors,
+      true
     );
     return makePlan(contract.id, changes, environments);
   }
@@ -285,14 +309,166 @@ export class ResourceEngine {
     if (!contract.capabilities.includes("sync")) {
       throw new CliError(`资源 ${contract.id} 未声明 sync 能力`);
     }
-    const plan = await this.compare(
-      contract,
+    const order = this.dependencyOrder(contract);
+    if (order.length === 1) {
+      const plan = await this.compareSingle(contract, sourceClient, targetClient, environments, options);
+      return this.executePlan(contract, targetClient, plan, options);
+    }
+    const planned = await this.planDependencyClosure(
+      order,
       sourceClient,
       targetClient,
       environments,
       options
     );
-    return this.executePlan(contract, targetClient, plan, options);
+    if (!options.apply) {
+      return this.executionFromPlan(this.mergePlans(contract, planned, environments), false);
+    }
+
+    const forward = new Map<string, ResourcePlan>();
+    let applied = false;
+    for (const item of order) {
+      const plan = await this.compareSingleForResource(
+        item,
+        sourceClient,
+        targetClient,
+        environments,
+        options,
+        item.id === contract.id ? options.sourceQuery : undefined,
+        item.id === contract.id ? options.selectors : undefined
+      );
+      forward.set(item.id, plan);
+      const phase = filterPlanChanges(plan, (change) =>
+        change.action === "create" || change.action === "update" || change.action === "unchanged" || change.action === "blocked"
+      );
+      const result = await this.executePlan(
+        item,
+        targetClient.forService(item.service),
+        phase,
+        options
+      );
+      applied = applied || result.applied;
+    }
+
+    const reverse = [...order].reverse();
+    const afterDelete = new Map<string, ResourcePlan>();
+    for (const item of reverse) {
+      const plan = await this.compareSingleForResource(
+        item,
+        sourceClient,
+        targetClient,
+        environments,
+        options,
+        item.id === contract.id ? options.sourceQuery : undefined,
+        item.id === contract.id ? options.selectors : undefined
+      );
+      const phase = filterPlanChanges(plan, (change) =>
+        change.action === "delete" || change.action === "blocked" || change.action === "unchanged"
+      );
+      const result = await this.executePlan(
+        item,
+        targetClient.forService(item.service),
+        phase,
+        options
+      );
+      afterDelete.set(item.id, plan);
+      applied = applied || result.applied;
+    }
+
+    const finalPlans = order.map((item) => mergeResourcePlans(
+      forward.get(item.id)!,
+      afterDelete.get(item.id)
+    ));
+    const finalPlan = this.mergePlans(contract, finalPlans, environments);
+    return {
+      ...finalPlan,
+      applied,
+      skippedBlocked: finalPlan.summary.blocked ?? 0,
+      verified: true
+    };
+  }
+
+  private dependencyOrder(contract: ResourceContract): ResourceContract[] {
+    if (!contract.dependencies?.length) return [contract];
+    if (!this.registry) {
+      throw new CliError(`资源 ${contract.id} 声明了依赖，但资源引擎未提供契约注册表`);
+    }
+    const ordered: ResourceContract[] = [];
+    const visited = new Set<string>();
+    const visit = (current: ResourceContract): void => {
+      if (visited.has(current.id)) return;
+      for (const dependency of current.dependencies ?? []) visit(this.registry!.get(dependency));
+      visited.add(current.id);
+      ordered.push(current);
+    };
+    visit(contract);
+    return ordered;
+  }
+
+  private async planDependencyClosure(
+    order: ResourceContract[],
+    sourceClient: ResourceClient,
+    targetClient: ResourceClient,
+    environments: { source: string; target: string },
+    options: ResourceEngineOptions
+  ): Promise<ResourcePlan[]> {
+    const root = order[order.length - 1]!;
+    const plans: ResourcePlan[] = [];
+    for (const item of order) {
+      plans.push(await this.compareSingleForResource(
+        item,
+        sourceClient,
+        targetClient,
+        environments,
+        options,
+        item.id === root.id ? options.sourceQuery : undefined,
+        item.id === root.id ? options.selectors : undefined
+      ));
+    }
+    return plans;
+  }
+
+  private async compareSingleForResource(
+    contract: ResourceContract,
+    sourceClient: ResourceClient,
+    targetClient: ResourceClient,
+    environments: { source: string; target: string },
+    options: ResourceEngineOptions,
+    sourceQuery?: ContractQueryOptions,
+    selectors?: Readonly<Record<string, string>>
+  ): Promise<ResourcePlan> {
+    const delegatedOptions: ResourceEngineOptions = { ...options };
+    if (sourceQuery === undefined) delete delegatedOptions.sourceQuery;
+    else delegatedOptions.sourceQuery = sourceQuery;
+    if (selectors === undefined) delete delegatedOptions.selectors;
+    else delegatedOptions.selectors = selectors;
+    return this.compareSingle(
+      contract,
+      sourceClient.forService(contract.service),
+      targetClient.forService(contract.service),
+      environments,
+      delegatedOptions
+    );
+  }
+
+  private mergePlans(
+    root: ResourceContract,
+    plans: ResourcePlan[],
+    environments: { source: string; target: string }
+  ): ResourcePlan {
+    const changes = plans.flatMap((plan) => plan.changes.map((change) =>
+      plan.resource === root.id ? change : { ...change, resource: plan.resource }
+    ));
+    return makePlan(root.id, changes, environments);
+  }
+
+  private executionFromPlan(plan: ResourcePlan, apply: boolean): ResourceExecutionResult {
+    return {
+      ...plan,
+      applied: apply && writableChanges(plan.changes).length > 0,
+      skippedBlocked: apply ? (plan.summary.blocked ?? 0) : 0,
+      verified: true
+    };
   }
 
   /** Execute any ordinary write/sync plan through one lifecycle. */
@@ -332,6 +508,7 @@ export class ResourceEngine {
         const safe = plan.changes.filter((change) => change.action !== "blocked");
         verified = safe.every((change) => {
           const actual = findByIdentity(after, contract, change.key);
+          if (change.action === "delete") return actual === undefined;
           return actual !== undefined && change.desired !== null &&
             diffFields(actual, change.desired, contract, this.getAdapter(contract)).length === 0;
         });
@@ -351,7 +528,8 @@ export class ResourceEngine {
     sourceRows: ResourceRecord[],
     targetRows: ResourceRecord[],
     targetClient: ResourceClient,
-    targetTenantCode?: string
+    targetTenantCode?: string,
+    includeTargetOnly = true
   ): Promise<ResourcePlanChange[]> {
     const adapter = this.getAdapter(contract);
     const mappedKeys = new Set<string>();
@@ -362,7 +540,12 @@ export class ResourceEngine {
         throw new CliError(`源环境记录映射后业务唯一键重复：${identityDescription(contract)}=${key}`);
       }
       mappedKeys.add(key);
-      const before = findByIdentity(targetRows, contract, key);
+      const before = findByIdentity(
+        targetRows,
+        contract,
+        key,
+        targetIdentityOverrides(contract, targetTenantCode)
+      );
       let desired: ResourceRecord;
       try {
         desired = adapter
@@ -389,6 +572,61 @@ export class ResourceEngine {
         before: before ?? null,
         desired
       });
+    }
+    if (includeTargetOnly) {
+      for (const target of targetRows) {
+        let key: string;
+        try {
+          key = identityValue(target, contract, targetIdentityOverrides(contract, targetTenantCode));
+        } catch (error) {
+          changes.push({
+            key: `target-only-${changes.length + 1}`,
+            action: "blocked",
+            changedFields: [],
+            before: target,
+            desired: null,
+            targetOnly: true,
+            blockingIssues: [{
+              resource: contract.id,
+              field: "identity",
+              reason: "invalid",
+              value: null,
+              message: error instanceof Error
+                ? `目标独有记录无法安全删除：${error.message}`
+                : "目标独有记录缺少有效业务唯一键，不能安全删除"
+            }]
+          });
+          continue;
+        }
+        if (mappedKeys.has(key)) continue;
+        if (contract.deletion && target.id !== undefined && target.id !== null) {
+          changes.push({
+            key,
+            action: "delete",
+            changedFields: [],
+            before: target,
+            desired: null,
+            targetOnly: true
+          });
+        } else {
+          changes.push({
+            key,
+            action: "blocked",
+            changedFields: [],
+            before: target,
+            desired: null,
+            targetOnly: true,
+            blockingIssues: [{
+              resource: contract.id,
+              field: "target-only",
+              reason: "undeclared-delete",
+              identityField: contract.identityFields.join(","),
+              value: key,
+              message: `目标记录 ${key} 仅存在于目标环境，资源未声明删除契约`
+            }]
+          });
+        }
+      }
     }
     return changes;
   }
@@ -418,7 +656,8 @@ export class ResourceEngine {
     target: ResourceRecord[],
     targetClient: ResourceClient,
     targetTenantCode?: string,
-    selectors: Readonly<Record<string, string>> = {}
+    selectors: Readonly<Record<string, string>> = {},
+    includeTargetOnly = true
   ): Promise<ResourcePlanChange[]> {
     const hooks = this.hooksFor(contract);
     if (hooks?.plan) {
@@ -429,7 +668,7 @@ export class ResourceEngine {
         selectors
       });
     }
-    return this.buildChanges(contract, source, target, targetClient, targetTenantCode);
+    return this.buildChanges(contract, source, target, targetClient, targetTenantCode, includeTargetOnly);
   }
 
   private async saveChanges(
@@ -439,6 +678,25 @@ export class ResourceEngine {
     recorder?: OperationRecorder
   ): Promise<void> {
     for (const change of changes) {
+      if (change.action === "delete") {
+        if (!contract.deletion) throw new CliError(`资源 ${contract.id} 未声明删除契约`);
+        const entityId = recordId(change.before, contract.id);
+        await client.deleteContract(contract, entityId);
+        if (recorder) {
+          await recorder.recordAction({
+            type: "delete-entity",
+            service: contract.deletion.service,
+            resource: contract.deletion.resource,
+            entityId,
+            expected: restoreSnapshot(change.before!, contract),
+            remove: contract.deletion.remove,
+            lookup: contract.deletion.lookup,
+            restore: contract.deletion.restore,
+            tenantPolicy: contract.tenant.policy
+          });
+        }
+        continue;
+      }
       const saved = await client.saveContract(contract, change.desired!);
       if (change.action !== "create" || !recorder) continue;
       const rollback = contract.rollback;
@@ -466,6 +724,44 @@ export interface ResourceAdapter {
   ): Promise<ResourceRecord>;
   compareValue?(record: ResourceRecord, field: string): unknown;
   preserveTargetFields?: string[];
+}
+
+function filterPlanChanges(
+  plan: ResourcePlan,
+  predicate: (change: ResourcePlanChange) => boolean
+): ResourcePlan {
+  const changes = plan.changes.filter(predicate);
+  return makePlan(
+    plan.resource,
+    changes,
+    plan.sourceEnvironment !== undefined && plan.targetEnvironment !== undefined
+      ? { source: plan.sourceEnvironment, target: plan.targetEnvironment }
+      : undefined,
+    {
+      ...(plan.details ? { details: plan.details } : {}),
+      ...(plan.appliedExtra ? { appliedExtra: plan.appliedExtra } : {})
+    }
+  );
+}
+
+function mergeResourcePlans(
+  first: ResourcePlan,
+  second: ResourcePlan | undefined
+): ResourcePlan {
+  if (!second) return first;
+  const changes = new Map(first.changes.map((change) => [change.key, change]));
+  for (const change of second.changes) {
+    if (change.targetOnly && (change.action === "delete" || change.action === "blocked")) {
+      changes.set(change.key, change);
+    }
+  }
+  return makePlan(
+    first.resource,
+    [...changes.values()],
+    first.sourceEnvironment !== undefined && first.targetEnvironment !== undefined
+      ? { source: first.sourceEnvironment, target: first.targetEnvironment }
+      : undefined
+  );
 }
 
 export interface ResourceAdapterRegistry {
@@ -570,13 +866,31 @@ function identityValue(
 function findByIdentity(
   records: ResourceRecord[],
   contract: ResourceContract,
-  key: string
+  key: string,
+  overrides: Record<string, string> = {}
 ): ResourceRecord | undefined {
   const matches = records.filter((record) => {
-    try { return identityValue(record, contract) === key; } catch { return false; }
+    try { return identityValue(record, contract, overrides) === key; } catch { return false; }
   });
   if (matches.length > 1) throw new CliError(`目标环境业务唯一键重复：${identityDescription(contract)}=${key}`);
   return matches[0];
+}
+
+function recordId(record: ResourceRecord | null, resource: string): string {
+  const value = record?.id;
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new CliError(`资源 ${resource} 的目标记录缺少有效 ID，不能执行删除`);
+  }
+  return String(value);
+}
+
+function restoreSnapshot(record: ResourceRecord, contract: ResourceContract): ResourceRecord {
+  const snapshot: ResourceRecord = {};
+  if (record.id !== undefined) snapshot.id = record.id;
+  for (const field of contract.writableFields) {
+    if (field in record) snapshot[field] = record[field];
+  }
+  return snapshot;
 }
 
 function diffFields(

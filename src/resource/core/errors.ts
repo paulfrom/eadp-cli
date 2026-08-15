@@ -10,7 +10,7 @@ export interface MissingDependency {
 export interface BlockingIssue {
   resource: string;
   field: string;
-  reason: "invalid" | "ambiguous";
+  reason: "invalid" | "ambiguous" | "undeclared-delete";
   message: string;
   /** Optional identity details supplied by aggregate behavior extensions. */
   identityField?: string;

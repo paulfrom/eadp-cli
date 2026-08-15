@@ -15,7 +15,7 @@ export const serialNumberContract: ResourceContract =   {
       startPage: 1,
       rowsField: "rows",
       pageSize: 500,
-      totalSemantics: "unknown"
+      totalSemantics: "pages"
     },
     identityFields: ["entityClassName", "tenantCode"],
     compareFields: [

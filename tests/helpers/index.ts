@@ -1,7 +1,8 @@
 /** 统一测试工具入口：共享 mock 服务器、夹具、运行与生命周期辅助。 */
 export {
   MockEadpServer,
-  createMockServer
+  createMockServer,
+  eadpPage
 } from "./server.js";
 export type {
   CapturedRequest,

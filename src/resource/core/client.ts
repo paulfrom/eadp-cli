@@ -1,6 +1,10 @@
 import { CliError } from "../../errors.js";
 import { sendRequest } from "../../http/client.js";
-import { iteratePages } from "../../http/pagination.js";
+import {
+  EADP_PAGE_SIZE,
+  iteratePages,
+  parseEadpPage
+} from "../../http/pagination.js";
 import type { ResourceContract } from "./contracts.js";
 
 export type ResourceRecord = Record<string, unknown>;
@@ -35,8 +39,21 @@ export class ResourceClient {
   private readonly findAllCache = new Map<string, ResourceRecord[]>();
 
   constructor(
-    private readonly options: ResourceClientOptions
+    private readonly options: ResourceClientOptions,
+    private readonly findAllOverlays: ReadonlyMap<string, ResourceRecord[]> = new Map()
   ) {}
+
+  /** Reuse the same environment credentials for another declared service. */
+  forService(service: string): ResourceClient {
+    return new ResourceClient({ ...this.options, service }, this.findAllOverlays);
+  }
+
+  /** Add an in-memory dependency snapshot for one planning pass only. */
+  withFindAllOverlay(resource: string, rows: ResourceRecord[]): ResourceClient {
+    const overlays = new Map(this.findAllOverlays);
+    overlays.set(resource, rows.map((row) => ({ ...row })));
+    return new ResourceClient(this.options, overlays);
+  }
 
   async findByPage(
     resource: string,
@@ -75,14 +92,18 @@ export class ResourceClient {
     if (!pagination) {
       throw new CliError(`资源契约 ${contract.id} 缺少分页定义`);
     }
+    if (pagination.pageSize !== EADP_PAGE_SIZE || pagination.startPage !== 1) {
+      throw new CliError(`资源契约 ${contract.id} 的 EADP 分页必须从第 1 页开始且每页 500 条`);
+    }
     const rows: ResourceRecord[] = [];
-    const maxPages = 10_000;
-    for (let offset = 0; offset < maxPages; offset += 1) {
-      const page = pagination.startPage + offset;
-      const body: ResourceRecord = {
+    for await (const pageRows of iteratePages({
+      endpoint: contract.query.path,
+      rowsField: pagination.rowsField,
+      isItem: isRecord,
+      fetchPage: ({ page, rows: pageSize }) => this.requestContract(contract, contract.query, {
         [pagination.pageField]: {
           [pagination.pageNumberField]: page,
-          [pagination.pageSizeField]: pagination.pageSize
+          [pagination.pageSizeField]: pageSize
         },
         filters: options.filters ?? [],
         sortOrders: [],
@@ -92,15 +113,11 @@ export class ResourceClient {
         ...(options.quickSearchProperties === undefined
           ? {}
           : { quickSearchProperties: options.quickSearchProperties })
-      };
-      const data = await this.requestContract(contract, contract.query, body);
-      const pageRows = extractRows(data, pagination.rowsField);
+      })
+    })) {
       rows.push(...pageRows);
-      if (shouldFinishContractPagination(pagination, data, pageRows.length, rows.length, page)) {
-        return rows;
-      }
     }
-    throw new CliError(`${contract.query.path} 分页数量异常`);
+    return rows;
   }
 
   /** Save a generic resource. The endpoint and method come from the contract. */
@@ -114,6 +131,60 @@ export class ResourceClient {
     const data = await this.requestContract(contract, contract.save, payload);
     if (!isRecord(data) || (typeof data.id !== "string" && typeof data.id !== "number")) {
       throw new CliError(`${contract.save.path} 未返回有效 ID`);
+    }
+    this.findAllCache.clear();
+    return data;
+  }
+
+  /** Execute the explicitly declared target-only deletion endpoint. */
+  async deleteContract(
+    contract: ResourceContract,
+    entityId: string
+  ): Promise<void> {
+    const deletion = contract.deletion;
+    if (!deletion) throw new CliError(`资源 ${contract.id} 未声明删除契约`);
+    const values = { [deletion.remove.idField]: entityId };
+    const path = deletion.remove.idPlacement === "path"
+      ? deletion.remove.path.replace("{id}", encodeURIComponent(entityId))
+      : deletion.remove.path;
+    await this.requestContract(
+      contract,
+      { path, method: deletion.remove.method },
+      deletion.remove.idPlacement === "body" ? values : undefined,
+      deletion.remove.idPlacement === "query" ? { [deletion.remove.idField]: [entityId] } : undefined
+    );
+    this.findAllCache.clear();
+  }
+
+  /** Read one record through the deletion contract's explicit lookup. */
+  async lookupContract(
+    contract: ResourceContract,
+    entityId: string
+  ): Promise<ResourceRecord | null> {
+    const deletion = contract.deletion;
+    if (!deletion) throw new CliError(`资源 ${contract.id} 未声明删除契约`);
+    const values = { [deletion.lookup.idField]: entityId };
+    const data = await this.requestContract(
+      contract,
+      deletion.lookup,
+      deletion.lookup.idPlacement === "body" ? values : undefined,
+      deletion.lookup.idPlacement === "query" ? { [deletion.lookup.idField]: [entityId] } : undefined
+    );
+    if (data === null || data === undefined) return null;
+    if (!isRecord(data)) throw new CliError(`${deletion.lookup.path} 返回格式无效`);
+    return data;
+  }
+
+  /** Restore a deleted snapshot through the deletion contract. */
+  async restoreContract(
+    contract: ResourceContract,
+    payload: ResourceRecord
+  ): Promise<ResourceRecord> {
+    const deletion = contract.deletion;
+    if (!deletion) throw new CliError(`资源 ${contract.id} 未声明删除契约`);
+    const data = await this.requestContract(contract, deletion.restore, payload);
+    if (!isRecord(data) || (typeof data.id !== "string" && typeof data.id !== "number")) {
+      throw new CliError(`${deletion.restore.path} 未返回有效 ID`);
     }
     this.findAllCache.clear();
     return data;
@@ -146,6 +217,8 @@ export class ResourceClient {
   }
 
   async findAll(resource: string): Promise<ResourceRecord[]> {
+    const overlay = this.findAllOverlays.get(resource);
+    if (overlay) return overlay.map((row) => ({ ...row }));
     const cached = this.findAllCache.get(resource);
     if (cached) {
       return cached;
@@ -241,7 +314,8 @@ export class ResourceClient {
   private async requestContract(
     contract: ResourceContract,
     endpoint: { path: string; method: string },
-    body: unknown
+    body?: unknown,
+    query?: Record<string, string[]>
   ): Promise<unknown> {
     const path = endpoint.path.startsWith("/api-gateway/")
       ? endpoint.path
@@ -253,6 +327,7 @@ export class ResourceClient {
       method: endpoint.method,
       path,
       ...(body === undefined ? {} : { body }),
+      ...(query === undefined ? {} : { query }),
       ...(this.options.timeoutMs === undefined ? {} : { timeoutMs: this.options.timeoutMs })
     });
     const envelope = result.data;
@@ -263,10 +338,7 @@ export class ResourceClient {
   }
 }
 
-/**
- * Respect a verified `total` contract. Unknown semantics deliberately ignore
- * `total` and keep reading until a short page proves the end of the result.
- */
+/** Validate one EADP page for callers that need the legacy completion helper. */
 export function shouldFinishContractPagination(
   pagination: NonNullable<ResourceContract["pagination"]>,
   responseData: unknown,
@@ -274,36 +346,36 @@ export function shouldFinishContractPagination(
   accumulatedRowCount: number,
   pageNumber: number
 ): boolean {
-  if (pagination.totalSemantics === "unknown") {
-    return pageRowCount < pagination.pageSize;
+  if (pagination.pageSize !== EADP_PAGE_SIZE || pagination.startPage !== 1) {
+    throw new CliError("资源 EADP 分页必须从第 1 页开始且每页 500 条");
   }
-  if (!isRecord(responseData) || !Number.isInteger(responseData.total) ||
-      (responseData.total as number) < 0) {
-    throw new CliError("资源分页响应缺少有效 total");
+  const page = parseEadpPage(responseData, "资源分页", isRecord, pagination.rowsField);
+  if (page.page !== pageNumber || page.rows.length !== pageRowCount) {
+    throw new CliError("资源分页响应 page 或 rows 与请求不一致");
   }
-  const total = responseData.total as number;
-  if (pagination.totalSemantics === "records") {
-    if (accumulatedRowCount > total) throw new CliError("资源分页响应 total 小于已读取记录数");
-    if (accumulatedRowCount === total) return true;
-    if (pageRowCount < pagination.pageSize) {
-      throw new CliError(`资源分页提前结束：已读取 ${accumulatedRowCount}/${total} 条`);
-    }
-    return false;
+  if (accumulatedRowCount > page.records) {
+    throw new CliError("资源分页响应 records 小于已读取记录数");
   }
-
-  const pageIndex = pageNumber - pagination.startPage + 1;
-  if (total === 0) {
-    if (pageIndex !== 1 || pageRowCount > 0) {
-      throw new CliError("资源分页响应 total 页数与当前页不一致");
+  if (page.total === 0) {
+    if (pageNumber !== 1 || page.records !== 0 || page.rows.length !== 0) {
+      throw new CliError("资源分页响应空页结构不一致");
     }
     return true;
   }
-  if (pageIndex <= 0 || pageIndex > total) {
-    throw new CliError("资源分页响应 total 页数与当前页不一致");
+  const expectedTotal = Math.ceil(page.records / EADP_PAGE_SIZE);
+  if (page.total !== expectedTotal) {
+    throw new CliError(`资源分页响应 total 页数与 records=${page.records} 不一致`);
   }
-  if (pageIndex === total) return true;
-  if (pageRowCount === 0) throw new CliError(`资源分页提前结束：已读取 ${pageIndex}/${total} 页`);
-  return false;
+  if (pageNumber > page.total) {
+    throw new CliError("资源分页响应页码超过 total 页数");
+  }
+  if (pageNumber < page.total && page.rows.length !== EADP_PAGE_SIZE) {
+    throw new CliError(`资源分页提前结束：已读取第 ${pageNumber}/${page.total} 页`);
+  }
+  if (pageNumber === page.total && accumulatedRowCount !== page.records) {
+    throw new CliError(`资源分页记录不完整：已读取 ${accumulatedRowCount}/${page.records} 条`);
+  }
+  return pageNumber === page.total;
 }
 
 export function createResourceClient(options: ResourceClientOptions): ResourceClient {

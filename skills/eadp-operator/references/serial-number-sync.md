@@ -42,7 +42,7 @@ eadp resource compare serial-number --source A --target B --filter entityClassNa
    target lookup to the target environment's recorded `tenantCode`. Stop if the same composite key is
    duplicated in either environment or if either key field is missing. A single
    source or target record with a missing or invalid `configItem` is instead reported as `blocked`;
-   continue comparing and applying safe records. Review create/update/unchanged/blocked, every
+   continue comparing and applying safe records. Review create/update/delete/unchanged/blocked, every
    changed field, and every `blockingIssues` entry before adding `--apply`.
 7. Apply only after authorization and require `verified: true`:
 

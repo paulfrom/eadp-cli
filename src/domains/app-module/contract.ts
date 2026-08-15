@@ -19,5 +19,6 @@ export const appModuleContract: ResourceContract =   {
       preserveTargetFieldsWhenMissing: ["rank"]
     },
     filtering: { time: true, defaultTimeField: "createdDate" },
-    rollback: { service: "sei-basic", resource: "appModule", remove: { path: "appModule/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "appModule/findOne", method: "GET", idField: "id", idPlacement: "query" } }
+    rollback: { service: "sei-basic", resource: "appModule", remove: { path: "appModule/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "appModule/findOne", method: "GET", idField: "id", idPlacement: "query" } },
+    deletion: { service: "sei-basic", resource: "appModule", remove: { path: "appModule/delete/{id}", method: "DELETE", idField: "id", idPlacement: "path" }, lookup: { path: "appModule/findOne", method: "GET", idField: "id", idPlacement: "query" }, restore: { path: "appModule/save", method: "POST" } }
   };

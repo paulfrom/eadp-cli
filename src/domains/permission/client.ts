@@ -253,16 +253,17 @@ export class PermissionClient {
   }
 
   async quickSearchEmployees(value: string): Promise<PermissionRecord[]> {
-    const data = await this.call("employee/quickSearch", "POST", {
-      quickSearchValue: value,
-      pageInfo: { page: 1, rows: 100 },
-      filters: [],
-      sortOrders: []
+    const endpoint = "employee/quickSearch";
+    return readAllPages({
+      endpoint,
+      isItem: isRecord,
+      fetchPage: (pageInfo) => this.call(endpoint, "POST", {
+        quickSearchValue: value,
+        pageInfo,
+        filters: [],
+        sortOrders: []
+      })
     });
-    if (!isRecord(data) || !Array.isArray(data.rows)) {
-      throw new CliError("employee/quickSearch 返回格式无效");
-    }
-    return data.rows.filter(isRecord);
   }
 
   async getAssignedDataValues(options: {

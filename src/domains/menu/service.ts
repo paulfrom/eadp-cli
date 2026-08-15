@@ -107,7 +107,7 @@ export function loadMenuRecords(client: ResourceClient): Promise<ResourceRecord[
   return loadMenus(client);
 }
 
-/** Plan hook: classify each selected menu as create/update/unchanged/blocked. */
+/** Plan hook: classify each selected menu with the standard change actions. */
 async function planMenuChanges(
   source: ResourceRecord[],
   target: ResourceRecord[],

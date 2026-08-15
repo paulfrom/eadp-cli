@@ -19,8 +19,10 @@ resource is registered or whether an action is supported.
    `compareFields` and `writableFields` to build the desired target state.
    Apply `defaults.create` only for a missing target. Let an `adapter` or
    `handler` resolve dependencies; never copy source IDs.
-5. Produce the complete change set before applying anything. Continue planning
-   independent records when one record has a missing or ambiguous dependency.
+5. Produce the complete change set before applying anything. The engine loads
+   declared dependencies automatically; there is no dependency flag or manual
+   dependency-selection step. Continue planning independent records when one
+   record has a missing or ambiguous dependency.
 
 The following commands are directly executable grammar examples only. The
 resource name and its time capability must be rediscovered from the current
@@ -43,19 +45,41 @@ Use exactly these actions:
 
 - `create`: the identity is absent in the target.
 - `update`: the identity exists and at least one writable/compare field differs.
+- `delete`: the record exists only in the target and the live resource declares
+  a complete deletion contract (`deletion.remove`, `deletion.lookup`, and
+  `deletion.restore`). This is destructive and is never inferred from an
+  endpoint name.
 - `unchanged`: the target already equals the desired state; do not write.
 - `blocked`: the record cannot be safely mapped or validated; report its
   `missingDependencies` or `blockingIssues` and keep it out of the apply set.
+  A target-only record on a resource without a deletion contract is blocked
+  with an undeclared-delete issue.
 
 Preview without `--apply`. Review `summary`, every `changedFields`, each
-`desired` dependency mapping, and all blocked details. After explicit
-authorization, rerun the same command with `--apply`. Require `verified: true`
-and reconcile `skippedBlocked` with the blocked count. Treat a CLI/API failure
+`desired` dependency mapping, all delete changes, and all blocked details.
+After explicit authorization, rerun the same command with `--apply`. Require
+`verified: true` and reconcile `skippedBlocked` with the blocked count. Treat a CLI/API failure
 as a workflow failure, stop immediately, and do not retry.
 
-A second preview or apply must report equal records as `unchanged` and must not
-create duplicates. Report `operationId` for applied creates and keep it for an
-explicit rollback request.
+A second preview or apply must report equal records as `unchanged`, absent
+target-only records as no-ops, and must not create duplicates. Report
+`operationId` for applied creates or deletes and keep it for an explicit
+rollback request. A delete operation log stores the target snapshot and uses
+the declared restore endpoint during rollback.
+
+## Implicit dependency and deletion ordering
+
+For a resource with declared dependencies, one compare/sync operation plans the
+whole dependency closure without a user option. The engine applies creates and
+updates in topological order (for example `app-module` → `feature-group` →
+`feature`), rereads each target resource, and remaps target IDs before applying
+the next resource. It applies deletes in reverse order (`feature` →
+`feature-group` → `app-module`) so children are removed before parents.
+
+Do not copy source IDs. If a dependency cannot be resolved, keep the affected
+record `blocked` with `missingDependencies`; safe independent records continue.
+Do not delete a target-only record unless `resource describe <name>` exposes a
+complete `deletion` contract with remove, lookup, and restore semantics.
 
 ## Menu synchronization
 

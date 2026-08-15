@@ -1,6 +1,7 @@
 /**
- * eadp-operator Skill contract-adaptation tests:
- * - generic guidance is discovered from live resource commands/contracts
+ * EADP documentation and Skill contract-adaptation tests:
+ * - architecture and routing are explained before current resource details
+ * - generic execution guidance is discovered from live resource commands/contracts
  * - references stay one level below SKILL.md
  * - a newly registered virtual contract uses the generic preview/apply/verify protocol
  */
@@ -13,17 +14,17 @@ import {
   type ResourceContract
 } from "../src/resource/core/contracts.js";
 import type { ResourceClient } from "../src/resource/core/client.js";
+import {
+  listResourceContracts,
+  specialResourceHandlerRegistry
+} from "../src/resource/catalog.js";
 
 const skillRoot = join(process.cwd(), "skills", "eadp-operator");
 
 describe("eadp-operator Skill：契约自适应协议", () => {
-  it("不维护普通资源白名单或静态时间能力，并保持一层 reference 引用", async () => {
+  it("README 与 Skill 先讲统一架构，再列当前资源和特殊命令", async () => {
     const skill = await readFile(join(skillRoot, "SKILL.md"), "utf8");
-    const genericReferences = await Promise.all([
-      readFile(join(skillRoot, "references", "query-audit.md"), "utf8"),
-      readFile(join(skillRoot, "references", "resource-sync.md"), "utf8")
-    ]);
-    const genericGuidance = [skill, ...genericReferences].join("\n").replace(/\s+/g, " ");
+    const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
     const resourceCommand = await readFile(
       join(process.cwd(), "src", "commands", "resource.ts"),
       "utf8"
@@ -55,10 +56,62 @@ describe("eadp-operator Skill：契约自适应协议", () => {
     expect(skill).toContain("handler");
     expect(skill).toContain("rollback");
 
-    expect(skill).not.toMatch(/已注册(?:普通)?资源[：:][^\n]*(?:app-module|feature-group|serial-number)/);
+    expectSectionOrder(readme, [
+      "## 架构",
+      "## 统一资源框架命令",
+      "## 当前注册资源",
+      "## 特殊领域命令"
+    ]);
+    expectSectionOrder(skill, [
+      "## Architecture and routing",
+      "## Unified resource framework",
+      "## Current registered resources",
+      "## Special domain commands"
+    ]);
+
+    const readmeResources = sectionBetween(readme, "## 当前注册资源", "## 特殊领域命令");
+    const skillResources = sectionBetween(
+      skill,
+      "## Current registered resources",
+      "## Special domain commands"
+    );
+    const registeredResources = listResourceContracts().map((contract) => contract.id);
+    const behaviorExtensions = new Set(specialResourceHandlerRegistry.list());
+    expect(extractResourceIds(readmeResources).sort()).toEqual([...registeredResources].sort());
+    expect(extractResourceIds(skillResources).sort()).toEqual([...registeredResources].sort());
+    for (const resource of registeredResources) {
+      if (behaviorExtensions.has(resource)) {
+        expect(readmeResources, resource).toContain(`| \`${resource}\` | 行为扩展资源`);
+        expect(skillResources, resource).toContain(`| \`${resource}\` | Behavior-extension resource`);
+      } else {
+        expect(readmeResources, resource).toContain(`| \`${resource}\` | 普通契约`);
+        expect(skillResources, resource).toContain(`| \`${resource}\` | Ordinary contract`);
+      }
+    }
+
+    const readmeSpecial = sectionBetween(readme, "## 特殊领域命令", "## 安装与开发");
+    const skillSpecial = sectionBetween(
+      skill,
+      "## Special domain commands",
+      "## Run the common state machine"
+    );
+    for (const command of [
+      "permission apply feature",
+      "permission apply feature-group",
+      "menu create",
+      "bpm inspect",
+      "bpm configure",
+      "rollback <operation-id"
+    ]) {
+      expect(readmeSpecial, command).toContain(command);
+      expect(skillSpecial, command).toContain(command);
+    }
+
+    expect(skillResources).toContain("Always refresh");
+    expect(skillResources).toContain("eadp resource list");
+    expect(skillResources).not.toMatch(/created-in|--from|--to|time-field|defaultTimeField/i);
     expect(skill).not.toMatch(/(?:app-module|feature-group|serial-number)[^\n]*(?:支持|不支持).*(?:时间|created-in|from|to)/i);
     expect(skill).not.toMatch(/eadp\s+(?:api|call|interface)\s+(?:list|catalog|describe)/i);
-    expect(genericGuidance).not.toMatch(/app-module.*feature-group.*serial-number.*(?:declare|support|支持|不支持).*time/i);
     expect(resourceCommand).toContain("const registeredContracts = listResourceContracts();");
     expect(resourceCommand).not.toMatch(/(?:feature|menu|bpm|serial-number)\s*===\s*["']/i);
 
@@ -156,3 +209,24 @@ describe("eadp-operator Skill：契约自适应协议", () => {
     expect(savedPayloads).toHaveLength(1);
   });
 });
+
+function expectSectionOrder(document: string, headings: string[]): void {
+  let previous = -1;
+  for (const heading of headings) {
+    const index = document.indexOf(heading);
+    expect(index, `missing heading: ${heading}`).toBeGreaterThan(previous);
+    previous = index;
+  }
+}
+
+function sectionBetween(document: string, startHeading: string, endHeading: string): string {
+  const start = document.indexOf(startHeading);
+  const end = document.indexOf(endHeading, start + startHeading.length);
+  expect(start, `missing heading: ${startHeading}`).toBeGreaterThanOrEqual(0);
+  expect(end, `missing heading: ${endHeading}`).toBeGreaterThan(start);
+  return document.slice(start, end);
+}
+
+function extractResourceIds(section: string): string[] {
+  return [...section.matchAll(/^\| `([^`]+)` \|/gm)].map((match) => match[1]);
+}

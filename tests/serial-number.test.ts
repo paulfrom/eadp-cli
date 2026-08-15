@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   cleanupAll,
   createFixture,
+  eadpPage,
   runCommand,
   runExpectError
 } from "./helpers/index.js";
@@ -36,7 +37,7 @@ function serialState(rows: Array<Record<string, unknown>> = []): SerialState {
 
 function registerSerialRoutes(server: MockEadpServer, state: SerialState): void {
   server.onEndsWith("/serialNumberConfig/findByPage", (context) => {
-    context.json({ rows: state.rows });
+    context.json(eadpPage(state.rows));
   });
   server.onEndsWith("/serialNumberConfig/save", (context) => {
     if (state.failSave) {
@@ -118,10 +119,10 @@ describe("serial-number：目标租户绑定与复合唯一键", () => {
     const state = serialState();
     registerSerialRoutes(fixture.server("target"), state);
     fixture.server("source").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json({ rows: [
+      context.json(eadpPage([
         { entityClassName: "com.example.Order", tenantCode: "tenant-a", configItem },
         { entityClassName: "com.example.Order", tenantCode: "tenant-b", configItem }
-      ] });
+      ]));
     });
     const error = await runExpectError(fixture.program(), [
       "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
@@ -150,7 +151,7 @@ describe("serial-number：目标租户绑定与复合唯一键", () => {
     const state = serialState();
     registerSerialRoutes(fixture.server("target"), state);
     fixture.server("source").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json({ rows: sourceRows });
+      context.json(eadpPage(sourceRows));
     });
 
     const first = JSON.parse(await runCommand(fixture.program(), [
@@ -161,7 +162,7 @@ describe("serial-number：目标租户绑定与复合唯一键", () => {
       blockingIssues: Array<Record<string, unknown>>;
       missingDependencies: Array<Record<string, unknown>>;
     };
-    expect(first.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(first.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 0, blocked: 1 });
     expect(first.skippedBlocked).toBe(1);
     expect(first.blockingIssues[0]).toMatchObject({ resource: "serial-number", field: "configItem" });
     expect(state.saves).toHaveLength(1);
@@ -174,7 +175,7 @@ describe("serial-number：目标租户绑定与复合唯一键", () => {
     const again = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
     ])) as { summary: Record<string, number> };
-    expect(again.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 1 });
+    expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 1, blocked: 1 });
     expect(state.saves).toHaveLength(1);
   });
 

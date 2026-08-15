@@ -1,7 +1,7 @@
 import type { ResourceRecord } from "./client.js";
 import type { BlockingIssue, MissingDependency } from "./errors.js";
 
-export type ResourcePlanAction = "create" | "update" | "unchanged" | "blocked";
+export type ResourcePlanAction = "create" | "update" | "delete" | "unchanged" | "blocked";
 
 /** Stable marker shared by ordinary resources and behavior extensions. */
 export const RESOURCE_CHANGE_SET_KIND = "eadp.resource.change-set.v1" as const;
@@ -12,6 +12,8 @@ export interface ResourcePlanChange {
   changedFields: string[];
   before: ResourceRecord | null;
   desired: ResourceRecord | null;
+  /** True when this record exists only on the target side. */
+  targetOnly?: boolean;
   /** Optional domain labels/IDs for aggregate behavior extensions. */
   resource?: string;
   id?: string | null;
@@ -42,9 +44,15 @@ export interface ResourcePlan {
 export type ResourceChangeSet = ResourcePlan;
 export type ResourceChange = ResourcePlanChange;
 
-/** Single source of truth for the four-action summary of a change set. */
+/** Single source of truth for the five-action summary of a change set. */
 export function summarizeChanges(changes: ResourcePlanChange[]): Record<ResourcePlanAction, number> {
-  const summary: Record<ResourcePlanAction, number> = { create: 0, update: 0, unchanged: 0, blocked: 0 };
+  const summary: Record<ResourcePlanAction, number> = {
+    create: 0,
+    update: 0,
+    delete: 0,
+    unchanged: 0,
+    blocked: 0
+  };
   for (const change of changes) summary[change.action] += 1;
   return summary;
 }
@@ -52,10 +60,13 @@ export function summarizeChanges(changes: ResourcePlanChange[]): Record<Resource
 /**
  * The single safety gate shared by write and sync. `blocked` changes are
  * intentionally absent from the returned list, so an applied plan can never
- * touch a record that failed dependency or mapping validation.
+ * touch a record that failed dependency or mapping validation. Deletion is
+ * safe only after the resource contract has explicitly classified it.
  */
 export function writableChanges(changes: ResourcePlanChange[]): ResourcePlanChange[] {
-  return changes.filter((change) => change.action === "create" || change.action === "update");
+  return changes.filter((change) =>
+    change.action === "create" || change.action === "update" || change.action === "delete"
+  );
 }
 
 /** Assemble the versioned change-set envelope from already-classified changes. */

@@ -10,6 +10,7 @@ import { OperationLogStore } from "../src/operations/store.js";
 import {
   cleanupAll,
   createFixture,
+  eadpPage,
   runCommand,
   runExpectError
 } from "./helpers/index.js";
@@ -47,7 +48,7 @@ function registerMenuTreeRoutes(server: MockEadpServer, state: MenuTreeState): v
   server.onEndsWith("/menu/getMenuTree", (context) => context.json(state.roots));
   server.onEndsWith("/feature/findByPage", (context) => {
     const rows = state.features;
-    context.json({ rows, total: rows.length });
+    context.json(eadpPage(rows));
   });
   server.onEndsWith("/menu/save", async (context) => {
     if (state.saveHandler) {
@@ -324,7 +325,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
       verified: boolean;
       operationId: string;
     };
-    expect(output.summary).toEqual({ create: 2, update: 0, unchanged: 0, blocked: 0 });
+    expect(output.summary).toEqual({ create: 2, update: 0, delete: 0, unchanged: 0, blocked: 0 });
     expect(output.applied).toBe(true);
     expect(output.verified).toBe(true);
     // 父先子后：先保存父（无 parentId），再保存子（parentId=目标父 ID）
@@ -344,7 +345,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
       "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target",
       "--code", "PURCHASE", "--apply"
     ])) as { summary: Record<string, number> };
-    expect(again.summary).toEqual({ create: 0, update: 0, unchanged: 2, blocked: 0 });
+    expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(target.saves).toHaveLength(2);
     const record = await new OperationLogStore(fixture.store.directory).load(output.operationId);
     expect(record.actions.map((action) => action.entityId)).toEqual([
@@ -371,7 +372,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
       changes: Array<Record<string, unknown>>;
       missingDependencies: Array<Record<string, unknown>>;
     };
-    expect(output.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
+    expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 0, blocked: 1 });
     expect(output.applied).toBe(false);
     expect(output.changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "SAFE", action: "create" }),
@@ -435,7 +436,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     const output = JSON.parse(await runCommand(fixture.program(), [
       "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--apply"
     ])) as { summary: Record<string, number>; verified: boolean };
-    expect(output.summary).toEqual({ create: 0, update: 1, unchanged: 2, blocked: 0 });
+    expect(output.summary).toEqual({ create: 0, update: 1, delete: 0, unchanged: 2, blocked: 0 });
     expect(output.verified).toBe(true);
     // save 使用原 parentId，随后 move 到新父节点
     expect(target.saves[0]).toMatchObject({ code: "CHILD", parentId: "target-a" });

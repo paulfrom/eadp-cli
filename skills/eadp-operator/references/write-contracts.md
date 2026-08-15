@@ -1,6 +1,6 @@
 # Known DTO write constraints
 
-在任何可能新增记录的 `apply`、`assign` 或 `sync` 工作流中（包括 `sync --apply`），预览前先读取本文件并校验写入字段。
+在任何可能新增、更新或按契约删除记录的 `apply`、`assign` 或 `sync` 工作流中（包括 `sync --apply`），预览前先读取本文件并校验写入字段。
 
 本文件只是已确认 DTO 的附加约束，不是资源注册表、资源白名单或能力清单。始终先运行 `eadp resource list`、`eadp resource describe <name>` 和对应动作 `--help`；资源是否注册、支持哪个动作以及字段的完整语义，以当前 CLI 契约为准。表中没有条目不代表资源不支持，也不允许据此猜测字段长度、默认值或接口。
 
@@ -22,6 +22,13 @@
 | BPM `conFlowType/save` | `name` 必填、最多 50；`code` 必填 | `businessEntityId` 必填；通过项目 Entity/远端只读结果解析，不复制源环境 ID。BPM 工作流生成的流程配置短名称仍受最多 15 个字的更严格业务规则约束；其他 BPM DTO 未声明明确长度，不写默认 255。 |
 
 ## 失败处理
+
+- `sync` 的目标独有记录只有在 `eadp resource describe <name>` 明确声明
+  `deletion.remove`、`deletion.lookup`、`deletion.restore` 时才可进入
+  `delete`；不完整或未声明时必须保持 `blocked`，不得根据接口名称猜测删除。
+- 删除日志必须保留可恢复的目标快照；需要回滚时使用同一个
+  `operationId`，由已声明的 `restore` 契约恢复并回查。删除执行顺序为依赖
+  子资源到父资源。
 
 - 对用户提供的缺失、非法或超限输入，在预览前拒绝且不得发起远端调用；不得自动截断、缩写、填充或猜测替代值。让用户确认新的唯一值后再重新预览。
 - 同步预览发现源记录超限或违反契约时，停止该记录并按既有 `record-level invalid` 语义报告；不得改写源记录后继续写入。保持全量差异和其他记录的 `blocked` 报告规则。

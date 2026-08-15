@@ -30,6 +30,16 @@ function appModuleState(rows: Array<Record<string, unknown>> = []): AppModuleSta
 
 function registerAppModuleRoutes(server: MockEadpServer, state: AppModuleState): void {
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.rows));
+  server.onEndsWith("/appModule/findOne", (context) => {
+    const id = context.query.get("id");
+    context.json(state.rows.find((row) => String(row.id) === id) ?? null);
+  });
+  server.onRequest("DELETE", /\/appModule\/delete\//, (context) => {
+    const id = context.path.split("/").at(-1);
+    const index = state.rows.findIndex((row) => String(row.id) === id);
+    if (index >= 0) state.rows.splice(index, 1);
+    context.json(true);
+  });
   server.onEndsWith("/appModule/save", (context) => {
     if (state.failSave) {
       context.fail("boom", 500);
@@ -76,7 +86,7 @@ describe("app-module", () => {
     const again = JSON.parse(await runCommand(fixture.program(), [
       "resource", "write", "app-module", "--env", "target", "--data", data, "--apply"
     ])) as { summary: Record<string, number> };
-    expect(again.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 1, blocked: 0 });
     expect(state.saves).toHaveLength(1);
   });
 
@@ -88,7 +98,7 @@ describe("app-module", () => {
       "resource", "write", "app-module", "--env", "target", "--data",
       JSON.stringify({ code: "ORDER", name: "订单" }), "--apply"
     ])) as { summary: Record<string, number> };
-    expect(output.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(output.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 1, blocked: 0 });
     expect(state.saves).toHaveLength(0);
   });
 
@@ -100,7 +110,7 @@ describe("app-module", () => {
       "resource", "write", "app-module", "--env", "target", "--data",
       JSON.stringify({ code: "ORDER", name: "新名称" }), "--apply"
     ])) as { summary: Record<string, number> };
-    expect(output.summary).toEqual({ create: 0, update: 1, unchanged: 0, blocked: 0 });
+    expect(output.summary).toEqual({ create: 0, update: 1, delete: 0, unchanged: 0, blocked: 0 });
     expect(state.saves).toEqual([{ code: "ORDER", name: "新名称", rank: 5, id: "module-1" }]);
   });
 
@@ -119,24 +129,58 @@ describe("app-module", () => {
     expect(newRequests.filter((request) => request.path.endsWith("/appModule/save"))).toHaveLength(1);
     expect(state.saves).toHaveLength(0);
   });
+
+  it("目标独有记录按显式删除契约预览、删除并完成回查", async () => {
+    const fixture = await createFixture();
+    const state = appModuleState([{ id: "target-only", code: "OLD", name: "旧模块" }]);
+    registerAppModuleRoutes(fixture.server("target"), state);
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => context.json([]));
+
+    const preview = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "compare", "app-module", "--source", "source", "--target", "target"
+    ])) as { summary: Record<string, number>; changes: Array<Record<string, unknown>> };
+    expect(preview.summary).toEqual({ create: 0, update: 0, delete: 1, unchanged: 0, blocked: 0 });
+    expect(preview.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "old", action: "delete", targetOnly: true })
+    ]));
+    expect(fixture.server("target").count("DELETE", /\/appModule\/delete\//)).toBe(0);
+
+    const applied = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "sync", "app-module", "--source", "source", "--target", "target", "--apply"
+    ])) as { summary: Record<string, number>; applied: boolean; verified: boolean; operationId: string };
+    expect(applied).toMatchObject({ applied: true, verified: true, operationId: expect.any(String) });
+    expect(applied.summary).toEqual({ create: 0, update: 0, delete: 1, unchanged: 0, blocked: 0 });
+    expect(fixture.server("target").count("DELETE", /\/appModule\/delete\//)).toBe(1);
+    expect(state.rows).toHaveLength(0);
+  });
 });
 
 interface FeatureGroupState {
   rows: Array<Record<string, unknown>>;
   modules: Array<Record<string, unknown>>;
   saves: unknown[];
+  moduleSaves: unknown[];
 }
 
 function featureGroupState(
   rows: Array<Record<string, unknown>> = [],
-  modules: Array<Record<string, unknown>> = [{ id: "target-module", code: "BASIC" }]
+  modules: Array<Record<string, unknown>> = [{ id: "target-module", code: "BASIC", name: "Basic" }]
 ): FeatureGroupState {
-  return { rows, modules, saves: [] };
+  return { rows, modules, saves: [], moduleSaves: [] };
 }
 
 function registerFeatureGroupRoutes(server: MockEadpServer, state: FeatureGroupState): void {
   server.onEndsWith("/featureGroup/findAll", (context) => context.json(state.rows));
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.modules));
+  server.onEndsWith("/appModule/save", (context) => {
+    const body = context.body as Record<string, unknown>;
+    state.moduleSaves.push(body);
+    const index = state.modules.findIndex((row) => row.code === body.code);
+    const saved = { ...body, id: index >= 0 ? state.modules[index]!.id : `module-${state.modules.length + 1}` };
+    if (index >= 0) state.modules[index] = saved;
+    else state.modules.push(saved);
+    context.json(saved);
+  });
   server.onEndsWith("/featureGroup/save", (context) => {
     const body = context.body as Record<string, unknown>;
     state.saves.push(body);
@@ -158,6 +202,9 @@ describe("feature-group", () => {
         id: "source-group", code: "GROUP", name: "Group",
         appModuleId: "source-module", appModuleCode: "BASIC"
       }]);
+    });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
     });
 
     const output = JSON.parse(await runCommand(fixture.program(), [
@@ -182,32 +229,35 @@ describe("feature-group", () => {
         appModuleId: "source-module", appModuleCode: "BASIC"
       }]);
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
+    });
     const output = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "feature-group", "--source", "source", "--target", "target", "--apply"
     ])) as { summary: Record<string, number> };
-    expect(output.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(output.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(state.saves).toHaveLength(0);
   });
 
-  it("缺依赖标记 blocked 且不写入：目标缺少应用模块", async () => {
+  it("默认编排依赖：目标缺少应用模块时先创建模块再创建功能项组", async () => {
     const fixture = await createFixture();
     const state = featureGroupState([], []);
     registerFeatureGroupRoutes(fixture.server("target"), state);
     fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => {
       context.json([{ code: "GROUP", name: "Group", appModuleCode: "MISSING" }]);
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ code: "MISSING", name: "Missing" }]);
+    });
     const output = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "feature-group", "--source", "source", "--target", "target", "--apply"
     ])) as {
       summary: Record<string, number>;
-      missingDependencies: Array<Record<string, unknown>>;
       skippedBlocked: number;
     };
-    expect(output.summary).toEqual({ create: 0, update: 0, unchanged: 0, blocked: 1 });
-    expect(output.missingDependencies).toEqual([
-      { resource: "app-module", identityField: "code", value: "MISSING", reason: "missing" }
-    ]);
-    expect(output.skippedBlocked).toBe(1);
-    expect(state.saves).toHaveLength(0);
+    expect(output.summary).toEqual({ create: 2, update: 0, delete: 0, unchanged: 0, blocked: 0 });
+    expect(output.skippedBlocked).toBe(0);
+    expect(state.moduleSaves).toEqual([{ code: "MISSING", name: "Missing", rank: 1 }]);
+    expect(state.saves).toEqual([{ code: "GROUP", name: "Group", appModuleId: "module-1" }]);
   });
 });

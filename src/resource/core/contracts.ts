@@ -1,4 +1,5 @@
 import { CliError } from "../../errors.js";
+import { EADP_PAGE_SIZE } from "../../http/pagination.js";
 
 /** Supported operations exposed by the generic resource command. */
 export type ResourceCapability = "query" | "write" | "compare" | "sync";
@@ -22,10 +23,10 @@ export interface ResourcePaginationContract {
   startPage: number;
   /** Response member containing records. */
   rowsField: string;
-  /** Number of rows requested per page. */
-  pageSize: number;
-  /** Whether the response's `total` has been verified as record count. */
-  totalSemantics: "records" | "pages" | "unknown";
+  /** EADP requires exactly 500 rows per request. */
+  pageSize: typeof EADP_PAGE_SIZE;
+  /** EADP returns `total` as total pages and `records` as total records. */
+  totalSemantics: "pages";
 }
 
 export interface ResourceTenantContract {
@@ -76,6 +77,22 @@ export interface ResourceRollbackContract {
 }
 
 /**
+ * Explicit target-only deletion semantics. A remove-looking endpoint is not
+ * enough to authorize deletion: compare/sync require this complete contract.
+ */
+export interface ResourceDeletionContract {
+  service: string;
+  resource: string;
+  remove: ResourceRollbackContract["remove"];
+  lookup: ResourceRollbackContract["lookup"];
+  /** Restore the deleted snapshot during operation rollback. */
+  restore: {
+    path: string;
+    method: "POST" | "PUT" | "PATCH";
+  };
+}
+
+/**
  * Selector metadata for special compare/sync workflows.  The command layer
  * turns these declarations into options without knowing the domain meaning.
  */
@@ -120,6 +137,10 @@ export interface ResourceContract {
   handler?: string;
   selectors?: ResourceSelectorContract[];
   rollback?: ResourceRollbackContract;
+  /** Resource IDs whose records are planned before this resource. */
+  dependencies?: string[];
+  /** Explicit contract required before target-only records may be deleted. */
+  deletion?: ResourceDeletionContract;
 }
 
 export interface ResourceRegistry {
@@ -181,6 +202,9 @@ export function validateResourceContracts(
     if (contract.tenant.bindField && !contract.identityFields.includes(contract.tenant.bindField)) {
       throw new CliError(`资源契约 ${contract.id} 的租户绑定字段必须属于业务唯一键`);
     }
+    if (contract.dependencies?.includes(contract.id)) {
+      throw new CliError(`资源契约 ${contract.id} 不能依赖自身`);
+    }
     return contract;
   });
 }
@@ -190,6 +214,14 @@ export function createResourceRegistry(
 ): ResourceRegistry {
   const contracts = Object.freeze(validateResourceContracts(declarations));
   const byId = new Map(contracts.map((contract) => [contract.id, contract]));
+  for (const contract of contracts) {
+    for (const dependency of contract.dependencies ?? []) {
+      if (!byId.has(dependency)) {
+        throw new CliError(`资源契约 ${contract.id} 依赖未注册资源：${dependency}`);
+      }
+    }
+  }
+  assertDependencyGraphAcyclic(contracts, byId);
   return {
     contracts,
     get(id: string): ResourceContract {
@@ -228,10 +260,11 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     throw new CliError(`资源契约 ${candidate.id} 的可写字段必须属于可比较字段`);
   }
   const page = candidate.pagination;
-  if (page && (!Number.isInteger(page.pageSize) || page.pageSize <= 0 ||
-      !Number.isInteger(page.startPage) || page.startPage < 0 ||
+  if (page && (page.pageSize !== EADP_PAGE_SIZE ||
+      !Number.isInteger(page.startPage) || page.startPage < 1 ||
       !page.pageField.trim() || !page.pageNumberField.trim() ||
-      !page.pageSizeField.trim() || !page.rowsField.trim())) {
+      !page.pageSizeField.trim() || !page.rowsField.trim() ||
+      page.totalSemantics !== "pages")) {
     throw new CliError(`资源契约 ${candidate.id} 的分页契约无效`);
   }
   for (const [name, fields] of [
@@ -279,6 +312,16 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     validatePathSegment(candidate.id, "回滚 ID 字段", candidate.rollback.lookup.idField);
     validateRollbackRemove(candidate.id, candidate.rollback.remove);
   }
+  if (candidate.dependencies !== undefined) {
+    if (!Array.isArray(candidate.dependencies) ||
+        candidate.dependencies.some((dependency) => !/^[a-z][a-z0-9-]*$/.test(dependency)) ||
+        new Set(candidate.dependencies).size !== candidate.dependencies.length) {
+      throw new CliError(`资源契约 ${candidate.id} 的依赖声明无效`);
+    }
+  }
+  if (candidate.deletion) {
+    validateDeletion(candidate.id, candidate.service, candidate.deletion);
+  }
   const selectors = candidate.selectors === undefined
     ? undefined
     : normalizeSelectors(candidate.id, candidate.selectors);
@@ -289,8 +332,47 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     compareFields: [...candidate.compareFields],
     writableFields: [...candidate.writableFields],
     capabilities: [...new Set(candidate.capabilities)],
+    ...(candidate.dependencies === undefined ? {} : { dependencies: [...candidate.dependencies] }),
     ...(selectors === undefined ? {} : { selectors })
   };
+}
+
+function validateDeletion(
+  id: string,
+  service: string,
+  deletion: ResourceDeletionContract
+): void {
+  validatePathSegment(id, "删除服务", deletion.service);
+  validatePathSegment(id, "删除资源", deletion.resource);
+  if (deletion.service !== service) {
+    throw new CliError(`资源契约 ${id} 的删除服务必须与资源服务一致`);
+  }
+  validateRollbackRemove(id, deletion.remove);
+  validateEndpoint(id, "删除回查", deletion.lookup);
+  if (!["GET", "POST"].includes(deletion.lookup.method) ||
+      !["query", "body"].includes(deletion.lookup.idPlacement) ||
+      !isSafeRelativePath(deletion.lookup.path)) {
+    throw new CliError(`资源契约 ${id} 删除回查接口无效`);
+  }
+  validatePathSegment(id, "删除回查 ID 字段", deletion.lookup.idField);
+  validateEndpoint(id, "删除恢复", deletion.restore);
+}
+
+function assertDependencyGraphAcyclic(
+  contracts: readonly ResourceContract[],
+  byId: ReadonlyMap<string, ResourceContract>
+): void {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string): void => {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) throw new CliError(`资源契约依赖存在循环：${id}`);
+    visiting.add(id);
+    for (const dependency of byId.get(id)?.dependencies ?? []) visit(dependency);
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const contract of contracts) visit(contract.id);
 }
 
 function validateRollbackRemove(

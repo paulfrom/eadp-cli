@@ -244,6 +244,34 @@ export function createMockServer(): MockEadpServer {
   return new MockEadpServer();
 }
 
+/** Build the inner data value returned by every EADP paged endpoint. */
+export function eadpPage<T>(
+  rows: T[],
+  options: {
+    page?: number;
+    records?: number;
+    total?: number;
+    summaryInfo?: unknown;
+  } = {}
+): {
+  page: number;
+  records: number;
+  total: number;
+  summaryInfo: unknown;
+  rows: T[];
+} {
+  const page = options.page ?? 1;
+  const records = options.records ?? rows.length;
+  const total = options.total ?? (records === 0 ? 0 : Math.ceil(records / 500));
+  return {
+    page,
+    records,
+    total,
+    summaryInfo: options.summaryInfo ?? null,
+    rows
+  };
+}
+
 function matches(
   request: CapturedRequest,
   method: string | undefined,

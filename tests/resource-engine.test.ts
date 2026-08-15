@@ -1,7 +1,7 @@
 /**
  * 通用 resource engine 必测矩阵：
- * - 分页完整聚合（按契约 totalSemantics 读到短页为止）
- * - create/update/unchanged/blocked 四动作
+ * - 分页完整聚合（按 EADP total 页数与 records 总记录数）
+ * - create/update/delete/unchanged/blocked 五动作
  * - 预览零写入；正式执行断言完整请求体；写入后回查；再次执行 unchanged
  * - 跨环境先校验租户（零请求）；缺依赖不阻塞全量差异（blocked + missingDependencies）
  * - 失败后不重试、不继续写入
@@ -12,6 +12,7 @@ import {
   captureOutput,
   cleanupAll,
   createFixture,
+  eadpPage,
   expectNoWrites,
   runCommand,
   runExpectError
@@ -27,15 +28,19 @@ interface FeatureState {
   modules: Array<Record<string, unknown>>;
   featureGroups: Array<Record<string, unknown>>;
   saves: unknown[];
+  moduleSaves: unknown[];
+  featureGroupSaves: unknown[];
   failNext?: number;
 }
 
 function featureState(rows: Array<Record<string, unknown>> = []): FeatureState {
   return {
     rows,
-    modules: [{ id: "module-1", code: "BASIC" }],
+    modules: [{ id: "module-1", code: "BASIC", name: "Basic" }],
     featureGroups: [],
-    saves: []
+    saves: [],
+    moduleSaves: [],
+    featureGroupSaves: []
   };
 }
 
@@ -46,10 +51,56 @@ function registerFeatureRoutes(server: MockEadpServer, state: FeatureState): voi
       context.raw({ success: false, message: "boom" }, 500);
       return;
     }
-    context.json({ rows: state.rows });
+    context.json(eadpPage(state.rows));
   });
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.modules));
+  server.onEndsWith("/appModule/findOne", (context) => {
+    const id = context.query.get("id");
+    context.json(state.modules.find((row) => String(row.id) === id) ?? null);
+  });
+  server.onRequest("DELETE", /\/appModule\/delete\//, (context) => {
+    const id = context.path.split("/").at(-1);
+    const index = state.modules.findIndex((row) => String(row.id) === id);
+    if (index >= 0) state.modules.splice(index, 1);
+    context.json(true);
+  });
   server.onEndsWith("/featureGroup/findAll", (context) => context.json(state.featureGroups));
+  server.onEndsWith("/featureGroup/findOne", (context) => {
+    const id = context.query.get("id");
+    context.json(state.featureGroups.find((row) => String(row.id) === id) ?? null);
+  });
+  server.onRequest("DELETE", /\/featureGroup\/delete\//, (context) => {
+    const id = context.path.split("/").at(-1);
+    const index = state.featureGroups.findIndex((row) => String(row.id) === id);
+    if (index >= 0) state.featureGroups.splice(index, 1);
+    context.json(true);
+  });
+  server.onEndsWith("/feature/findOne", (context) => {
+    const id = context.query.get("id");
+    context.json(state.rows.find((row) => String(row.id) === id) ?? null);
+  });
+  server.onRequest("DELETE", /\/feature\/delete\//, (context) => {
+    const id = context.path.split("/").at(-1);
+    const index = state.rows.findIndex((row) => String(row.id) === id);
+    if (index >= 0) state.rows.splice(index, 1);
+    context.json(true);
+  });
+  server.onEndsWith("/appModule/save", (context) => {
+    const body = context.body as Record<string, unknown>;
+    state.moduleSaves.push(body);
+    const index = state.modules.findIndex((row) => row.code === body.code);
+    const saved = { ...body, id: index >= 0 ? state.modules[index]!.id : `module-${state.modules.length + 1}` };
+    if (index >= 0) state.modules[index] = saved;
+    else state.modules.push(saved);
+    context.json(saved);
+  });
+  server.onEndsWith("/featureGroup/save", (context) => {
+    const body = context.body as Record<string, unknown>;
+    state.featureGroupSaves.push(body);
+    const saved = { ...body, id: `group-${state.featureGroups.length + 1}` };
+    state.featureGroups.push(saved);
+    context.json(saved);
+  });
   server.onEndsWith("/feature/save", (context) => {
     const body = context.body as Record<string, unknown>;
     state.saves.push(body);
@@ -71,7 +122,9 @@ describe("resource query：分页完整聚合", () => {
     let pages = 0;
     fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
       pages += 1;
-      context.json(pages === 1 ? { rows: firstPage } : { rows: [{ code: "B", name: "B" }] });
+      context.json(pages === 1
+        ? eadpPage(firstPage, { page: 1, records: 501, total: 2 })
+        : eadpPage([{ code: "B", name: "B" }], { page: 2, records: 501, total: 2 }));
     });
     const output = await runCommand(fixture.program(), [
       "resource", "query", "feature", "--env", "source"
@@ -160,7 +213,7 @@ describe("resource write：六大场景", () => {
       "resource", "write", "feature", "--env", "target", "--data", data, "--apply"
     ]);
     const result = JSON.parse(output) as { summary: Record<string, number> };
-    expect(result.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(result.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 1, blocked: 0 });
     expect(state.saves).toHaveLength(1);
   });
 
@@ -173,8 +226,15 @@ describe("resource write：六大场景", () => {
     const state = featureState();
     registerFeatureRoutes(fixture.server("target"), state);
     fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
-      context.json({ rows: sourceRows });
+      context.json(eadpPage(sourceRows));
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([
+        { id: "source-basic", code: "BASIC", name: "Basic" },
+        { id: "source-missing", code: "MISSING", name: "Missing" }
+      ]);
+    });
+    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
 
     const preview = await runCommand(fixture.program(), [
       "resource", "sync", "feature", "--source", "source", "--target", "target"
@@ -184,10 +244,7 @@ describe("resource write：六大场景", () => {
       missingDependencies: Array<Record<string, unknown>>;
       applied: boolean;
     };
-    expect(plan.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
-    expect(plan.missingDependencies).toEqual([
-      { resource: "app-module", identityField: "code", value: "MISSING", reason: "missing" }
-    ]);
+    expect(plan.summary).toEqual({ create: 2, update: 0, delete: 0, unchanged: 1, blocked: 1 });
     expect(plan.applied).toBe(false);
     expect(state.saves).toHaveLength(0);
 
@@ -199,18 +256,20 @@ describe("resource write：六大场景", () => {
       skippedBlocked: number;
       verified: boolean;
     };
-    expect(result.summary).toEqual({ create: 1, update: 0, unchanged: 0, blocked: 1 });
-    expect(result.skippedBlocked).toBe(1);
+    expect(result.summary).toEqual({ create: 3, update: 0, delete: 0, unchanged: 1, blocked: 0 });
+    expect(result.skippedBlocked).toBe(0);
     expect(result.verified).toBe(true);
-    expect(state.saves).toHaveLength(1);
+    expect(state.moduleSaves).toHaveLength(1);
+    expect(state.saves).toHaveLength(2);
     expect(state.saves[0]).toMatchObject({ code: "SAFE", appModuleId: "module-1" });
+    expect(state.saves[1]).toMatchObject({ code: "BLOCKED", appModuleId: expect.any(String) });
   });
 
   it("场景5b 租户错误：迁移前先校验源与目标租户，零远端请求", async () => {
     const fixture = await createFixture();
     const state = featureState();
     registerFeatureRoutes(fixture.server("target"), state);
-    fixture.server("source").onEndsWith("/feature/findByPage", (context) => context.json({ rows: [] }));
+    fixture.server("source").onEndsWith("/feature/findByPage", (context) => context.json(eadpPage([])));
     await fixture.store.update((config) => {
       config.environments.target!.tenantCode = "tenant-a";
     });
@@ -238,17 +297,17 @@ describe("resource write：六大场景", () => {
     };
     let saves = 0;
     fixture.server("source").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json({ rows: [
+      context.json(eadpPage([
         { entityClassName: "com.example.Order", tenantCode: "tenant-a", configItem: [item] },
         { entityClassName: "com.example.Order", tenantCode: "tenant-b", configItem: [item] }
-      ] });
+      ]));
     });
     fixture.server("target").onEndsWith("/serialNumberConfig/save", (context) => {
       saves += 1;
       context.json({ id: "unexpected" });
     });
     fixture.server("target").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json({ rows: [] });
+      context.json(eadpPage([]));
     });
 
     const error = await runExpectError(fixture.program(), [
@@ -275,19 +334,23 @@ describe("resource write：六大场景", () => {
   });
 });
 
-describe("resource compare / sync：四动作与幂等", () => {
+describe("resource compare / sync：五动作与幂等", () => {
   it("compare 只读；sync 复用计划，update 后再次执行 unchanged", async () => {
     const fixture = await createFixture();
     const state = featureState([{ id: "target-a", code: "A", name: "old", appModuleId: "module-1" }]);
     registerFeatureRoutes(fixture.server("target"), state);
     fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
-      context.json({ rows: [{ code: "A", name: "new", appModuleCode: "BASIC" }] });
+      context.json(eadpPage([{ code: "A", name: "new", appModuleCode: "BASIC" }]));
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
+    });
+    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
 
     const comparison = JSON.parse(await runCommand(fixture.program(), [
       "resource", "compare", "feature", "--source", "source", "--target", "target"
     ])) as { summary: Record<string, number> };
-    expect(comparison.summary).toEqual({ create: 0, update: 1, unchanged: 0, blocked: 0 });
+    expect(comparison.summary).toEqual({ create: 0, update: 1, delete: 0, unchanged: 1, blocked: 0 });
     expect(state.saves).toHaveLength(0);
 
     const applied = JSON.parse(await runCommand(fixture.program(), [
@@ -300,7 +363,7 @@ describe("resource compare / sync：四动作与幂等", () => {
     const again = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "feature", "--source", "source", "--target", "target", "--apply"
     ])) as { summary: Record<string, number> };
-    expect(again.summary).toEqual({ create: 0, update: 0, unchanged: 1, blocked: 0 });
+    expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(state.saves).toHaveLength(1);
   });
 
@@ -308,8 +371,12 @@ describe("resource compare / sync：四动作与幂等", () => {
     const fixture = await createFixture();
     registerFeatureRoutes(fixture.server("target"), featureState());
     fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
-      context.json({ rows: [{ code: "A", name: "A", appModuleCode: "BASIC" }] });
+      context.json(eadpPage([{ code: "A", name: "A", appModuleCode: "BASIC" }]));
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => context.json([
+      { id: "source-module", code: "BASIC", name: "Basic" }
+    ]));
+    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
     const output = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "feature", "--source", "source", "--target", "target"
     ])) as { kind: string; changeSetKind: string; resource: string };
@@ -337,12 +404,16 @@ describe("resource compare / sync：四动作与幂等", () => {
     const targetBodies: unknown[] = [];
     fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
       sourceBodies.push(context.body);
-      context.json({ rows: [] });
+      context.json(eadpPage([]));
     });
     fixture.server("target").onEndsWith("/feature/findByPage", (context) => {
       targetBodies.push(context.body);
-      context.json({ rows: [] });
+      context.json(eadpPage([]));
     });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => context.json([]));
+    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("target").onEndsWith("/appModule/findAll", (context) => context.json([]));
+    fixture.server("target").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
     await runCommand(fixture.program(), [
       "resource", "compare", "feature", "--source", "source", "--target", "target",
       "--created-in", "2026-08"
@@ -352,6 +423,39 @@ describe("resource compare / sync：四动作与幂等", () => {
       { fieldName: "createdDate", operator: "LT", value: "2026-09-01 00:00:00" }
     ]);
     expect((targetBodies[0] as { filters: unknown[] }).filters).toEqual([]);
+  });
+
+  it("隐式依赖的删除按子到父逆序执行：feature → feature-group → app-module", async () => {
+    const fixture = await createFixture();
+    const target = featureState([
+      {
+        id: "feature-1", code: "FEATURE", name: "Feature",
+        appModuleId: "module-1", featureGroupId: "group-1"
+      }
+    ]);
+    target.modules = [{ id: "module-1", code: "BASIC", name: "Basic" }];
+    target.featureGroups = [{ id: "group-1", code: "GROUP", name: "Group", appModuleId: "module-1" }];
+    registerFeatureRoutes(fixture.server("target"), target);
+    const source = featureState();
+    source.modules = [];
+    registerFeatureRoutes(fixture.server("source"), source);
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "sync", "feature", "--source", "source", "--target", "target", "--apply"
+    ])) as { summary: Record<string, number>; applied: boolean; verified: boolean };
+    expect(output).toMatchObject({ applied: true, verified: true });
+    expect(output.summary).toEqual({ create: 0, update: 0, delete: 3, unchanged: 0, blocked: 0 });
+    const deletes = fixture.server("target").requests
+      .filter((request) => request.method === "DELETE")
+      .map((request) => request.path);
+    expect(deletes).toEqual([
+      expect.stringContaining("/feature/delete/feature-1"),
+      expect.stringContaining("/featureGroup/delete/group-1"),
+      expect.stringContaining("/appModule/delete/module-1")
+    ]);
+    expect(target.rows).toHaveLength(0);
+    expect(target.featureGroups).toHaveLength(0);
+    expect(target.modules).toHaveLength(0);
   });
 });
 

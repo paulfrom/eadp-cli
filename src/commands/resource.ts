@@ -12,7 +12,8 @@ import {
   listResourceContracts,
   resourceAdapterRegistry,
   resourcePhaseHooksRegistry,
-  specialResourceHandlerRegistry
+  specialResourceHandlerRegistry,
+  resourceRegistry
 } from "../resource/catalog.js";
 import type {
   ResourceContract,
@@ -43,7 +44,7 @@ interface ResourceMigrationOptions extends FilterOptions {
   apply?: boolean;
   [key: string]: unknown;
 }
-const engine = new ResourceEngine(resourceAdapterRegistry, resourcePhaseHooksRegistry);
+const engine = new ResourceEngine(resourceAdapterRegistry, resourcePhaseHooksRegistry, resourceRegistry);
 
 /** Register the generic resource-first command tree. */
 export function registerResourceCommands(
@@ -63,14 +64,14 @@ export function registerResourceCommands(
     .join("、") || "无";
   const resource = root
     .command("resource")
-    .description("按声明式资源契约查询、写入、比较和迁移（默认预览；不提供删除）")
+    .description("按声明式资源契约查询、写入、比较和迁移（默认预览；删除仅按显式契约执行）")
     .addHelpText(
       "after",
       `
 资源均由契约注册；普通资源由 API 与业务语义声明获得统一动作，特殊资源可为同一动作登记行为扩展。
 契约包含查询/保存接口、分页策略、业务唯一键、可比较/可写字段、租户策略和能力开关。
 已注册普通资源：${ordinaryResources}；行为扩展资源：${behaviorExtensions}。
-动作统一为 create、update、unchanged、blocked；传输失败立即停止，不自动重试。
+动作统一为 create、update、delete、unchanged、blocked；delete 只来自资源声明的完整删除契约；传输失败立即停止，不自动重试。
 使用 resource list/describe 发现每个资源的能力、选择器与领域说明。
 示例：
   eadp resource list
@@ -98,6 +99,7 @@ export function registerResourceCommands(
             query: contract.query,
             save: contract.save ?? null,
             rollback: contract.rollback ?? null,
+            deletion: contract.deletion ?? null,
             identityFields: contract.identityFields,
             compareFields: contract.compareFields,
             writableFields: contract.writableFields,
@@ -156,7 +158,7 @@ export function registerResourceCommands(
 
   resource
     .command("write")
-    .description("新增或更新资源；默认只生成计划，--apply 才写入并回查；不执行删除")
+    .description("新增或更新资源；默认只生成计划，--apply 才写入并回查；不执行目标独有删除")
     .argument("<name>", "资源名")
     .requiredOption("--env <env>", "目标环境名称")
     .requiredOption("--data <json>", "JSON 对象或对象数组")
@@ -228,11 +230,11 @@ export function registerResourceCommands(
   addResourceFilterOptions(
     addResourceSelectorOptions(resource
       .command("sync")
-      .description("复用 compare change plan；默认预览，--apply 执行安全 create/update 并回查")
+      .description("复用 compare change plan；默认预览，--apply 执行安全 create/update/delete 并回查")
       .argument("<name>", "资源名")
       .requiredOption("--source <env>", "源环境名称")
       .requiredOption("--target <env>", "目标环境名称")
-      .option("--apply", "执行同步；blocked 记录会跳过")),
+      .option("--apply", "执行同步；仅按显式删除契约执行 delete，blocked 记录会跳过")),
     false)
     .action(async (name: string, options: ResourceMigrationOptions) => {
       const contract = getResourceContract(name);

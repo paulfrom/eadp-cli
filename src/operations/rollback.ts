@@ -3,7 +3,7 @@ import { CliError, errorMessage } from "../errors.js";
 import { sendRequest } from "../http/client.js";
 import { assertPathTenantScope, assertTenantScope } from "../tenant.js";
 import { OperationLogStore, type AssignDataValuesAction, type AssignRelationsAction,
-  type CreateEntityAction, type OperationAction, type OperationRecord } from "./store.js";
+  type CreateEntityAction, type DeleteEntityAction, type OperationAction, type OperationRecord } from "./store.js";
 
 type RecordValue = Record<string, unknown>;
 
@@ -71,6 +71,7 @@ export function preflightRollbackOperation(record: OperationRecord, environment:
 
 async function rollbackAction(action: OperationAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {
   if (action.type === "create-entity") return rollbackCreate(action, env, timeoutMs);
+  if (action.type === "delete-entity") return rollbackDelete(action, env, timeoutMs);
   if (action.type === "assign-relations") return rollbackRelations(action, env, timeoutMs);
   return rollbackDataValues(action, env, timeoutMs);
 }
@@ -104,8 +105,22 @@ async function rollbackCreate(action: CreateEntityAction, env: ResolvedEnvironme
   return true;
 }
 
+async function rollbackDelete(action: DeleteEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<boolean> {
+  assertRollbackActionTenantScope(action, env);
+  const current = await findEntity(action, env, timeoutMs);
+  if (current !== null) {
+    if (matchesSnapshot(current, action.expected)) return false;
+    throw new CliError(`删除回滚前记录已被修改：${action.resource}/${action.entityId}`);
+  }
+  await call(env, timeoutMs, action.restore.method, `${gateway(action.service)}/${action.restore.path}`, action.expected);
+  if ((await findEntity(action, env, timeoutMs)) === null) {
+    throw new CliError(`删除回滚后回查失败：${action.resource}/${action.entityId} 未恢复`);
+  }
+  return true;
+}
+
 function assertRollbackActionTenantScope(action: OperationAction, env: ResolvedEnvironment): void {
-  if (action.type === "create-entity" && action.tenantPolicy) {
+  if ((action.type === "create-entity" || action.type === "delete-entity") && action.tenantPolicy) {
     if (action.tenantPolicy === "any") {
       if (!env.config.tenantCode) {
         throw new CliError(`环境 ${env.name} 未记录 tenantCode，请重新执行 env add 验证 Token`);
@@ -115,7 +130,7 @@ function assertRollbackActionTenantScope(action: OperationAction, env: ResolvedE
     assertTenantScope(env.config.tenantCode, action.tenantPolicy, env.name);
     return;
   }
-  const path = action.type === "create-entity"
+  const path = action.type === "create-entity" || action.type === "delete-entity"
     ? `${gateway(action.service)}/${action.resource}/delete/${encodeURIComponent(action.entityId)}`
     : `${gateway(action.service)}/${action.resource}`;
   assertPathTenantScope(env.config.tenantCode, path, env.name);
@@ -149,7 +164,11 @@ async function rollbackDataValues(action: AssignDataValuesAction, env: ResolvedE
   return true;
 }
 
-async function findEntity(action: CreateEntityAction, env: ResolvedEnvironment, timeoutMs: number): Promise<RecordValue | null> {
+async function findEntity(
+  action: Pick<CreateEntityAction | DeleteEntityAction, "service" | "resource" | "entityId" | "lookup">,
+  env: ResolvedEnvironment,
+  timeoutMs: number
+): Promise<RecordValue | null> {
   const legacyPath = `${action.resource}/${action.resource === "serialNumberConfig" ? "getDetail" : "findOne"}`;
   const lookup = action.lookup ?? {
     path: legacyPath,
@@ -169,6 +188,12 @@ async function findEntity(action: CreateEntityAction, env: ResolvedEnvironment, 
   if (data === null || data === undefined) return null;
   if (!isRecord(data)) throw new CliError(`${action.resource} 回查返回格式无效`);
   return data;
+}
+
+function matchesSnapshot(current: RecordValue, expected: RecordValue): boolean {
+  return Object.entries(expected).every(([field, value]) =>
+    JSON.stringify(current[field] ?? null) === JSON.stringify(value ?? null)
+  );
 }
 
 async function getChildren(action: AssignRelationsAction, env: ResolvedEnvironment, timeoutMs: number): Promise<RecordValue[]> {
