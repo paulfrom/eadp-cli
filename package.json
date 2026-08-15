@@ -1,6 +1,6 @@
 {
   "name": "eadp-cli",
-  "version": "0.10.17",
+  "version": "0.10.18",
   "description": "面向 EADP 多环境的资源与权限编排命令行工具",
   "type": "module",
   "bin": {

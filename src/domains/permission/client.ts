@@ -28,6 +28,14 @@ export class PermissionClient {
     );
   }
 
+  async findAuthorizedFeatureGroups(): Promise<PermissionRecord[]> {
+    const endpoint = "featureGroup/getAuthorizedFeatureGroup";
+    return this.expectRecordList(
+      await this.call(endpoint, "GET"),
+      endpoint
+    );
+  }
+
   async findByPage(
     resource: string,
     options: { filters?: PermissionFilter[] } = {}
@@ -84,12 +92,12 @@ export class PermissionClient {
 
   /**
    * Resolve a feature-group by its business code.  FeatureGroupController
-   * exposes findAll rather than a dedicated findByCode route, so matching is
-   * performed locally and the result is still checked for duplicate business
-   * keys using strict case-insensitive comparison.
+   * exposes an authorized list rather than a dedicated findByCode route, so
+   * matching is performed locally and the result is still checked for
+   * duplicate business keys using strict case-insensitive comparison.
    */
   async findFeatureGroupByCode(code: string): Promise<PermissionRecord | null> {
-    const rows = await this.findAll("featureGroup");
+    const rows = await this.findAuthorizedFeatureGroups();
     const normalized = code.trim().toLocaleLowerCase();
     const matches = rows.filter(
       (record) =>

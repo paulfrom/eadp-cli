@@ -3,7 +3,8 @@
  * - 分页完整聚合（按 EADP total 页数与 records 总记录数）
  * - create/update/delete/unchanged/blocked 五动作
  * - 预览零写入；正式执行断言完整请求体；写入后回查；再次执行 unchanged
- * - 跨环境先校验租户（零请求）；缺依赖不阻塞全量差异（blocked + missingDependencies）
+ * - 跨环境先校验租户（零请求）；缺依赖/记录级映射异常不阻塞全量差异
+ *   （blocked + missingDependencies/blockingIssues）
  * - 失败后不重试、不继续写入
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -64,7 +65,7 @@ function registerFeatureRoutes(server: MockEadpServer, state: FeatureState): voi
     if (index >= 0) state.modules.splice(index, 1);
     context.json(true);
   });
-  server.onEndsWith("/featureGroup/findAll", (context) => context.json(state.featureGroups));
+  server.onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json(state.featureGroups));
   server.onEndsWith("/featureGroup/findOne", (context) => {
     const id = context.query.get("id");
     context.json(state.featureGroups.find((row) => String(row.id) === id) ?? null);
@@ -234,7 +235,7 @@ describe("resource write：六大场景", () => {
         { id: "source-missing", code: "MISSING", name: "Missing" }
       ]);
     });
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
 
     const preview = await runCommand(fixture.program(), [
       "resource", "sync", "feature", "--source", "source", "--target", "target"
@@ -335,6 +336,43 @@ describe("resource write：六大场景", () => {
 });
 
 describe("resource compare / sync：五动作与幂等", () => {
+  it("compare 遇到单条本地映射异常仍完成全量差异并标记 blocked", async () => {
+    const fixture = await createFixture();
+    const state = featureState();
+    registerFeatureRoutes(fixture.server("target"), state);
+    fixture.server("source").onEndsWith("/feature/findByPage", (context) => {
+      context.json(eadpPage([
+        { code: "SAFE", name: "safe", appModuleCode: "BASIC" },
+        { code: "INVALID", name: "invalid" }
+      ]));
+    });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
+    });
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "compare", "feature", "--source", "source", "--target", "target"
+    ])) as {
+      summary: Record<string, number>;
+      changes: Array<Record<string, unknown>>;
+      blockingIssues: Array<Record<string, unknown>>;
+    };
+    expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 1, blocked: 1 });
+    expect(output.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "safe", action: "create" }),
+      expect.objectContaining({
+        key: "invalid",
+        action: "blocked",
+        blockingIssues: [expect.objectContaining({ field: "appModuleCode", reason: "invalid" })]
+      })
+    ]));
+    expect(output.blockingIssues).toEqual([
+      expect.objectContaining({ resource: "feature", field: "appModuleCode", reason: "invalid" })
+    ]);
+    expect(state.saves).toHaveLength(0);
+  });
+
   it("compare 只读；sync 复用计划，update 后再次执行 unchanged", async () => {
     const fixture = await createFixture();
     const state = featureState([{ id: "target-a", code: "A", name: "old", appModuleId: "module-1" }]);
@@ -345,7 +383,7 @@ describe("resource compare / sync：五动作与幂等", () => {
     fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
       context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
     });
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
 
     const comparison = JSON.parse(await runCommand(fixture.program(), [
       "resource", "compare", "feature", "--source", "source", "--target", "target"
@@ -376,7 +414,7 @@ describe("resource compare / sync：五动作与幂等", () => {
     fixture.server("source").onEndsWith("/appModule/findAll", (context) => context.json([
       { id: "source-module", code: "BASIC", name: "Basic" }
     ]));
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
     const output = JSON.parse(await runCommand(fixture.program(), [
       "resource", "sync", "feature", "--source", "source", "--target", "target"
     ])) as { kind: string; changeSetKind: string; resource: string };
@@ -411,9 +449,9 @@ describe("resource compare / sync：五动作与幂等", () => {
       context.json(eadpPage([]));
     });
     fixture.server("source").onEndsWith("/appModule/findAll", (context) => context.json([]));
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
     fixture.server("target").onEndsWith("/appModule/findAll", (context) => context.json([]));
-    fixture.server("target").onEndsWith("/featureGroup/findAll", (context) => context.json([]));
+    fixture.server("target").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json([]));
     await runCommand(fixture.program(), [
       "resource", "compare", "feature", "--source", "source", "--target", "target",
       "--created-in", "2026-08"

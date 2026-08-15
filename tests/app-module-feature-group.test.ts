@@ -170,7 +170,7 @@ function featureGroupState(
 }
 
 function registerFeatureGroupRoutes(server: MockEadpServer, state: FeatureGroupState): void {
-  server.onEndsWith("/featureGroup/findAll", (context) => context.json(state.rows));
+  server.onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json(state.rows));
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.modules));
   server.onEndsWith("/appModule/save", (context) => {
     const body = context.body as Record<string, unknown>;
@@ -193,11 +193,113 @@ function registerFeatureGroupRoutes(server: MockEadpServer, state: FeatureGroupS
 }
 
 describe("feature-group", () => {
+  it("permission apply feature-group 按 code 查重使用授权查询端点", async () => {
+    const fixture = await createFixture({
+      environments: [{ name: "global", tenantCode: "global", token: "global-admin-token" }]
+    });
+    const state = featureGroupState([
+      { id: "group-1", code: "GROUP", name: "Group", appModuleId: "target-module" }
+    ]);
+    registerFeatureGroupRoutes(fixture.server("global"), state);
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "permission", "apply", "feature-group",
+      "--env", "global", "--code", "GROUP", "--name", "Group", "--app-code", "BASIC"
+    ])) as { action: string; applied: boolean };
+    expect(output).toMatchObject({ action: "unchanged", applied: false });
+    const authorizedRequest = fixture.server("global").requests.find((request) =>
+      request.path.endsWith("/featureGroup/getAuthorizedFeatureGroup")
+    );
+    expect(authorizedRequest?.headers["x-api-token"]).toBe("global-admin-token");
+    expect(fixture.server("global").requests.some((request) =>
+      request.path.endsWith("/featureGroup/findAll")
+    )).toBe(false);
+  });
+
+  it("查询使用授权端点并绑定 global 环境认证；非 global 查询前零请求", async () => {
+    const fixture = await createFixture({
+      environments: [{ name: "global", tenantCode: "global", token: "global-admin-token" }]
+    });
+    const state = featureGroupState([
+      { id: "group-1", code: "GROUP", name: "Group", appModuleId: "target-module" }
+    ]);
+    registerFeatureGroupRoutes(fixture.server("global"), state);
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "feature-group", "--env", "global"
+    ])) as { items: Array<Record<string, unknown>> };
+    expect(output.items).toEqual(state.rows);
+    const authorizedRequests = fixture.server("global").requests.filter((request) =>
+      request.path.endsWith("/featureGroup/getAuthorizedFeatureGroup")
+    );
+    expect(authorizedRequests).toHaveLength(1);
+    expect(authorizedRequests[0]?.headers["x-api-token"]).toBe("global-admin-token");
+    expect(fixture.server("global").requests.some((request) =>
+      request.path.endsWith("/featureGroup/findAll")
+    )).toBe(false);
+
+    const nonGlobal = await createFixture({
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "tenant-token" }]
+    });
+    const error = await runExpectError(nonGlobal.program(), [
+      "resource", "query", "feature-group", "--env", "dev"
+    ]);
+    expect(error).toContain("必须使用 global 租户");
+    expect(nonGlobal.server("dev").requests).toHaveLength(0);
+
+    const nonGlobalSync = await createFixture({
+      environments: [
+        { name: "source", tenantCode: "global", token: "source-token" },
+        { name: "target", tenantCode: "tenant-a", token: "target-token" }
+      ]
+    });
+    const syncError = await runExpectError(nonGlobalSync.program(), [
+      "resource", "sync", "feature-group", "--source", "source", "--target", "target"
+    ]);
+    expect(syncError).toContain("必须使用 global 租户");
+    expect(nonGlobalSync.server("source").requests).toHaveLength(0);
+    expect(nonGlobalSync.server("target").requests).toHaveLength(0);
+  });
+
+  it("compare 遇到单条功能项组映射异常仍完成全量差异并标记 blocked", async () => {
+    const fixture = await createFixture();
+    const state = featureGroupState([], [
+      { id: "target-module", code: "BASIC", name: "Basic" }
+    ]);
+    registerFeatureGroupRoutes(fixture.server("target"), state);
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => {
+      context.json([
+        { code: "SAFE", name: "Safe", appModuleCode: "BASIC" },
+        { code: "INVALID", name: "Invalid" }
+      ]);
+    });
+    fixture.server("source").onEndsWith("/appModule/findAll", (context) => {
+      context.json([{ id: "source-module", code: "BASIC", name: "Basic" }]);
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "compare", "feature-group", "--source", "source", "--target", "target"
+    ])) as {
+      summary: Record<string, number>;
+      changes: Array<Record<string, unknown>>;
+    };
+    expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 1, blocked: 1 });
+    expect(output.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "safe", action: "create" }),
+      expect.objectContaining({
+        key: "invalid",
+        action: "blocked",
+        blockingIssues: [expect.objectContaining({ field: "appModuleCode", reason: "invalid" })]
+      })
+    ]));
+    expect(state.saves).toHaveLength(0);
+  });
+
   it("依赖映射 + 目标 ID 不复制：sync 按 appModuleCode 解析目标模块 ID", async () => {
     const fixture = await createFixture();
     const state = featureGroupState();
     registerFeatureGroupRoutes(fixture.server("target"), state);
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => {
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => {
       context.json([{
         id: "source-group", code: "GROUP", name: "Group",
         appModuleId: "source-module", appModuleCode: "BASIC"
@@ -223,7 +325,7 @@ describe("feature-group", () => {
       { id: "group-1", code: "GROUP", name: "Group", appModuleId: "target-module" }
     ]);
     registerFeatureGroupRoutes(fixture.server("target"), state);
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => {
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => {
       context.json([{
         id: "source-group", code: "GROUP", name: "Group",
         appModuleId: "source-module", appModuleCode: "BASIC"
@@ -243,7 +345,7 @@ describe("feature-group", () => {
     const fixture = await createFixture();
     const state = featureGroupState([], []);
     registerFeatureGroupRoutes(fixture.server("target"), state);
-    fixture.server("source").onEndsWith("/featureGroup/findAll", (context) => {
+    fixture.server("source").onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => {
       context.json([{ code: "GROUP", name: "Group", appModuleCode: "MISSING" }]);
     });
     fixture.server("source").onEndsWith("/appModule/findAll", (context) => {

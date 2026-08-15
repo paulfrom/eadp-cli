@@ -88,6 +88,10 @@ describe("声明式资源契约：注册校验", () => {
     expect(getResourceContract("bpm").capabilities).toEqual(["compare", "sync"]);
     expect(getResourceContract("app-module").defaults?.create).toEqual({ rank: 1 });
     expect(getResourceContract("feature").dependencies).toEqual(["feature-group", "app-module"]);
+    expect(getResourceContract("feature-group").query).toEqual({
+      path: "featureGroup/getAuthorizedFeatureGroup",
+      method: "GET"
+    });
     expect(getResourceContract("feature").deletion).toMatchObject({
       service: "sei-basic",
       resource: "feature",

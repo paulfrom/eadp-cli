@@ -217,6 +217,7 @@ export class ResourceEngine {
       client,
       options.targetTenantCode,
       options.selectors,
+      false,
       false
     );
     return makePlan(contract.id, changes);
@@ -529,7 +530,8 @@ export class ResourceEngine {
     targetRows: ResourceRecord[],
     targetClient: ResourceClient,
     targetTenantCode?: string,
-    includeTargetOnly = true
+    includeTargetOnly = true,
+    allowRecordBlocking = true
   ): Promise<ResourcePlanChange[]> {
     const adapter = this.getAdapter(contract);
     const mappedKeys = new Set<string>();
@@ -553,6 +555,7 @@ export class ResourceEngine {
           : pickWritableFields(source, contract);
       } catch (error) {
         if (error instanceof RecordMappingError) {
+          if (!allowRecordBlocking) throw error;
           changes.push({ key, action: "blocked", changedFields: [], before: before ?? null, desired: null, blockingIssues: error.blockingIssues });
           continue;
         }
@@ -657,7 +660,8 @@ export class ResourceEngine {
     targetClient: ResourceClient,
     targetTenantCode?: string,
     selectors: Readonly<Record<string, string>> = {},
-    includeTargetOnly = true
+    includeTargetOnly = true,
+    allowRecordBlocking = true
   ): Promise<ResourcePlanChange[]> {
     const hooks = this.hooksFor(contract);
     if (hooks?.plan) {
@@ -668,7 +672,15 @@ export class ResourceEngine {
         selectors
       });
     }
-    return this.buildChanges(contract, source, target, targetClient, targetTenantCode, includeTargetOnly);
+    return this.buildChanges(
+      contract,
+      source,
+      target,
+      targetClient,
+      targetTenantCode,
+      includeTargetOnly,
+      allowRecordBlocking
+    );
   }
 
   private async saveChanges(

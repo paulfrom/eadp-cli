@@ -76,6 +76,37 @@ export function recordId(record: ResourceRecord, label: string): string {
   return requiredString(record.id, `${label}缺少有效 ID`);
 }
 
+/**
+ * Validate a source/target mapping field without aborting a whole compare.
+ * Adapters use this only for record-level planning errors; transport failures
+ * still escape as normal request errors and stop the workflow.
+ */
+export function requiredMappedString(
+  value: unknown,
+  resource: string,
+  field: string,
+  message: string
+): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new RecordMappingError([{
+      resource,
+      field,
+      reason: "invalid",
+      message
+    }]);
+  }
+  return value;
+}
+
+/** Convert a missing mapped dependency ID into a record-level blocking issue. */
+export function mappedRecordId(
+  record: ResourceRecord,
+  resource: string,
+  label: string
+): string {
+  return requiredMappedString(record.id, resource, "id", `${label}缺少有效 ID`);
+}
+
 export function requiredString(value: unknown, message: string): string {
   if (typeof value !== "string" || !value) throw new CliError(message);
   return value;

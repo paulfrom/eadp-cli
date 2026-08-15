@@ -93,7 +93,7 @@ describe("租户操作策略", () => {
   it("功能项、菜单、应用模块和给号配置路径属于 global 操作", () => {
     expect(scopeForPath("/api-gateway/sei-basic/feature/findByPage")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/appModule/findAll")).toBe("global");
-    expect(scopeForPath("/api-gateway/sei-basic/featureGroup/findAll")).toBe("global");
+    expect(scopeForPath("/api-gateway/sei-basic/featureGroup/getAuthorizedFeatureGroup")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/menu/getMenuTree")).toBe("global");
     expect(scopeForPath("/api-gateway/sei-basic/serialNumberConfig/save")).toBe("global");
   });

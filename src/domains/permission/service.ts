@@ -65,7 +65,7 @@ export async function applyFeature(
   const [appModules, featureGroups] = await Promise.all([
     context.client.findAll("appModule"),
     options.group
-      ? context.client.findAll("featureGroup")
+      ? context.client.findAuthorizedFeatureGroups()
       : Promise.resolve([] as PermissionRecord[])
   ]);
   const appModule = selectRecord(appModules, options.app, "应用模块");

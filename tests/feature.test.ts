@@ -45,7 +45,7 @@ function registerFeatureApplyRoutes(server: MockEadpServer, state: FeatureApplyS
     context.json(match ?? null);
   });
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.modules));
-  server.onEndsWith("/featureGroup/findAll", (context) => context.json(state.groups));
+  server.onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json(state.groups));
   server.onEndsWith("/feature/save", (context) => {
     if (state.failSave) {
       context.fail("save failed", 500);
@@ -110,6 +110,10 @@ describe("permission apply feature：六大场景", () => {
     });
     expect(output.desired).not.toHaveProperty("url");
     expect(state.saves).toHaveLength(0);
+    const featureGroupRequest = fixture.server("source").requests.find((request) =>
+      request.path.endsWith("/featureGroup/getAuthorizedFeatureGroup")
+    );
+    expect(featureGroupRequest?.headers["x-api-token"]).toBe("source-token");
   });
 
   it("场景2+3 Page：正式执行断言完整请求体并回查服务端状态", async () => {

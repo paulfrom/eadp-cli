@@ -5,7 +5,7 @@ export const featureGroupContract: ResourceContract =   {
     title: "功能项组",
     description: "查询、创建或更新功能项组；业务唯一键为 code。",
     service: "sei-basic",
-    query: { path: "featureGroup/findAll", method: "GET" },
+    query: { path: "featureGroup/getAuthorizedFeatureGroup", method: "GET" },
     save: { path: "featureGroup/save", method: "POST" },
     read: "findAll",
     identityFields: ["code"],
