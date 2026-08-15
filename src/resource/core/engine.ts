@@ -560,6 +560,7 @@ export class ResourceEngine {
           continue;
         }
         if (error instanceof DependencyResolutionError) {
+          if (!allowRecordBlocking) throw error;
           changes.push({ key, action: "blocked", changedFields: [], before: before ?? null, desired: null, missingDependencies: error.missingDependencies });
           continue;
         }

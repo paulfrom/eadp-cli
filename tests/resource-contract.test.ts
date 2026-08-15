@@ -80,9 +80,22 @@ describe("声明式资源契约：注册校验", () => {
     })])).toThrow("删除服务必须与资源服务一致");
   });
 
+  it("别名解析到同一契约且不会重复出现在 canonical 列表", () => {
+    const registry = createResourceRegistry([base({ aliases: ["demo-alias"] })]);
+    expect(registry.get("demo-alias")).toBe(registry.get("demo"));
+    expect(registry.list().map((contract) => contract.id)).toEqual(["demo"]);
+    expect(registry.list()[0]?.aliases).toEqual(["demo-alias"]);
+  });
+
   it("内置契约能力与默认值可被 AI 自主发现", () => {
     const names = listResourceContracts().map((contract) => contract.id);
-    expect(names).toEqual(expect.arrayContaining(["feature", "feature-group", "serial-number", "menu", "bpm"]));
+    expect(names).toEqual(expect.arrayContaining(["employee", "feature", "feature-group", "serial-number", "menu", "bpm"]));
+    expect(getResourceContract("user")).toBe(getResourceContract("employee"));
+    expect(getResourceContract("employee").aliases).toEqual(["user"]);
+    expect(getResourceContract("employee").query).toEqual({
+      path: "employee/findByPage",
+      method: "POST"
+    });
     expect(getResourceContract("menu").handler).toBe("menu");
     expect(getResourceContract("bpm").handler).toBe("bpm");
     expect(getResourceContract("bpm").capabilities).toEqual(["compare", "sync"]);

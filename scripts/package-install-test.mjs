@@ -112,8 +112,19 @@ try {
       args: ["resource", "list"],
       expected: [
         '"kind": "eadp.resource.catalog.v2"',
+        '"name": "employee"',
+        '"user"',
         '"name": "feature"',
         '"name": "serial-number"'
+      ]
+    },
+    {
+      args: ["resource", "describe", "user"],
+      expected: [
+        '"kind": "eadp.resource.contract.v1"',
+        '"id": "employee"',
+        '"aliases"',
+        'organizationCode'
       ]
     },
     {

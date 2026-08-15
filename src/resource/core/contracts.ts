@@ -114,6 +114,8 @@ export interface ResourceSelectorContract {
  */
 export interface ResourceContract {
   id: string;
+  /** Alternative CLI names resolving to this canonical resource contract. */
+  aliases?: string[];
   title: string;
   description: string;
   service: string;
@@ -153,13 +155,22 @@ export interface ResourceRegistry {
 export function validateResourceContracts(
   contracts: readonly ResourceContract[]
 ): ResourceContract[] {
+  const normalized = contracts.map(normalizeContract);
   const ids = new Set<string>();
-  return contracts.map((candidate) => {
-    const contract = normalizeContract(candidate);
+  for (const contract of normalized) {
     if (ids.has(contract.id)) {
       throw new CliError(`资源契约 ID 重复：${contract.id}`);
     }
     ids.add(contract.id);
+  }
+  const names = new Map<string, string>();
+  for (const contract of normalized) {
+    registerResourceName(names, contract.id, contract.id);
+    for (const alias of contract.aliases ?? []) {
+      registerResourceName(names, alias, contract.id);
+    }
+  }
+  return normalized.map((contract) => {
     if (contract.capabilities.length === 0) {
       throw new CliError(`资源契约 ${contract.id} 未声明能力`);
     }
@@ -213,10 +224,15 @@ export function createResourceRegistry(
   declarations: readonly ResourceContract[]
 ): ResourceRegistry {
   const contracts = Object.freeze(validateResourceContracts(declarations));
-  const byId = new Map(contracts.map((contract) => [contract.id, contract]));
+  const byId = new Map<string, ResourceContract>();
+  for (const contract of contracts) {
+    byId.set(contract.id, contract);
+    for (const alias of contract.aliases ?? []) byId.set(alias, contract);
+  }
+  const canonicalById = new Map(contracts.map((contract) => [contract.id, contract]));
   for (const contract of contracts) {
     for (const dependency of contract.dependencies ?? []) {
-      if (!byId.has(dependency)) {
+      if (!canonicalById.has(dependency)) {
         throw new CliError(`资源契约 ${contract.id} 依赖未注册资源：${dependency}`);
       }
     }
@@ -227,8 +243,9 @@ export function createResourceRegistry(
     get(id: string): ResourceContract {
       const contract = byId.get(id);
       if (!contract) {
+        const names = contracts.flatMap((item) => [item.id, ...(item.aliases ?? [])]);
         throw new CliError(
-          `资源 ${id} 尚未注册；当前支持：${contracts.map((item) => item.id).join(", ")}`
+          `资源 ${id} 尚未注册；当前支持：${names.join(", ")}`
         );
       }
       return contract;
@@ -325,9 +342,11 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
   const selectors = candidate.selectors === undefined
     ? undefined
     : normalizeSelectors(candidate.id, candidate.selectors);
+  const aliases = normalizeAliases(candidate.id, candidate.aliases);
   return {
     ...candidate,
     id: candidate.id.trim(),
+    ...(aliases === undefined ? {} : { aliases }),
     identityFields: [...candidate.identityFields],
     compareFields: [...candidate.compareFields],
     writableFields: [...candidate.writableFields],
@@ -335,6 +354,36 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     ...(candidate.dependencies === undefined ? {} : { dependencies: [...candidate.dependencies] }),
     ...(selectors === undefined ? {} : { selectors })
   };
+}
+
+function normalizeAliases(resourceId: string, aliases: string[] | undefined): string[] | undefined {
+  if (aliases === undefined) return undefined;
+  if (!Array.isArray(aliases)) {
+    throw new CliError(`资源契约 ${resourceId} 的别名声明无效`);
+  }
+  const names = new Set<string>();
+  return aliases.map((candidate) => {
+    if (typeof candidate !== "string") {
+      throw new CliError(`资源契约 ${resourceId} 的别名声明无效`);
+    }
+    const alias = candidate.trim();
+    if (!/^[a-z][a-z0-9-]*$/.test(alias) || alias === resourceId) {
+      throw new CliError(`资源契约 ${resourceId} 的别名无效：${candidate}`);
+    }
+    if (names.has(alias)) {
+      throw new CliError(`资源契约 ${resourceId} 的别名重复：${alias}`);
+    }
+    names.add(alias);
+    return alias;
+  });
+}
+
+function registerResourceName(names: Map<string, string>, name: string, resourceId: string): void {
+  const existing = names.get(name);
+  if (existing) {
+    throw new CliError(`资源名称或别名重复：${name}（${existing} 与 ${resourceId}）`);
+  }
+  names.set(name, resourceId);
 }
 
 function validateDeletion(

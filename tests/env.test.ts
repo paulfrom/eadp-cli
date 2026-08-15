@@ -189,9 +189,10 @@ describe("env add：权限策略与零写入", () => {
 
 describe("env list / use / remove", () => {
   it("env list 显示名称、URL、租户、默认值与认证来源，不泄露 Token", async () => {
+    const authorization = "Bearer should-not-leak";
     const fixture = await createFixture({
       environments: [
-        { name: "implicit", tenantCode: "tenant-a", authorization: "Bearer should-not-leak" },
+        { name: "虹翼生产", tenantCode: "hongyi-prod", authorization },
         { name: "token-env", tenantCode: "tenant-b", tokenEnv: "EADP_DEV_TOKEN" },
         { name: "plain", tenantCode: "tenant-c", token: "plain-secret" }
       ]
@@ -202,16 +203,16 @@ describe("env list / use / remove", () => {
       const listed = JSON.parse(output.text()) as Array<Record<string, unknown>>;
       expect(listed).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          name: "implicit",
-          baseUrl: fixture.baseUrl("implicit"),
-          tenantCode: "tenant-a",
+          name: "虹翼生产",
+          baseUrl: fixture.baseUrl("虹翼生产"),
+          tenantCode: "hongyi-prod",
           default: true,
           tokenSource: "config:authorization"
         }),
         expect.objectContaining({ name: "token-env", tokenSource: "env:EADP_DEV_TOKEN" }),
         expect.objectContaining({ name: "plain", tokenSource: "config:token" })
       ]));
-      expect(output.text()).not.toContain("should-not-leak");
+      expect(output.text()).not.toContain(authorization);
       expect(output.text()).not.toContain("plain-secret");
     } finally {
       output.restore();

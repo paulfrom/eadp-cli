@@ -4,3 +4,4 @@ dist/
 .eadp-cli/
 coverage/
 .codebase-memory/
+.npm-cache/

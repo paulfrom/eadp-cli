@@ -1,6 +1,6 @@
 # EADP CLI
 
-面向 EADP 的多环境资源与权限命令行工具。每个环境名称直接对应一个 URL 和一个 Token。
+面向 EADP 的多环境资源与权限命令行工具。每个环境名称直接对应一个 URL 和一种认证配置。
 
 ## 架构
 
@@ -53,6 +53,7 @@ eadp resource sync <name> --help
 | CLI 资源名 | 类型 | 当前能力 | 租户 | 说明 |
 | --- | --- | --- | --- | --- |
 | `app-module` | 普通契约 | query、write、compare、sync | global | 应用模块，按 `code` 识别 |
+| `employee` | 普通契约 + adapter | query、write、compare、sync | non-global | 企业员工；`user` 是别名，按 `organizationCode` 映射目标组织 ID |
 | `feature` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature` |
 | `feature-group` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature-group` |
 | `serial-number` | 普通契约 + adapter | query、write、compare、sync | global | 给号配置，复合键为 `entityClassName + tenantCode`；`serialNumberConfig` 仅是后端接口路径 |
@@ -163,7 +164,7 @@ eadp rollback <operation-id>
 - 只有 `tenantCode === "global"` 的环境才表示全局管理员；CLI 资源名应用模块（`app-module`）、菜单（`menu`）、功能项（`feature`）、
   功能项组（`feature-group`）和给号配置（`serial-number`）的全部远端增删改查只能使用该环境；对应的真实后端路径
   `appModule`、`featureGroup`、`serialNumberConfig` 同样受租户校验；
-- 权限、岗位配置与分配、用户查询、BPM 配置以及其他操作只能使用非 `global` 环境；
+- 权限、岗位配置与分配、企业员工（`employee`/`user`）查询与配置、BPM 配置以及其他操作只能使用非 `global` 环境；
 - 资源命令和领域命令都会执行对应的租户校验，不能绕过已注册契约和领域规则。
 
 ## 在全新上下文中配置 BPM
@@ -524,7 +525,7 @@ eadp resource sync menu --source global-dev --target global-test --code PURCHASE
 正式同步跳过 `blocked`。已有菜单需要变更父节点（包括移动到根节点）时，CLI 使用服务端
 `menu/move` 的 `TreeNodeMoveParam` 契约，不会尝试通过普通 `save` 改父节点。
 
-同步默认只预览，当前支持 `app-module`、`feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
+同步默认只预览，当前支持 `app-module`、`employee`（别名 `user`）、`feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
 执行 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
 不会读取迁移数据，也不会写入目标环境。
 

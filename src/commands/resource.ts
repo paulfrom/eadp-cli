@@ -54,7 +54,7 @@ export function registerResourceCommands(
   const registeredContracts = listResourceContracts();
   const ordinaryResources = registeredContracts
     .filter((contract) => !contract.handler)
-    .map((contract) => contract.id)
+    .map((contract) => formatResourceName(contract))
     .sort()
     .join("、") || "无";
   const behaviorExtensions = registeredContracts
@@ -91,6 +91,7 @@ export function registerResourceCommands(
           kind: "eadp.resource.catalog.v2",
           resources: listResourceContracts().map((contract) => ({
             name: contract.id,
+            aliases: contract.aliases ?? [],
             title: contract.title,
             description: contract.description,
             help: contract.help,
@@ -345,6 +346,12 @@ function collectResourceSelectors(): ResourceSelectorContract[] {
     }
   }
   return [...selectors.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function formatResourceName(contract: ResourceContract): string {
+  return contract.aliases?.length
+    ? `${contract.id}（别名：${contract.aliases.join("、")}）`
+    : contract.id;
 }
 
 function buildResourceFilters(contract: ResourceContract, options: FilterOptions): ResourceFilter[] {

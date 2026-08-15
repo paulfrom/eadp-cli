@@ -6,8 +6,8 @@ description: Operate EADP through its contract-driven resource framework and exp
 # EADP Operator
 
 Use the installed `eadp` CLI as the only execution layer. Keep environment URLs,
-Tokens, remote IDs, endpoint guesses, and undeclared request fields out of this
-Skill and out of user-facing reports.
+credential values, remote IDs, endpoint guesses, and undeclared request fields
+out of this Skill and out of user-facing reports.
 
 ## Architecture and routing
 
@@ -125,6 +125,7 @@ this view with `eadp resource list` before execution.
 | Resource `id` | Registration kind | Declared capabilities | Routing note |
 | --- | --- | --- | --- |
 | `app-module` | Ordinary contract | query, write, compare, sync | Use the unified resource commands |
+| `employee` | Ordinary contract with adapter | query, write, compare, sync | `user` is an alias; map `organizationCode` to the target organization ID |
 | `feature` | Ordinary contract with adapter | query, write, compare, sync | Generic actions use `resource`; high-level create-only intent may use `permission apply feature` |
 | `feature-group` | Ordinary contract with adapter | query, write, compare, sync | Generic actions use `resource`; high-level create-only intent may use `permission apply feature-group` |
 | `serial-number` | Ordinary contract with adapter | query, write, compare, sync | This is the only CLI resource name for serial-number configuration |
@@ -178,7 +179,7 @@ Follow these phases for every resource query, mutation, or migration:
    Target-only deletes must identify the declared deletion contract.
 4. Request or confirm explicit authorization for the shown write/delete set. Then run
    that same command with `--apply`; do not switch to a separate apply command,
-   raw endpoint, or modified environment/Token.
+   raw endpoint, or modified environment/credential.
 5. Apply only safe changes. Skip `blocked` records while continuing the full
    plan; never treat skipped records as success. Apply dependency creates and
    updates parent-first, and target-only deletes child-first. Require the
@@ -192,19 +193,17 @@ Follow these phases for every resource query, mutation, or migration:
 preview-only by default; it may delete target-only records only when the live
 resource contract declares the complete deletion semantics. A
 transport, CLI, or EADP failure stops the current workflow immediately. Do not
-retry, alter parameters, switch endpoints/environments/Tokens, or infer a
+retry, alter parameters, switch endpoints/environments/credentials, or infer a
 batch-wide result from one item. Continue only after the user reviews the
 failure and requests a new action.
 
 ## Protect identity and secrets
 
-- Use `eadp env list` and only configured environment names. Never infer a URL,
-  Token, tenant, or direction from history or examples.
+- Use `eadp env list` and only configured environment names.
 - Resolve a person by employee number when possible. Accept an exact name only
   when it yields one candidate; stop on duplicates.
 - Never send a source environment ID to a target environment. Resolve target
   dependencies through the contract's adapter/handler or a target read.
-- Never print a Token. Redact it if a command exposes one unexpectedly.
 - Keep output structured. State environments, exact selectors and time range,
   action counts, preview/applied status, verification, skipped blocked records,
   and unresolved dependencies.

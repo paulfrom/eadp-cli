@@ -22,7 +22,7 @@ async function makeDirectory(): Promise<string> {
   return directory;
 }
 
-describe("ConfigStore：一个环境名称对应一个 URL 与一个 Token", () => {
+describe("ConfigStore：一个环境名称对应一个 URL 与一种认证配置", () => {
   it("持久化 name → baseUrl + token/tokenEnv，不含 accounts", async () => {
     const directory = await makeDirectory();
     const store = new ConfigStore(directory);
@@ -39,6 +39,28 @@ describe("ConfigStore：一个环境名称对应一个 URL 与一个 Token", () 
     expect(loaded.environments.dev?.tokenEnv).toBe("EADP_DEV_ADMIN_TOKEN");
     expect(loaded.environments.dev2?.token).toBe("readonly-secret");
     expect(await readFile(store.filePath, "utf8")).not.toContain("accounts:");
+  });
+
+  it("持久化并读取中文 authorization 环境配置", async () => {
+    const directory = await makeDirectory();
+    const store = new ConfigStore(directory);
+    const config = {
+      currentEnvironment: "虹翼生产",
+      environments: {
+        "虹翼生产": {
+          baseUrl: "https://hongyi.example.com",
+          tenantCode: "hongyi-prod",
+          authorization: "Bearer hongyi-production-secret"
+        }
+      }
+    };
+
+    await store.save(config);
+
+    const persisted = await readFile(store.filePath, "utf8");
+    expect(persisted).toContain("虹翼生产");
+    expect(persisted).toContain("authorization:");
+    await expect(store.load()).resolves.toEqual(config);
   });
 
   it("配置文件不存在时返回空配置", async () => {

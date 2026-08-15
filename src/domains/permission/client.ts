@@ -126,13 +126,6 @@ export class PermissionClient {
     );
   }
 
-  async getFeatureTypes(): Promise<unknown[]> {
-    return this.expectList(
-      await this.call("feature/getFeatureTypes", "GET"),
-      "feature/getFeatureTypes"
-    );
-  }
-
   async findFeaturesByAppModule(appModuleId: string): Promise<PermissionRecord[]> {
     return this.expectRecordList(
       await this.call("feature/findByAppModuleId", "GET", undefined, {

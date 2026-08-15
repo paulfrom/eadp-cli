@@ -41,10 +41,14 @@ describe("permission inspect", () => {
     const server = fixture.server("dev");
     register(server, {
       "/appModule/findAll": (context) => context.json([{ id: "app-1", code: "BASIC" }]),
-      "/feature/getFeatureTypes": (context) => context.json([{ name: "Operate" }]),
+      "/feature/findByPage": (context) => context.json(eadpPage([
+        { id: "feature-1", code: "BASIC_VIEW", featureType: "Operate" },
+        { id: "feature-2", code: "BASIC_EDIT", featureType: "Operate" },
+        { id: "feature-3", code: "BASIC_PAGE", featureType: "Page" }
+      ])),
       "/feature/findByAppModuleId": (context) => {
         expect(context.query.get("appModuleId")).toBe("app-1");
-        context.json([{ id: "feature-1", code: "BASIC_VIEW", appModuleId: "app-1" }]);
+        context.json([{ id: "feature-app", code: "BASIC_APP", featureType: "Business" }]);
       },
       "/menu/getMenuTree": (context) => context.json([{ id: "menu-1", code: "M1" }]),
       "/featureRoleGroup/findAll": (context) => context.json([{ id: "group-1", code: "ROLES" }]),
@@ -56,13 +60,19 @@ describe("permission inspect", () => {
       "/featureRoleFeature/getAuthorizedMenuRootNodes": (context) => context.json([{ id: "menu-1" }])
     });
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "permission", "inspect", "functional", "--app", "BASIC", "--role", "ADMIN"
+      "permission", "inspect", "functional", "--role", "ADMIN"
     ])) as Record<string, unknown>;
     expect(output.kind).toBe("eadp.permission.functional.inspect.v1");
-    expect((output.scope as { appModule: Record<string, unknown> }).appModule.id).toBe("app-1");
     expect((output.scope as { role: Record<string, unknown> }).role.id).toBe("role-1");
+    expect(output.featureTypes).toEqual([{ name: "Operate" }, { name: "Page" }]);
     expect((output.rolePermissions as { authorizedMenuFeatureTree: unknown[] }).authorizedMenuFeatureTree)
       .toHaveLength(1);
+
+    const appFeatures = JSON.parse(await runCommand(fixture.program(), [
+      "permission", "inspect", "functional", "--app", "BASIC", "--role", "ADMIN"
+    ])) as Record<string, unknown>;
+    expect((appFeatures.scope as { appModule: Record<string, unknown> }).appModule.id).toBe("app-1");
+    expect(appFeatures.featureTypes).toEqual([{ name: "Business" }]);
   });
 
   it("inspect data 汇总数据角色且不读取已分配数据值", async () => {

@@ -232,6 +232,21 @@ export class ResourceClient {
     return records;
   }
 
+  /** Read one Basic resource by its backend-supported business code. */
+  async findByCode(resource: string, code: string): Promise<ResourceRecord | null> {
+    const data = await this.call(
+      `${resource}/findByCode`,
+      "GET",
+      undefined,
+      { code: [code] }
+    );
+    if (data === null || data === undefined) return null;
+    if (!isRecord(data)) {
+      throw new CliError(`${resource}/findByCode 返回格式无效`);
+    }
+    return data;
+  }
+
   async save(resource: string, payload: ResourceRecord): Promise<ResourceRecord> {
     const data = await this.call(`${resource}/save`, "POST", payload);
     if (!isRecord(data) || typeof data.id !== "string") {

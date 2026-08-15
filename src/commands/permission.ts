@@ -67,9 +67,8 @@ export function registerPermissionCommands(
     )
     .action(async (options: InspectOptions) => {
       const context = await createContext(store, options, root);
-      const [appModules, featureTypes, menus, roleGroups, roles] = await Promise.all([
+      const [appModules, menus, roleGroups, roles] = await Promise.all([
         context.client.findAll("appModule"),
-        context.client.getFeatureTypes(),
         context.client.getMenuTree(),
         context.client.findAll("featureRoleGroup"),
         context.client.findByPage("featureRole")
@@ -83,6 +82,16 @@ export function registerPermissionCommands(
       const features = appModule
         ? await context.client.findFeaturesByAppModule(recordId(appModule, "应用模块"))
         : await context.client.findByPage("feature");
+      const featureTypes = Array.from(
+        new Set(
+          features
+            .map((feature) => feature.featureType)
+            .filter(
+              (featureType): featureType is string =>
+                typeof featureType === "string" && featureType.trim() !== ""
+            )
+        )
+      ).map((name) => ({ name }));
       const rolePermissions = role
         ? {
             role,
