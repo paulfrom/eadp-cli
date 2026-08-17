@@ -170,7 +170,7 @@ export function registerResourceCommands(
       const contract = getResourceContract(name);
       assertCapability(contract, "query");
       const environment = resolveEnvironment(await store.load(), options.env);
-      assertResourceTenant(contract, environment.config.tenantCode, environment.name);
+      assertResourceTenant(contract, environment.config.tenantCode, environment.name, "query");
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
       const special = getSpecialHandler(contract, "query");
@@ -248,7 +248,7 @@ export function registerResourceCommands(
       const contract = getResourceContract(name);
       assertCapability(contract, "write");
       const environment = resolveEnvironment(await store.load(), options.env);
-      assertResourceTenant(contract, environment.config.tenantCode, environment.name);
+      assertResourceTenant(contract, environment.config.tenantCode, environment.name, "write");
       const input = await readJsonInput({ data: options.data });
       if (!isRecordOrArray(input)) throw new CliError("--data 必须是 JSON 对象或对象数组");
       const runtime = getRuntimeOptions(root);
@@ -357,11 +357,22 @@ interface ResourceQueryResult {
   items: ResourceRecord[];
 }
 
-async function readEnvironmentOverview(store: ConfigStore): Promise<{ current: string | null; names: string[] }> {
+interface ResourceEnvironmentOverview {
+  current: string | null;
+  names: string[];
+  /** Recorded by `env add`; null means the environment needs re-validation. */
+  tenantCodes: Record<string, string | null>;
+}
+
+async function readEnvironmentOverview(store: ConfigStore): Promise<ResourceEnvironmentOverview> {
   const config = await store.load();
+  const environments = Object.entries(config.environments ?? {});
   return {
     current: config.currentEnvironment ?? null,
-    names: Object.keys(config.environments ?? {})
+    names: environments.map(([name]) => name),
+    tenantCodes: Object.fromEntries(
+      environments.map(([name, environment]) => [name, environment.tenantCode ?? null])
+    )
   };
 }
 

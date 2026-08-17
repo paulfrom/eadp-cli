@@ -1,4 +1,4 @@
-import { access, cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -58,6 +58,25 @@ try {
   const workbuddyHome = join(installationDirectory, "workbuddy-home");
   const claudeHome = join(installationDirectory, "claude-home");
   const qoderHome = join(installationDirectory, "qoder-home");
+  const inspectConfigDirectory = join(installationDirectory, "inspect-config");
+  await mkdir(inspectConfigDirectory, { recursive: true });
+  await writeFile(
+    join(inspectConfigDirectory, "config.yaml"),
+    [
+      "currentEnvironment: dev",
+      "environments:",
+      "  dev:",
+      "    baseUrl: http://127.0.0.1:1",
+      "    token: package-test-token",
+      "    tenantCode: tenant-a",
+      "  global:",
+      "    baseUrl: http://127.0.0.1:1",
+      "    token: package-global-test-token",
+      "    tenantCode: global",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
   await access(
     join(
       installationDirectory,
@@ -244,6 +263,36 @@ try {
         }`
       );
     }
+  }
+
+  const inspect = spawnSync(
+    process.platform === "win32" ? "eadp.cmd" : executable,
+    ["resource", "inspect"],
+    {
+      cwd: executableDirectory,
+      encoding: "utf8",
+      env: { ...process.env, EADP_CONFIG_DIR: inspectConfigDirectory },
+      shell: process.platform === "win32"
+    }
+  );
+  let inspectEnvelope;
+  try {
+    inspectEnvelope = JSON.parse(inspect.stdout);
+  } catch {
+    inspectEnvelope = null;
+  }
+  if (
+    inspect.status !== 0 ||
+    inspectEnvelope?.environment?.tenantCodes?.dev !== "tenant-a" ||
+    inspectEnvelope?.environment?.tenantCodes?.global !== "global" ||
+    inspect.stdout.includes("package-test-token") ||
+    inspect.stdout.includes("package-global-test-token")
+  ) {
+    throw new Error(
+      `npm 命令入口未输出环境 tenantCode 或泄露 Token：eadp resource inspect\n${
+        inspect.stderr || inspect.stdout
+      }`
+    );
   }
 
   const invalid = spawnSync(

@@ -135,15 +135,23 @@ export function createResourcePhaseHooksRegistry(
   };
 }
 
-/** Tenant validation used before any query, including source/target migration. */
+export type ResourceTenantAccess = "query" | "write";
+
+/** Tenant validation used before a resource action touches a remote environment. */
 export function assertResourceTenant(
   contract: ResourceContract,
   tenantCode: string | undefined,
-  environmentName: string
+  environmentName: string,
+  access: ResourceTenantAccess
 ): void {
   if (contract.tenant.policy === "any") {
     if (!tenantCode) {
       throw new CliError(`环境 ${environmentName} 未记录 tenantCode，请重新执行 env add 验证 Token`);
+    }
+    if (access === "query" && tenantCode === "global") {
+      throw new CliError(
+        `资源 ${contract.id} 未明确要求 global 查询，环境 ${environmentName} 不能使用 global 用户；请选择非 global 环境`
+      );
     }
     return;
   }
@@ -157,8 +165,8 @@ export function assertMigrationTenants(
 ): void {
   // Keep this synchronous and side-effect free: callers invoke it immediately
   // after resolving environments and before constructing/using a client.
-  assertResourceTenant(contract, source.tenantCode, source.name);
-  assertResourceTenant(contract, target.tenantCode, target.name);
+  assertResourceTenant(contract, source.tenantCode, source.name, "query");
+  assertResourceTenant(contract, target.tenantCode, target.name, "query");
 }
 
 /**

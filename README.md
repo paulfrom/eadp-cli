@@ -32,7 +32,7 @@ eadp resource compare <name> --source <env> --target <env>
 eadp resource sync <name> --source <env> --target <env>
 ```
 
-- `inspect` 三形态：无参数列出注册资源、CLI 版本与可用环境；`inspect <name>` 输出包含默认值、回滚与删除声明的安全契约摘要
+- `inspect` 三形态：无参数列出注册资源、CLI 版本、可用环境及每个环境已记录的 `tenantCode`；`inspect <name>` 输出包含默认值、回滚与删除声明的安全契约摘要
   （能力、租户、唯一键、可写字段、枚举、选择器、时间过滤）；`inspect <name> <action>`
   输出该动作的结构化参数（必填/可选选项、当前资源的选择器、动作相关字段）。
 - `query` 支持结果裁剪：`--count`（只输出总数，分页资源仅读第一页）、`--summary`
@@ -174,6 +174,8 @@ eadp rollback <operation-id>
   功能项组（`feature-group`）和给号配置（`serial-number`）的全部远端增删改查只能使用该环境；对应的真实后端路径
   `appModule`、`featureGroup`、`serialNumberConfig` 同样受租户校验；
 - 权限、岗位配置与分配、企业员工（`employee`/`user`）查询与配置、BPM 配置以及其他操作只能使用非 `global` 环境；
+- 查询、比较和同步只有在资源契约或领域命令明确要求 `global` 时才允许使用 global 环境；未明确要求
+  `global`（包括契约声明 `tenant.policy: "any"`）时默认按 non-global 校验，并在任何远端请求前拒绝 global 环境；
 - 资源命令和领域命令都会执行对应的租户校验，不能绕过已注册契约和领域规则。
 
 ## 在全新上下文中配置 BPM

@@ -11,7 +11,10 @@ file contains no resource or time-support allowlist.
    are already complete, execute the query directly without discovery.
 2. Select one exact registered name and confirm `query` in `capabilities`.
 3. Confirm the environment's recorded `tenantCode` satisfies `tenant.policy`
-   before making the query.
+   before making the query. Use a global user only when the live contract
+   explicitly requires `global`; `tenant.policy: "any"` defaults to
+   non-global for queries and must reject a global environment before any
+   remote request.
 4. Use only fields declared by the contract and only `--filter` operators shown
    by the action help (`EQ`, `NE`, `LIKE`, `GT`, `GE`, `LT`, `LE`).
 5. Read all pages according to `read` and `pagination`. EADP page requests use

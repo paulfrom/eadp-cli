@@ -11,7 +11,10 @@ resource is registered or whether an action is supported.
    form. When they are complete, execute compare or the sync preview directly.
 2. Select one exact name and require the requested capability. Read
    `tenant.policy` before any source or target query; validate both recorded
-   tenants before reading migration data.
+   tenants before reading migration data. Use a global source or target only
+   when the live contract explicitly requires `global`; `tenant.policy:
+   "any"` defaults to non-global for compare/sync, so either global environment
+   must be rejected before any remote request.
 3. Validate declared selectors, `--filter` values, and time options against
    `selectors` and `filtering`. Treat `filtering.time: false` or an absent
    filtering fact as a stop condition for time-scoped work. Do not maintain a

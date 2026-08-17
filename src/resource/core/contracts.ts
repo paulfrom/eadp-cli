@@ -30,7 +30,7 @@ export interface ResourcePaginationContract {
 }
 
 export interface ResourceTenantContract {
-  /** `global` and `non-global` map to the existing tenant scope checks. */
+  /** `any` still defaults queries to non-global; only explicit `global` permits global queries. */
   policy: "any" | "global" | "non-global";
   /** Optional field overwritten with the selected environment tenant. */
   bindField?: string;

@@ -42,6 +42,10 @@ describe("eadp-operator Skill：契约自适应协议", () => {
     expect(skill).toContain("--select <name>=<value>");
     expect(skill).toContain("verified: true");
     expect(skill).toContain("Stop on failure");
+    expect(skill).toContain("each environment's recorded `tenantCode`");
+    expect(readme).toContain("每个环境已记录的 `tenantCode`");
+    expect(skill).toContain('`tenant.policy: "any"` defaults to non-global for reads');
+    expect(readme).toContain('`tenant.policy: "any"`）时默认按 non-global 校验');
     const directExecution = sectionBetween(
       skill,
       "## Execute directly when the request is complete",
@@ -123,6 +127,11 @@ describe("eadp-operator Skill：契约自适应协议", () => {
         /(?:Before planning, run|always run|始终先运行)[^\n]*resource inspect/i
       );
     }
+    const queryReference = await readFile(join(skillRoot, "references", "query-audit.md"), "utf8");
+    const syncReference = await readFile(join(skillRoot, "references", "resource-sync.md"), "utf8");
+    expect(queryReference).toContain('`tenant.policy: "any"` defaults to');
+    expect(syncReference).toContain('`tenant.policy:');
+    expect(syncReference).toContain('"any"` defaults to non-global for compare/sync');
 
     // README 章节顺序保持架构 → 命令 → 资源 → 领域命令
     expectSectionOrder(readme, [

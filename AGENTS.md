@@ -25,6 +25,7 @@
 - CLI 错误统一输出结构化 JSON 信封（`success`/`code`/`message`/`candidates`/`requiredInput`），供模型确定性处理；`code` 使用稳定枚举（如 `ENVIRONMENT_UNKNOWN`、`UNKNOWN_RESOURCE`、`CAPABILITY_MISSING`、`UNKNOWN_SELECTOR`），不得让模型各自解读自然语言错误。
 - 当资源契约的服务、查询/保存接口、请求参数或返回结构不清楚时，必须先向用户索取明确的项目参考（如 API 接口定义、Controller、Api 或 Swagger/OpenAPI 文档），不得凭经验猜测并注册资源或实现领域命令。
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
+- 查询接口只有在资源契约或领域命令明确要求 global 时才允许使用 `tenantCode === "global"` 的环境；未明确要求 global（包括 `tenant.policy: "any"`）时默认按 non-global 查询校验，`query`、`compare`、`sync` 必须在任何远端请求前拒绝 global 环境。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
 - 真实 BPM 回调不是流程成立或可发现的必要条件；回调仅用于发现需要登记的集成接口，不得以缺少回调为由排除已有流程业务骨架。`startDefaultFlow` 是免人工选择流程与下一节点办理人的默认启动能力，也不得被误解为所有 BPM 流程必须具备的成立条件。
 - `eadp bpm configure --flow` 仅按 Entity 全限定名或流程代码匹配；基础流程配置不得受完整流程发现清单限制，只要 Entity 全限定名唯一且不冲突即可新增。流程集成接口和流程页面必须分别以 URL 作为发现、查重和关联边界。

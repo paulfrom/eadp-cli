@@ -10,12 +10,32 @@ import {
   assertTenantScope,
   scopeForPath
 } from "../src/tenant.js";
+import {
+  assertMigrationTenants,
+  assertResourceTenant
+} from "../src/resource/core/engine.js";
+import type { ResourceContract } from "../src/resource/core/contracts.js";
 
 const environment = (overrides: Partial<EnvironmentConfig> = {}): EnvironmentConfig => ({
   baseUrl: "http://localhost:3000",
   token: "default-token",
   ...overrides
 });
+
+const anyTenantResource: ResourceContract = {
+  id: "tenant-default-test",
+  title: "Tenant default test",
+  description: "Verifies the default query tenant policy.",
+  service: "test-service",
+  query: { path: "test/findAll", method: "GET" },
+  read: "findAll",
+  identityFields: ["code"],
+  compareFields: ["code"],
+  writableFields: ["code"],
+  tenant: { policy: "any" },
+  capabilities: ["query", "write", "compare", "sync"],
+  help: "test"
+};
 
 describe("resolveEnvironment", () => {
   it("显式环境优先于默认环境，并直接返回该环境 Token", () => {
@@ -111,5 +131,34 @@ describe("租户操作策略", () => {
       .toThrow("必须使用非 global 租户");
     expect(() => assertTenantScope(undefined, "non-global", "dev"))
       .toThrow("请重新执行 env add 验证 Token");
+  });
+
+  it("未明确要求 global 的资源查询默认拒绝 global，但不扩大到单环境写入", () => {
+    expect(() => assertResourceTenant(anyTenantResource, "global", "global-env", "query"))
+      .toThrow("未明确要求 global");
+    expect(() => assertResourceTenant(anyTenantResource, "tenant-a", "tenant-env", "query"))
+      .not.toThrow();
+    expect(() => assertResourceTenant(anyTenantResource, "global", "global-env", "write"))
+      .not.toThrow();
+
+    const explicitlyGlobal = {
+      ...anyTenantResource,
+      tenant: { policy: "global" as const }
+    };
+    expect(() => assertResourceTenant(explicitlyGlobal, "global", "global-env", "query"))
+      .not.toThrow();
+  });
+
+  it("any-policy compare/sync 在远端访问前拒绝任一 global 环境", () => {
+    expect(() => assertMigrationTenants(
+      anyTenantResource,
+      { name: "source", tenantCode: "global" },
+      { name: "target", tenantCode: "tenant-b" }
+    )).toThrow("未明确要求 global");
+    expect(() => assertMigrationTenants(
+      anyTenantResource,
+      { name: "source", tenantCode: "tenant-a" },
+      { name: "target", tenantCode: "global" }
+    )).toThrow("未明确要求 global");
   });
 });

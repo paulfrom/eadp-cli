@@ -52,6 +52,7 @@ export function scopeForPath(path: string): TenantScope {
     .split("/")
     .filter(Boolean)
     .map((segment) => segment.toLocaleLowerCase());
+  // Unknown paths are non-global by default. Global access must be declared explicitly.
   return segments.some((segment) => GLOBAL_RESOURCE_SEGMENTS.has(segment))
     ? "global"
     : "non-global";

@@ -23,6 +23,10 @@ commands:
   `bpm configure`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
+- For every query, compare, or sync, use a global environment only when the
+  live resource contract or domain command explicitly requires `global`.
+  `tenant.policy: "any"` defaults to non-global for reads; do not execute it
+  with a global user. The CLI rejects this before any remote request.
 
 The contract `id` is the CLI resource name. Adding a resource requires
 registering its contract only; it needs no Skill change.
@@ -58,8 +62,8 @@ Only when the request is incomplete (unknown resource name, missing
 environment, unknown selector, or a needed option) run discovery, using
 `eadp resource inspect`:
 
-- `eadp resource inspect` — list registered resources, CLI version, and
-  available environments.
+- `eadp resource inspect` — list registered resources, CLI version, available
+  environments, and each environment's recorded `tenantCode`.
 - `eadp resource inspect <name>` — contract digest: capabilities, tenant
   policy, identity/compare/writable fields, enums, selectors, filtering.
 - `eadp resource inspect <name> <action>` — structured options for that exact

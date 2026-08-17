@@ -513,6 +513,25 @@ describe("resource 命令面", () => {
     }
   });
 
+  it("inspect 的三种输出都暴露已记录的环境 tenantCode", async () => {
+    const fixture = await createFixture({
+      environments: [
+        { name: "dev", tenantCode: "tenant-a", token: "dev-token" },
+        { name: "global", tenantCode: "global", token: "global-token" }
+      ]
+    });
+    const catalog = JSON.parse(await runCommand(fixture.program(), ["resource", "inspect"]));
+    const summary = JSON.parse(await runCommand(fixture.program(), ["resource", "inspect", "feature"]));
+    const action = JSON.parse(await runCommand(fixture.program(), ["resource", "inspect", "feature", "query"]));
+
+    for (const output of [catalog, summary, action]) {
+      expect(output.environment.tenantCodes).toEqual({ dev: "tenant-a", global: "global" });
+    }
+    const serialized = JSON.stringify({ catalog, summary, action });
+    expect(serialized).not.toContain("dev-token");
+    expect(serialized).not.toContain("global-token");
+  });
+
   it("--select 按契约校验选择器名称与必填项", async () => {
     // bpm 需要非 global 租户：先通过租户校验，再校验必填 --select flow
     const fixture = await createFixture({
