@@ -15,11 +15,19 @@ export function resolveEnvironment(
 ): ResolvedEnvironment {
   const name = requestedName ?? config.currentEnvironment;
   if (!name) {
-    throw new CliError("未指定环境，且尚未配置 currentEnvironment");
+    throw new CliError("未指定环境，且尚未配置 currentEnvironment", 1, {
+      code: "ENVIRONMENT_UNKNOWN",
+      candidates: Object.keys(config.environments ?? {}),
+      requiredInput: "environment"
+    });
   }
   const environment = config.environments[name];
   if (!environment) {
-    throw new CliError(`环境不存在：${name}`);
+    throw new CliError(`环境不存在：${name}`, 1, {
+      code: "ENVIRONMENT_UNKNOWN",
+      candidates: Object.keys(config.environments ?? {}),
+      requiredInput: "environment"
+    });
   }
 
   // Authorization is the implicit credential and takes precedence over a

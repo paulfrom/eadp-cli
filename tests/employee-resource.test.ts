@@ -80,7 +80,7 @@ describe("employee resource", () => {
     const state = employeeState([{ id: "employee-1", code: "E001", userName: "员工一" }]);
     registerEmployeeRoutes(fixture.server("target"), state);
 
-    const catalog = JSON.parse(await runCommand(fixture.program(), ["resource", "list"])) as {
+    const catalog = JSON.parse(await runCommand(fixture.program(), ["resource", "inspect"])) as {
       resources: Array<{ name: string; aliases: string[] }>;
     };
     expect(catalog.resources.find((resource) => resource.name === "employee")?.aliases).toEqual(["user"]);
@@ -236,5 +236,60 @@ describe("employee resource", () => {
     expect(error).toContain("organization.code=ORG-MISSING (missing)");
     expect(state.saves).toHaveLength(0);
     expect(fixture.server("target").count("POST", /\/employee\/save$/)).toBe(0);
+  });
+
+  it("--count/--summary 只读第一页并输出总数，--fields/--limit 裁剪明细", async () => {
+    const fixture = await createEmployeeFixture();
+    const state = employeeState([
+      { id: "e1", code: "E001", userName: "甲" },
+      { id: "e2", code: "E002", userName: "乙" }
+    ]);
+    registerEmployeeRoutes(fixture.server("target"), state);
+
+    const countOutput = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "employee", "--env", "target", "--count"
+    ])) as { kind: string; resource: string; count: number };
+    expect(countOutput.kind).toBe("eadp.resource.count.v1");
+    expect(countOutput.resource).toBe("employee");
+    expect(countOutput.count).toBe(2);
+
+    const summaryOutput = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "employee", "--env", "target", "--summary"
+    ])) as { kind: string; count: number; summaryInfo: unknown };
+    expect(summaryOutput.kind).toBe("eadp.resource.summary.v1");
+    expect(summaryOutput.count).toBe(2);
+    expect(summaryOutput).toHaveProperty("summaryInfo");
+
+    const trimmed = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "employee", "--env", "target",
+      "--fields", "code,userName", "--limit", "1"
+    ])) as { items: Array<Record<string, unknown>>; total: number };
+    expect(trimmed.items).toEqual([{ code: "E001", userName: "甲" }]);
+    expect(trimmed.total).toBe(2);
+  });
+
+  it("--count 在分页资源上只发起一次请求", async () => {
+    const fixture = await createEmployeeFixture();
+    let pageRequests = 0;
+    fixture.server("target").onEndsWith("/employee/findByPage", (context) => {
+      pageRequests += 1;
+      context.json(eadpPage([{ id: "e1", code: "E001" }], {
+        records: 1500,
+        total: 3,
+        summaryInfo: { byModule: { a: 900, b: 600 } }
+      }));
+    });
+
+    const countOutput = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "employee", "--env", "target", "--count"
+    ])) as { count: number };
+    expect(countOutput.count).toBe(1500);
+    expect(pageRequests).toBe(1);
+
+    const summaryOutput = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "query", "employee", "--env", "target", "--summary"
+    ])) as { summaryInfo: { byModule: Record<string, number> } };
+    expect(summaryOutput.summaryInfo).toEqual({ byModule: { a: 900, b: 600 } });
+    expect(pageRequests).toBe(2);
   });
 });

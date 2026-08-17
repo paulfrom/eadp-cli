@@ -11,7 +11,7 @@ import {
   registerPermissionVerbCommands
 } from "./commands/verbs.js";
 import { ConfigStore } from "./config/store.js";
-import { CliError, errorMessage } from "./errors.js";
+import { CliError, renderCliError } from "./errors.js";
 import { addRuntimeOptions } from "./runtime-options.js";
 import { cliVersion } from "./version.js";
 
@@ -21,7 +21,11 @@ export function createProgram(store = new ConfigStore()): Command {
     .name("eadp")
     .description("EADP 多环境资源与权限命令行工具")
     .version(cliVersion)
-    .showHelpAfterError();
+    .showHelpAfterError()
+    // Commander normally writes its own prose error/help before throwing.
+    // Failures are rendered exactly once by main() as a JSON envelope.
+    .configureOutput({ writeErr: () => undefined })
+    .exitOverride();
 
   addRuntimeOptions(program);
   const permissionCommands = registerPermissionVerbCommands(program);
@@ -40,7 +44,21 @@ export async function main(): Promise<void> {
   try {
     await createProgram().parseAsync(process.argv);
   } catch (error) {
-    process.stderr.write(`错误：${errorMessage(error)}\n`);
+    // With exitOverride(), `--help`/`--version` throw a CommanderError after
+    // already printing to stdout; that is a successful exit, not a failure.
+    if (isSuccessfulCommanderExit(error)) {
+      return;
+    }
+    process.stderr.write(`${JSON.stringify(renderCliError(error))}\n`);
     process.exitCode = error instanceof CliError ? error.exitCode : 1;
   }
+}
+
+function isSuccessfulCommanderExit(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    typeof (error as unknown as Record<string, unknown>).code === "string" &&
+    String((error as unknown as Record<string, unknown>).code).startsWith("commander.") &&
+    (error as unknown as { exitCode?: unknown }).exitCode === 0
+  );
 }

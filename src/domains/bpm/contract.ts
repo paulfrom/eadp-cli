@@ -12,7 +12,7 @@ export const bpmContract: ResourceContract = {
   writableFields: [],
   tenant: { policy: "non-global" },
   capabilities: ["compare", "sync"],
-  help: "BPM 不使用普通资源 HTTP 引擎；使用 --flow 指定流程代码、名称或 Entity 代码。",
+  help: "BPM 不使用普通资源 HTTP 引擎；比较/迁移使用 --select flow=<流程代码、名称或 Entity 代码>。",
   filtering: { time: false },
   handler: "bpm",
   selectors: [{

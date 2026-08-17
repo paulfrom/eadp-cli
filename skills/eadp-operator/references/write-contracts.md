@@ -2,7 +2,7 @@
 
 在任何可能新增、更新或按契约删除记录的 `apply`、`assign` 或 `sync` 工作流中（包括 `sync --apply`），预览前先读取本文件并校验写入字段。
 
-本文件只是已确认 DTO 的附加约束，不是资源注册表、资源白名单或能力清单。始终先运行 `eadp resource list`、`eadp resource describe <name>` 和对应动作 `--help`；资源是否注册、支持哪个动作以及字段的完整语义，以当前 CLI 契约为准。表中没有条目不代表资源不支持，也不允许据此猜测字段长度、默认值或接口。
+本文件只是已确认 DTO 的附加约束，不是资源注册表、资源白名单或能力清单。仅当资源、环境、选择器、字段或动作选项缺失/歧义时，运行所需的 `eadp resource inspect [name] [action]`；参数完整时直接执行预览。资源是否注册、支持哪个动作以及字段的完整语义，以当前 CLI 契约为准。表中没有条目不代表资源不支持，也不允许据此猜测字段长度、默认值或接口。
 
 以下长度只记录已确认的接口契约；未列出的 DTO 字段长度不得猜测默认值。
 
@@ -23,7 +23,7 @@
 
 ## 失败处理
 
-- `sync` 的目标独有记录只有在 `eadp resource describe <name>` 明确声明
+- `sync` 的目标独有记录只有在 `eadp resource inspect <name>` 明确声明
   `deletion.remove`、`deletion.lookup`、`deletion.restore` 时才可进入
   `delete`；不完整或未声明时必须保持 `blocked`，不得根据接口名称猜测删除。
 - 删除日志必须保留可恢复的目标快照；需要回滚时使用同一个

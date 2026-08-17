@@ -6,8 +6,9 @@ resource is registered or whether an action is supported.
 
 ## Build a contract-driven change set
 
-1. Run `eadp resource list`, `eadp resource describe <name>`, and
-   `eadp resource compare <name> --help` or `eadp resource sync <name> --help`.
+1. When the resource, environments, selector, filter, or option is missing or
+   ambiguous, run only the needed `eadp resource inspect [name] [action]`
+   form. When they are complete, execute compare or the sync preview directly.
 2. Select one exact name and require the requested capability. Read
    `tenant.policy` before any source or target query; validate both recorded
    tenants before reading migration data.
@@ -24,12 +25,10 @@ resource is registered or whether an action is supported.
    dependency-selection step. Continue planning independent records when one
    record has a missing or ambiguous dependency.
 
-The following commands are directly executable grammar examples only. The
-resource name and its time capability must be rediscovered from the current
-CLI before execution.
+The following commands are directly executable grammar examples only. Inspect
+the resource or its time capability only when either is missing or ambiguous.
 
 ```text
-eadp resource describe feature
 eadp resource compare feature --source A --target B --created-in 2026-07
 eadp resource sync feature --source A --target B --from "2026-07-01 00:00:00" --to "2026-08-01 00:00:00"
 eadp resource sync feature --source A --target B --created-in 2026-07 --apply
@@ -78,16 +77,16 @@ the next resource. It applies deletes in reverse order (`feature` →
 
 Do not copy source IDs. If a dependency cannot be resolved, keep the affected
 record `blocked` with `missingDependencies`; safe independent records continue.
-Do not delete a target-only record unless `resource describe <name>` exposes a
+Do not delete a target-only record unless `eadp resource inspect <name>` shows a
 complete `deletion` contract with remove, lookup, and restore semantics.
 
 ## Menu synchronization
 
 Route explicit menu intent to dedicated `eadp menu` actions or, when
-`eadp resource list` and `eadp resource describe <name>` confirm a registered
-menu resource, its `query`/`compare`/`sync` actions. Before planning, run
-`eadp menu --help` and the selected dedicated action help, or
-`eadp resource <query|compare|sync> <name> --help` for the registered resource.
+`eadp resource inspect` confirms a registered menu resource, its
+`query`/`compare`/`sync` actions. Run `eadp menu --help`, the selected domain
+action help, or `eadp resource inspect <name> <action>` only when a required
+menu action, resource, environment, selector, or option is missing or ambiguous.
 Require the selected contract's menu capability and a recorded global tenant
 before reading the menu tree.
 
@@ -95,8 +94,9 @@ before reading the menu tree.
   for a registered menu resource, through `eadp resource query <name> --env
   <global-env>`. The current menu contract uses `getMenuTree`; flatten the
   returned tree and retain `parentCode` for each node.
-- Match nodes by exact `code`. Use the declared `--code` selector to scope a
-  subtree; omit it only when the user requests the complete tree.
+- Match nodes by exact `code`. Use the declared selector
+  `--select code=<code>` to scope a subtree; omit it only when the user
+  requests the complete tree.
 - Apply parents before children. Resolve `parentId` from the target parent code
   and `featureId` from the target feature code. Never copy either source ID.
 - Mark a node `blocked` when its target parent or feature is missing or

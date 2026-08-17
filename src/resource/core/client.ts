@@ -120,6 +120,47 @@ export class ResourceClient {
     return rows;
   }
 
+  /**
+   * Read only the total record count for a paged contract (first page only) or
+   * the filtered list length for findAll/tree contracts. Keeps "how many"
+   * questions on one round trip instead of aggregating every page.
+   */
+  async countContract(
+    contract: ResourceContract,
+    options: ContractQueryOptions = {}
+  ): Promise<{ count: number; summaryInfo: unknown }> {
+    if (contract.read === "findAll" || contract.read === "tree") {
+      const rows = await this.queryContract(contract, options);
+      return { count: rows.length, summaryInfo: null };
+    }
+    if (contract.read === "handler") {
+      throw new CliError(`资源 ${contract.id} 需要专用查询处理器`);
+    }
+    const pagination = contract.pagination;
+    if (!pagination) {
+      throw new CliError(`资源契约 ${contract.id} 缺少分页定义`);
+    }
+    if (pagination.pageSize !== EADP_PAGE_SIZE || pagination.startPage !== 1) {
+      throw new CliError(`资源契约 ${contract.id} 的 EADP 分页必须从第 1 页开始且每页 500 条`);
+    }
+    const data = await this.requestContract(contract, contract.query, {
+      [pagination.pageField]: {
+        [pagination.pageNumberField]: 1,
+        [pagination.pageSizeField]: EADP_PAGE_SIZE
+      },
+      filters: options.filters ?? [],
+      sortOrders: [],
+      ...(options.quickSearchValue === undefined
+        ? {}
+        : { quickSearchValue: options.quickSearchValue }),
+      ...(options.quickSearchProperties === undefined
+        ? {}
+        : { quickSearchProperties: options.quickSearchProperties })
+    });
+    const page = parseEadpPage(data, contract.query.path, isRecord, pagination.rowsField);
+    return { count: page.records, summaryInfo: page.summaryInfo };
+  }
+
   /** Save a generic resource. The endpoint and method come from the contract. */
   async saveContract(
     contract: ResourceContract,

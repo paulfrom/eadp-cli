@@ -106,12 +106,14 @@ try {
     },
     {
       args: ["resource", "query", "--help"],
-      expected: ["按资源契约完整查询", "--env <env>", "分页自动聚合"]
+      expected: ["按资源契约查询", "--env <env>", "分页自动聚合", "--count", "--summary", "--limit", "--fields"]
     },
     {
-      args: ["resource", "list"],
+      args: ["resource", "inspect"],
       expected: [
         '"kind": "eadp.resource.catalog.v2"',
+        '"cliVersion"',
+        '"environment"',
         '"name": "employee"',
         '"user"',
         '"name": "feature"',
@@ -119,7 +121,7 @@ try {
       ]
     },
     {
-      args: ["resource", "describe", "user"],
+      args: ["resource", "inspect", "user"],
       expected: [
         '"kind": "eadp.resource.contract.v1"',
         '"id": "employee"',
@@ -128,12 +130,23 @@ try {
       ]
     },
     {
-      args: ["resource", "describe", "feature"],
+      args: ["resource", "inspect", "feature"],
       expected: [
         '"kind": "eadp.resource.contract.v1"',
         '"id": "feature"',
         '"identityFields"',
         '"capabilities"'
+      ]
+    },
+    {
+      args: ["resource", "inspect", "menu", "compare"],
+      expected: [
+        '"kind": "eadp.resource.action-schema.v1"',
+        '"cliVersion"',
+        '"action": "compare"',
+        '"requiredOptions"',
+        '"selectors"',
+        "--source <env>"
       ]
     },
     {
@@ -196,12 +209,12 @@ try {
       expected: ["<operation-id...>", "completedAt 从新到旧", "不要求 --apply"]
     },
     {
-      args: ["resource", "describe", "feature-group"],
-      expected: ["eadp.resource.contract.v1", "feature-group", "featureGroup", "code", "appModuleId"]
+      args: ["resource", "inspect", "feature-group"],
+      expected: ["eadp.resource.contract.v1", "feature-group", "appModuleId"]
     },
     {
-      args: ["resource", "describe", "serial-number"],
-      expected: ["returnStrategy", "NEW", "REPEAT", "PATCH", "configItem[].linkCharacter"]
+      args: ["resource", "inspect", "serial-number"],
+      expected: ["returnStrategy", "NEW", "REPEAT", "PATCH", "linkCharacter"]
     },
     {
       args: ["skill", "--help"],
@@ -231,6 +244,35 @@ try {
         }`
       );
     }
+  }
+
+  const invalid = spawnSync(
+    process.platform === "win32" ? "eadp.cmd" : executable,
+    ["resource", "query", "feature", "--bogus"],
+    {
+      cwd: executableDirectory,
+      encoding: "utf8",
+      shell: process.platform === "win32"
+    }
+  );
+  const invalidLines = invalid.stderr.trim().split(/\r?\n/).filter(Boolean);
+  let invalidEnvelope;
+  try {
+    invalidEnvelope = invalidLines.length === 1 ? JSON.parse(invalidLines[0]) : null;
+  } catch {
+    invalidEnvelope = null;
+  }
+  if (
+    invalid.status === 0 ||
+    invalid.stdout.trim() !== "" ||
+    invalidLines.length !== 1 ||
+    invalidEnvelope?.success !== false ||
+    invalidEnvelope?.code !== "INVALID_ARGUMENT" ||
+    /Usage:|unknown option/i.test(invalid.stderr.replace(invalidLines[0] ?? "", ""))
+  ) {
+    throw new Error(
+      `npm 命令失败输出不是单行 JSON：eadp resource query feature --bogus\nstdout=${invalid.stdout}\nstderr=${invalid.stderr}`
+    );
   }
 
   if (alternateExecutableDirectory) {

@@ -20,14 +20,17 @@
 - EADP AI 编排只维护一个 `eadp-operator` Skill，在同一个 Skill 内按需加载查询审计、资源同步、权限管理三个工作流；不得拆成三个彼此独立的 Skill,有其他新增的工作流也放在这Skill里面
 - EADP CLI 或 EADP 请求返回失败后必须立即停止当前工作流并如实反馈；不得自动重试、修改参数重试、切换接口或环境重试，也不得绕过资源契约或领域命令。只有用户查看失败信息并明确要求新动作后才能继续。
 - 当用户提供的 EADP 需求参数缺失、模糊、无效或无法唯一确定时，Skill 必须先使用 EADP CLI 的只读查询能力尝试解析候选；只有查询不到或存在多个候选时，才能要求用户补充或选择，禁止猜测参数或提前执行写操作。
+- 需求参数完整时 Skill 必须直接执行目标命令（如 `eadp resource query feature --env dev --count`），不得先做发现；只有资源名、环境或选择器缺失/歧义时才使用 `eadp resource inspect`（无参数列资源及能力、`inspect <name>` 契约摘要、`inspect <name> <action>` 该动作的结构化参数）。"有多少"类问题使用 `--count`/`--summary`，禁止读取并输出全部记录。
+- 资源选择器统一使用 `--select <name>=<value>`（如 `--select code=PURCHASE`、`--select flow=采购申请`），由 CLI 按当前资源契约校验选择器名称与必填项；禁止为各资源维护专属选项（如 `--code`、`--flow`）。`bpm inspect`/`bpm configure` 等领域命令的 `--flow` 不受此限。
+- CLI 错误统一输出结构化 JSON 信封（`success`/`code`/`message`/`candidates`/`requiredInput`），供模型确定性处理；`code` 使用稳定枚举（如 `ENVIRONMENT_UNKNOWN`、`UNKNOWN_RESOURCE`、`CAPABILITY_MISSING`、`UNKNOWN_SELECTOR`），不得让模型各自解读自然语言错误。
 - 当资源契约的服务、查询/保存接口、请求参数或返回结构不清楚时，必须先向用户索取明确的项目参考（如 API 接口定义、Controller、Api 或 Swagger/OpenAPI 文档），不得凭经验猜测并注册资源或实现领域命令。
-- 资源发现统一使用 `eadp resource list` 和 `eadp resource describe <name>`；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
+- 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
 - 真实 BPM 回调不是流程成立或可发现的必要条件；回调仅用于发现需要登记的集成接口，不得以缺少回调为由排除已有流程业务骨架。`startDefaultFlow` 是免人工选择流程与下一节点办理人的默认启动能力，也不得被误解为所有 BPM 流程必须具备的成立条件。
 - `eadp bpm configure --flow` 仅按 Entity 全限定名或流程代码匹配；基础流程配置不得受完整流程发现清单限制，只要 Entity 全限定名唯一且不冲突即可新增。流程集成接口和流程页面必须分别以 URL 作为发现、查重和关联边界。
 - 处理分页响应时必须依据真实接口契约或真实响应验证 `total` 的语义（总记录数或总页数）；不得仅凭字段名推断，也不得在未验证已请求全部页时宣称结果已完整聚合。
 - 环境差异预览不得因个别记录缺少目标依赖而中止；必须完成全量差异并将相关记录标记为 `blocked`、列出 `missingDependencies`。正式同步时仅应用安全记录并跳过 `blocked` 记录。可独立迁移的依赖资源必须提供专用同步能力，不得要求用户绕过 CLI 手工对比或写入。
 - 新增给号配置时，若 `returnStrategy` 缺失、为 `null` 或空白，必须明确使用服务端枚举默认值 `NEW`；不得以该新增默认规则覆盖已有目标配置。
-- 给号配置涉及的枚举必须在 CLI 帮助、注册资源契约（可由 `eadp resource describe serial-number` 查看）和 `eadp-operator` Skill 中完整列出合法值及业务含义，供 AI 选择；不得只展示示例值或依靠猜测。
+- 给号配置涉及的枚举必须在 CLI 帮助、注册资源契约（可由 `eadp resource inspect serial-number` 查看）和 `eadp-operator` Skill 中完整列出合法值及业务含义，供 AI 选择；不得只展示示例值或依靠猜测。
 - 实现或维护回滚能力时，权限接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller`，给号接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\serial\controller\SerialNumberConfigController.java`，BPM 接口固定参考 `D:\project\ead\sei-bpm\sei-bpm-service\src\main\java\com\changhong\sei\bpm\controller`；这些路径已由用户确认，无需再次询问。
 - 菜单接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller\MenuController.java`；菜单查询使用 `getMenuTree`，跨环境同步以 `code` 为业务唯一键，按父先子后处理，并依据 `parentCode`、`featureCode` 在目标环境重新映射 ID，禁止复制源 `parentId`、`featureId`。

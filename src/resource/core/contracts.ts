@@ -245,7 +245,9 @@ export function createResourceRegistry(
       if (!contract) {
         const names = contracts.flatMap((item) => [item.id, ...(item.aliases ?? [])]);
         throw new CliError(
-          `资源 ${id} 尚未注册；当前支持：${names.join(", ")}`
+          `资源 ${id} 尚未注册；当前支持：${names.join(", ")}`,
+          1,
+          { code: "UNKNOWN_RESOURCE", candidates: names, requiredInput: "resource" }
         );
       }
       return contract;

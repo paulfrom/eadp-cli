@@ -1,6 +1,8 @@
 /**
  * Keep the Skill protocol generic: a future ordinary ResourceContract must not
- * require a new resource-name branch or a documentation change.
+ * require a new resource-name branch, a documentation change, or a Skill
+ * rewrite. The Skill routes intents and sequences commands; the CLI owns
+ * contract internals, so the Skill must not copy transport/pagination detail.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -87,30 +89,8 @@ const futureResource: ResourceContract = {
   }
 };
 
-const futureHandlerResource: ResourceContract = {
-  id: "future-handler-resource",
-  title: "Future handler resource",
-  description: "A special workflow extension used to cover handler/selectors.",
-  service: "future-service",
-  query: { path: "future-special/query", method: "GET" },
-  read: "handler",
-  identityFields: [],
-  compareFields: [],
-  writableFields: [],
-  tenant: { policy: "any" },
-  capabilities: ["query"],
-  help: "Future handler resource help",
-  handler: "future-handler",
-  selectors: [{
-    name: "scope",
-    valuePlaceholder: "scope-code",
-    description: "Scope selector",
-    required: true
-  }]
-};
-
 describe("eadp-operator Skill：普通资源契约自适应", () => {
-  it("覆盖 future ResourceContract 的字段和动态发现协议", async () => {
+  it("覆盖 future ResourceContract 而不在 Skill 中复制契约内部细节", async () => {
     const skill = await readFile(skillPath, "utf8");
     const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skill)?.[1] ?? "";
     const metadataKeys = frontmatter
@@ -120,104 +100,36 @@ describe("eadp-operator Skill：普通资源契约自适应", () => {
       .filter(Boolean);
     expect(metadataKeys).toEqual(["name", "description"]);
 
-    const registry = createResourceRegistry([futureResource, futureHandlerResource]);
+    // A future contract registers through the generic engine without a Skill change.
+    const registry = createResourceRegistry([futureResource]);
     expect(registry.get("future-resource")).toMatchObject({
       id: "future-resource",
       service: "future-service"
     });
 
-    const contractFields = new Set([
-      ...Object.keys(futureResource),
-      ...Object.keys(futureHandlerResource)
-    ]);
-    for (const field of contractFields) {
-      expect(skill, "missing contract field: " + field).toContain(field);
-    }
-
+    // 执行原则与动作序列在 Skill 中；契约内部字段由 CLI 引擎负责，不复制进 Skill。
     for (const fact of [
-      "tenant.policy",
-      "tenant.bindField",
-      "defaults.create",
-      "preserveTargetFields",
-      "preserveTargetFieldsWhenMissing",
-      "filtering.time",
-      "filtering.defaultTimeField",
-      "total",
-      "path",
-      "method",
-      "pageField",
-      "pageNumberField",
-      "pageSizeField",
-      "startPage",
-      "rowsField",
-      "pageSize",
-      "totalSemantics",
-      "value",
-      "meaning",
-      "name",
-      "valuePlaceholder",
-      "description",
-      "required",
-      "resource",
-      "remove",
-      "lookup",
-      "deletion",
-      "restore",
-      "idField",
-      "idPlacement"
+      "eadp resource inspect",
+      "Execute directly when the request is complete",
+      "Inspect when parameters are missing or ambiguous",
+      "preview",
+      "same command with " + tick + "--apply" + tick,
+      "verified: true",
+      "Stop on failure",
+      "Do not",
+      "retry",
+      "Load references only when needed",
+      "References add domain constraints only"
     ]) {
-      expect(skill, "missing contract fact: " + fact).toContain(fact);
+      expect(skill, "missing fact: " + fact).toContain(fact);
     }
 
-    expect(skill).toContain(
-      "eadp resource <query|write|compare|sync> <name> --help"
-    );
-    for (const action of ["query", "write", "compare", "sync"]) {
-      expect(skill).not.toContain("eadp resource " + action + " --help");
-    }
-    expect(skill).toContain("eadp resource list");
-    expect(skill).toContain("eadp resource describe <name>");
-    expect(skill).toContain("same command with " + tick + "--apply" + tick);
-    expect(skill).toContain("read-only CLI queries");
-    expect(skill).toContain("Do not");
-    expect(skill).toContain("retry");
-    expect(skill).toContain("verified: true");
-    expect(skill).toContain("Load references only when needed");
-    expect(skill).toContain("References add domain constraints only");
-
-    const actionStart = skill.indexOf("## Drive actions from the selected contract");
-    const workflowStart = skill.indexOf("## Run the common state machine");
-    const actionProtocol = skill.slice(actionStart, workflowStart);
-    const actionFields: Record<string, string[]> = {
-      query: [
-        "capabilities.query", "tenant", "query", "read", "pagination",
-        "filtering", "enums", "selectors", "adapter", "handler"
-      ],
-      write: [
-        "capabilities.write", "tenant", "save", "writableFields", "defaults",
-        "enums", "adapter", "handler", "rollback"
-      ],
-      compare: [
-        "capabilities.compare", "tenant", "query", "read", "pagination",
-        "identityFields", "compareFields", "filtering", "enums", "selectors",
-        "adapter", "handler", "deletion"
-      ],
-      sync: [
-        "capabilities.sync", "tenant", "identityFields", "compareFields",
-        "writableFields", "defaults", "filtering", "enums", "selectors",
-        "adapter", "handler", "rollback", "deletion"
-      ]
-    };
-    for (const [action, fields] of Object.entries(actionFields)) {
-      const marker = "- " + tick + action + tick + ":";
-      const start = actionProtocol.indexOf(marker);
-      expect(start, "missing action protocol: " + action).toBeGreaterThanOrEqual(0);
-      const next = actionProtocol.indexOf("\n- " + tick, start + marker.length);
-      const block = actionProtocol.slice(start, next === -1 ? undefined : next);
-      for (const field of fields) {
-        expect(block, action + " missing " + field).toContain(field);
-      }
-    }
+    // 统一选择器语法：不出现逐资源专属选项，也不复制契约传输/分页字段。
+    expect(skill).toContain("--select <name>=<value>");
+    expect(skill).not.toContain("--flow <");
+    expect(skill).not.toContain("--code <");
+    expect(skill).not.toMatch(/pageField|pageNumberField|pageSizeField|totalSemantics|rowsField/i);
+    expect(skill).not.toMatch(/findByPage|getMenuTree|api-gateway/i);
 
     expect(skill).not.toContain("future-resource");
     expect(skill).not.toMatch(/eadp\s+(?:api|call|catalog|interface)\b/i);

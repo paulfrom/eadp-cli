@@ -138,7 +138,24 @@ export class MockEadpServer {
 
   async start(): Promise<string> {
     if (this.listenPromise) return this.listenPromise;
-    this.listenPromise = new Promise<string>((resolve, reject) => {
+    this.listenPromise = (async () => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const port = await this.bindOnce();
+        if (port !== null) {
+          return `http://127.0.0.1:${port}`;
+        }
+        // The OS assigned a port undici's fetch refuses (Chromium restricted
+        // list, e.g. 5060/SIP). Close it and ask for another one.
+        await this.closeBoundServer();
+      }
+      throw new Error("测试服务器无法绑定 fetch 可用的端口");
+    })();
+    return this.listenPromise;
+  }
+
+  /** Bind one ephemeral port; returns null when the assigned port is refused by fetch. */
+  private bindOnce(): Promise<number | null> {
+    return new Promise<number | null>((resolve, reject) => {
       const server = createServer((request, response) => {
         void this.handle(request, response).catch((error) => this.errors.push(error));
       });
@@ -151,10 +168,16 @@ export class MockEadpServer {
           reject(new Error("测试服务器未分配端口"));
           return;
         }
-        resolve(`http://127.0.0.1:${address.port}`);
+        resolve(BAD_FETCH_PORTS.has(address.port) ? null : address.port);
       });
     });
-    return this.listenPromise;
+  }
+
+  private async closeBoundServer(): Promise<void> {
+    const server = this.server;
+    this.server = undefined;
+    if (!server) return;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
   baseUrl(): Promise<string> {
@@ -272,6 +295,16 @@ export function eadpPage<T>(
   };
 }
 
+/** Ports undici's fetch refuses by design (Chromium restricted port list). */
+const BAD_FETCH_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77,
+  79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123,
+  135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526,
+  530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993,
+  995, 1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665,
+  6666, 6667, 6668, 6669, 6697, 10080
+]);
+
 function matches(
   request: CapturedRequest,
   method: string | undefined,
@@ -295,6 +328,12 @@ async function readRawBody(request: IncomingMessage): Promise<string> {
 }
 
 function respondJson(response: ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, { "content-type": "application/json" });
+  response.writeHead(status, {
+    "content-type": "application/json",
+    // Disable keep-alive so undici never reuses a pooled connection against a
+    // mock server that may already be closed (ephemeral ports can be reused),
+    // which otherwise surfaces as intermittent "请求失败：fetch failed".
+    "connection": "close"
+  });
   response.end(JSON.stringify(value));
 }

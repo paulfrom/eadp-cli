@@ -20,19 +20,27 @@ EADP CLI 先区分“资源能力”和“领域工作流”，再选择命令�
 
 ## 统一资源框架命令
 
-先从运行中的 CLI 发现资源，再依据单个契约执行动作：
+参数完整时直接执行目标命令；只有资源名、环境或选择器不明确时才用 `inspect` 发现：
 
 ```powershell
-eadp resource list
-eadp resource describe <name>
-eadp resource query <name> --help
-eadp resource write <name> --help
-eadp resource compare <name> --help
-eadp resource sync <name> --help
+eadp resource inspect
+eadp resource inspect <name>
+eadp resource inspect <name> <action>
+eadp resource query <name> --env <env>
+eadp resource write <name> --env <env> --data <json>
+eadp resource compare <name> --source <env> --target <env>
+eadp resource sync <name> --source <env> --target <env>
 ```
 
-`resource list` 返回当前已注册资源及其能力；`resource describe <name>` 返回该资源的完整契约。
-并非每个资源都支持全部动作，执行前必须以当前契约的 `capabilities`、租户策略、选择器和过滤能力为准。
+- `inspect` 三形态：无参数列出注册资源、CLI 版本与可用环境；`inspect <name>` 输出包含默认值、回滚与删除声明的安全契约摘要
+  （能力、租户、唯一键、可写字段、枚举、选择器、时间过滤）；`inspect <name> <action>`
+  输出该动作的结构化参数（必填/可选选项、当前资源的选择器、动作相关字段）。
+- `query` 支持结果裁剪：`--count`（只输出总数，分页资源仅读第一页）、`--summary`
+  （总数加 summaryInfo）、`--fields <a,b>`、`--limit <n>`、`--filter <field:op:value>`、
+  `--quick <text>`，以及契约声明时间过滤时的 `--created-in`/`--from`/`--to`/`--time-field`。
+- 资源选择器统一为 `--select <name>=<value>`（如 `--select code=PURCHASE`、`--select flow=采购申请`），
+  CLI 按当前资源契约校验选择器名称与必填项。
+- 并非每个资源都支持全部动作，执行前必须以当前契约的 `capabilities`、租户策略、选择器和过滤能力为准。
 
 | 统一命令 | 用途 | 写入语义 |
 | --- | --- | --- |
@@ -42,13 +50,14 @@ eadp resource sync <name> --help
 | `resource sync <name>` | 复用 compare 计划迁移安全差异 | 默认预览，`--apply` 执行安全的 create/update 及显式契约 delete |
 
 统一 ChangeSet 使用 `create`、`update`、`delete`、`unchanged`、`blocked`；正式写入跳过 `blocked` 并报告
-`skippedBlocked`，成功必须完成写后验证。任何 CLI 或 EADP 请求失败都会立即停止，不自动重试或切换接口。
+`skippedBlocked`，成功必须完成写后验证。任何 CLI 或 EADP 请求失败都会立即停止，不自动重试或切换接口；
+错误以结构化 JSON 信封输出（`success`/`code`/`message`/`candidates`/`requiredInput`）。
 资源依赖由引擎默认编排，不提供额外依赖选项；新增、更新按父到子，删除按子到父。
 
 ## 当前注册资源
 
 下表说明当前包内置资源，便于理解能力边界；实际执行仍以当前安装版本的
-`eadp resource list` 和 `eadp resource describe <name>` 为准。
+`eadp resource inspect` 输出为准。
 
 | CLI 资源名 | 类型 | 当前能力 | 租户 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -141,7 +150,7 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 请求时通过 `--env dev2` 显式选择环境；省略 `--env` 时使用 `--default` 指定的默认环境。
 
 `--timeout <ms>` 和 `--compact` 是全局运行参数，可放在业务命令之前或之后。例如：
-`eadp --timeout 60000 --compact resource list`。所有命令默认输出 JSON；
+`eadp --timeout 60000 --compact resource inspect`。所有命令默认输出 JSON；
 `--compact` 将普通 JSON 压缩为单行。资源查询默认返回带环境和总数的 JSON 结果。
 
 ## 回滚新增与分配
@@ -517,8 +526,8 @@ eadp resource sync feature-group \
 `parentId`、`featureId`：
 
 ```bash
-eadp resource sync menu --source global-dev --target global-test --code PURCHASE
-eadp resource sync menu --source global-dev --target global-test --code PURCHASE --apply
+eadp resource sync menu --source global-dev --target global-test --select code=PURCHASE
+eadp resource sync menu --source global-dev --target global-test --select code=PURCHASE --apply
 ```
 
 目标父菜单或功能项缺失/不唯一时，相关菜单标记为 `blocked`，其余菜单继续完成差异预览；
@@ -532,8 +541,8 @@ eadp resource sync menu --source global-dev --target global-test --code PURCHASE
 按流程代码、名称或 Entity 代码同步 BPM 基础配置：
 
 ```bash
-eadp resource compare bpm --source dev --target ead --flow 采购申请
-eadp resource sync bpm --source dev --target ead --flow 采购申请 --apply
+eadp resource compare bpm --source dev --target ead --select flow=采购申请
+eadp resource sync bpm --source dev --target ead --select flow=采购申请 --apply
 ```
 
 按实体完整类名同步给号配置；`configType` 需要筛选时显式传入：
@@ -601,8 +610,8 @@ apply 阶段执行，预览模式在结构上不会调用任何写钩子。只�
 接口与注册器，菜单与 BPM 的实际实现分别位于 `src/domains/menu/handler.ts`、
 `src/domains/bpm/handler.ts`；菜单创建命令位于 `src/commands/menu.ts`。新增领域只需在自己的资源
 契约中声明 `selectors` 元数据（名称、值占位符、帮助文本、是否必填），并在模块清单绑定；通用命令会
-自动汇总这些声明生成选项，并在发起领域请求前拒绝不适用或缺失的选择器。当前菜单的可选 `--code`
-与 BPM 的必填 `--flow` 都来自各自契约声明，不需要修改通用命令。任何行为扩展都必须返回同一
+自动汇总这些声明，通过统一的 `--select <name>=<value>` 校验并在发起领域请求前拒绝不适用或缺失的选择器。
+当前菜单的可选 `code` 与 BPM 的必填 `flow` 选择器都来自各自契约声明，不需要修改通用命令。任何行为扩展都必须返回同一
 ChangeSet 信封；通用入口统一负责默认预览、`--apply`、操作记录完成/失败以及验证安全结果；处理器
 不得另起一套输出或操作生命周期。预览结果不得标记为已写入，正式执行必须报告写后验证成功，并准确
 报告跳过的 `blocked` 数量。

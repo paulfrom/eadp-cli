@@ -24,7 +24,7 @@ export class ConfigStore {
         return emptyConfig();
       }
       if (error instanceof Error && error.name === "ZodError") {
-        throw new CliError(`配置文件格式无效：${error.message}`);
+        throw new CliError(`配置文件格式无效：${error.message}`, 1, { code: "CONFIG_INVALID" });
       }
       throw error;
     }

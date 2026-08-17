@@ -6,8 +6,9 @@ file contains no resource or time-support allowlist.
 
 ## Query an ordinary resource
 
-1. Run `eadp resource list`, `eadp resource describe <name>`, and
-   `eadp resource query <name> --help`.
+1. When the resource, environment, filter, or option is missing or ambiguous,
+   run only the needed `eadp resource inspect [name] [action]` form. When they
+   are already complete, execute the query directly without discovery.
 2. Select one exact registered name and confirm `query` in `capabilities`.
 3. Confirm the environment's recorded `tenantCode` satisfies `tenant.policy`
    before making the query.
@@ -20,12 +21,11 @@ file contains no resource or time-support allowlist.
    complete only after the contract-driven reader reaches `total` and verifies
    the aggregate count against `records`.
 
-The following commands demonstrate the grammar only. `feature` is not a
-capability claim or a static resource list; rediscover it with `list` and
-`describe` before executing.
+The following command demonstrates the grammar only. `feature` is not a
+capability claim or a static resource list; inspect it only when a required
+value is missing or ambiguous.
 
 ```text
-eadp resource describe feature
 eadp resource query feature --env A --filter code:EQ:EXAMPLE_CODE
 ```
 
@@ -35,7 +35,7 @@ without reporting the exact selector and environment used.
 
 ## Query by time
 
-1. Check `filtering.time` in the selected `describe` result.
+1. Check `filtering.time` in the selected `inspect` result.
 2. Use the declared `defaultTimeField`, or provide `--time-field` only when the
    user or a project-backed contract establishes the correct field.
 3. Use `--created-in YYYY-MM` for a creation month, or use `--from` inclusive

@@ -421,7 +421,7 @@ describe("resource sync bpm：跨环境迁移", () => {
 
     const args = [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--flow", "采购申请", "--apply"
+      "--select", "flow=采购申请", "--apply"
     ];
     const first = JSON.parse(await runCommand(fixture.program(), args)) as {
       kind: string;
@@ -473,7 +473,7 @@ describe("resource sync bpm：跨环境迁移", () => {
     };
     const error = await runExpectError(fixture.program(), [
       "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--flow", "PURCHASE_REQUEST", "--apply"
+      "--select", "flow=PURCHASE_REQUEST", "--apply"
     ]);
     expect(error).toContain("源 BPM 流程类型缺少名称");
     expect(target.modules.length).toBe(snapshot.modules);
@@ -491,7 +491,7 @@ describe("resource sync bpm：跨环境迁移", () => {
     );
     const output = JSON.parse(await runCommand(fixture.program(), [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--flow", "PURCHASE_REQUEST", "--apply"
+      "--select", "flow=PURCHASE_REQUEST", "--apply"
     ])) as {
       summary: Record<string, number>;
       skippedBlocked: number;
@@ -523,7 +523,7 @@ describe("resource sync bpm：跨环境迁移", () => {
     source.pages[0]!.name = "采购申请处理工作台首页超长页面名称";
     const output = JSON.parse(await runCommand(fixture.program(), [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--flow", "PURCHASE_REQUEST", "--apply"
+      "--select", "flow=PURCHASE_REQUEST", "--apply"
     ])) as {
       summary: Record<string, number>;
       skippedBlocked: number;

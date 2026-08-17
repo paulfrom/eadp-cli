@@ -317,8 +317,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     registerMenuTreeRoutes(fixture.server("target"), target);
 
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target",
-      "--code", "PURCHASE", "--apply"
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=PURCHASE", "--apply"
     ])) as {
       summary: Record<string, number>;
       applied: boolean;
@@ -342,8 +341,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     });
     // 幂等
     const again = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target",
-      "--code", "PURCHASE", "--apply"
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=PURCHASE", "--apply"
     ])) as { summary: Record<string, number> };
     expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(target.saves).toHaveLength(2);

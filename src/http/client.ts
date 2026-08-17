@@ -63,9 +63,18 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseResu
     response = await fetch(url, requestInit);
   } catch (error) {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      throw new CliError(`请求超时：${options.timeoutMs ?? 30_000}ms`);
+      throw new CliError(`请求超时：${options.timeoutMs ?? 30_000}ms`, 1, {
+        code: "EADP_REQUEST_FAILED"
+      });
     }
-    throw new CliError(`请求失败：${error instanceof Error ? error.message : String(error)}`);
+    const cause = error instanceof Error
+      ? (error as Error & { cause?: unknown }).cause
+      : undefined;
+    const causeCode = typeof cause === "object" && cause !== null
+      ? (cause as Record<string, unknown>).code
+      : undefined;
+    const diagnostic = typeof causeCode === "string" ? `（${causeCode}）` : "";
+    throw new CliError(`请求失败${diagnostic}`, 1, { code: "EADP_REQUEST_FAILED" });
   }
 
   const text = await response.text();
@@ -88,10 +97,14 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseResu
   };
 
   if (!response.ok) {
-    throw new CliError(`HTTP ${response.status}：${formatCompact(data)}`);
+    throw new CliError(`HTTP ${response.status}：${formatCompact(data)}`, 1, {
+      code: "EADP_REQUEST_FAILED"
+    });
   }
   if (isEadpFailure(data)) {
-    throw new CliError(`EADP 请求失败：${data.message || "未知错误"}`);
+    throw new CliError(`EADP 请求失败：${data.message || "未知错误"}`, 1, {
+      code: "EADP_REQUEST_FAILED"
+    });
   }
   return result;
 }

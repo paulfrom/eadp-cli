@@ -498,21 +498,23 @@ describe("resource compare / sync：五动作与幂等", () => {
 });
 
 describe("resource 命令面", () => {
-  it("list/describe 暴露能力、选择器与契约", async () => {
+  it("inspect 暴露能力、选择器与契约", async () => {
     const output = captureOutput();
     try {
-      await createProgram().parseAsync(["resource", "list"], { from: "user" });
+      await createProgram().parseAsync(["resource", "inspect"], { from: "user" });
       const text = output.text();
       expect(text).toContain('"feature"');
       expect(text).toContain('"valuePlaceholder": "code"');
       expect(text).toContain('"handler": "menu"');
+      expect(text).toContain('"cliVersion"');
+      expect(text).toContain('"environment"');
     } finally {
       output.restore();
     }
   });
 
-  it("选择器选项按契约注册并校验", async () => {
-    // bpm 需要非 global 租户：先通过租户校验，再校验必填 --flow
+  it("--select 按契约校验选择器名称与必填项", async () => {
+    // bpm 需要非 global 租户：先通过租户校验，再校验必填 --select flow
     const fixture = await createFixture({
       environments: [
         { name: "source", tenantCode: "tenant-a", token: "source-token" },
@@ -522,7 +524,7 @@ describe("resource 命令面", () => {
     const error = await runExpectError(fixture.program(), [
       "resource", "compare", "bpm", "--source", "source", "--target", "target"
     ]);
-    expect(error).toContain("必须提供 --flow");
+    expect(error).toContain("必须提供 --select flow=");
     expect(fixture.server("source").requests).toHaveLength(0);
 
     // feature 需要 global 租户：切回 global 后校验不适用的选择器
@@ -531,9 +533,9 @@ describe("resource 命令面", () => {
       config.environments.target!.tenantCode = "global";
     });
     const error2 = await runExpectError(fixture.program(), [
-      "resource", "compare", "feature", "--source", "source", "--target", "target", "--code", "A"
+      "resource", "compare", "feature", "--source", "source", "--target", "target", "--select", "code=A"
     ]);
-    expect(error2).toContain("--code 不适用于资源 feature");
+    expect(error2).toContain("资源 feature 未声明选择器：code");
     expect(fixture.server("source").requests).toHaveLength(0);
   });
 });

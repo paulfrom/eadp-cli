@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendRequest } from "../src/http/client.js";
 import {
   cleanupAll,
@@ -91,6 +91,32 @@ describe("sendRequest：统一 HTTP 客户端", () => {
     await expect(
       sendRequest({ baseUrl, path: "/api/missing", method: "GET" })
     ).rejects.toThrow("HTTP 404");
+  });
+
+  it("传输失败仅保留稳定诊断码且不泄露环境 URL", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connect to https://secret.example"), { code: "ENOTFOUND" })
+      })
+    );
+    try {
+      const error = await sendRequest({
+        baseUrl: "https://secret.example",
+        path: "/private/path",
+        method: "GET"
+      }).then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+      expect(error).toMatchObject({
+        code: "EADP_REQUEST_FAILED",
+        message: "请求失败（ENOTFOUND）"
+      });
+      expect(String(error)).not.toContain("secret.example");
+      expect(String(error)).not.toContain("private/path");
+    } finally {
+      fetch.mockRestore();
+    }
   });
 });
 

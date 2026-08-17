@@ -65,7 +65,11 @@ export const bpmPhaseHooks: ResourcePhaseHooks = {
 async function planBpmAggregate(context: ResourceAggregatePlanContext): Promise<ResourceAggregatePlan> {
   const selector = context.selectors.flow;
   if (!selector || selector.trim() === "") {
-    throw new CliError("resource bpm compare/sync 必须提供 --flow 流程代码、名称或 Entity 代码");
+    throw new CliError(
+      "resource bpm compare/sync 必须提供 --select flow=<流程代码、名称或 Entity 代码>",
+      1,
+      { code: "REQUIRED_SELECTOR_MISSING", requiredInput: "selector" }
+    );
   }
   const sourceClient = context.sourceClient;
   const targetClient = context.targetClient;

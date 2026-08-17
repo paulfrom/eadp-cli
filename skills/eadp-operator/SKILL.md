@@ -1,216 +1,135 @@
 ---
 name: eadp-operator
-description: Operate EADP through its contract-driven resource framework and explicit domain commands. Discover live contracts, route special workflows, preview writes, verify applied changes, and stop on failures.
+description: Operate EADP through the eadp CLI resource framework and domain commands. Execute directly when the request is complete, inspect only when parameters are missing, preview writes, and stop on failures.
 ---
 
 # EADP Operator
 
 Use the installed `eadp` CLI as the only execution layer. Keep environment URLs,
 credential values, remote IDs, endpoint guesses, and undeclared request fields
-out of this Skill and out of user-facing reports.
+out of this Skill and out of user-facing reports. The CLI engine owns contract
+details (endpoints, pagination, defaults, dependencies, deletion, rollback);
+this Skill only routes intents and sequences commands.
 
 ## Architecture and routing
 
 EADP CLI has one contract-driven resource framework plus explicit domain
 commands:
 
-1. A `ResourceContract` registers a resource's identity, service, query/save
-   transport, read/pagination strategy, business identity, comparable and
-   writable fields, tenant policy, capabilities, defaults, filtering, enums,
-   selectors, adapter/handler extension, dependency declarations, rollback,
-   and explicit deletion contract.
-2. The generic resource engine executes every declared `query`, `write`,
-   `compare`, or `sync` capability with the same validation, ChangeSet,
-   preview/apply, blocked-item, operation-log, and verification lifecycle.
-    Declared dependencies are an engine default: do not ask the user to select
-    a dependency mode or add a `--with-dependencies` option. The engine plans
-    and applies them automatically. Adapters normalize or remap dependencies.
-    Handlers/hooks extend individual phases for tree or aggregate resources
-    without creating another sync protocol.
-3. Permission relations, menu creation, BPM project discovery/configuration,
-   and explicit rollback use domain commands because they are not ordinary
-   record operations. They must not bypass registered contracts or invent raw
-   requests.
+- `resource query|write|compare|sync <name>`: every registered resource runs on
+  the generic engine; the CLI validates capability, tenant, selectors, enums,
+  filters, and dependencies, and verifies writes before reporting success.
+- Domain commands: `permission ...`, `menu create`, `bpm inspect`,
+  `bpm configure`, `rollback <operation-id...>` handle intents that are not
+  ordinary record operations. Never bypass a registered contract or a domain
+  command with a raw request.
 
-The contract `id` is the CLI resource name. Endpoint paths inside `query`,
-`save`, and `rollback` are transport facts, not additional resource aliases.
-Adding an ordinary resource requires registering a complete `ResourceContract`
-only; do not add a command branch or Skill workflow for its name.
+The contract `id` is the CLI resource name. Adding a resource requires
+registering its contract only; it needs no Skill change.
 
-## Unified resource framework
+## Execute directly when the request is complete
 
-Discover the active framework before planning:
+When the request already names the resource, environment(s), selectors, and
+filters, run the action immediately with one command — do not discover first:
 
-1. Run `eadp --help`, `eadp env list`, and `eadp resource --help`.
-2. For the selected resource and action, run exactly:
+```text
+eadp resource query feature --env dev --count
+eadp resource query feature --env dev --fields code,name --limit 20
+eadp resource compare feature --source dev --target test
+eadp resource sync menu --source dev --target test --select code=PURCHASE
+```
 
-   ```text
-   eadp resource list
-   eadp resource describe <name>
-   eadp resource <query|write|compare|sync> <name> --help
-   ```
+- `query` supports `--count` (total records only), `--summary` (count plus
+  summaryInfo), `--fields <a,b>`, `--limit <n>`, `--filter <field:op:value>`,
+  `--quick <text>`, and `--created-in`/`--from`/`--to`/`--time-field` when the
+  contract declares time filtering. Read the count from `--count` output; do
+  not dump every record for a "how many" question.
+- `write` needs `--env <env>` and `--data <json>`; it previews by default and
+  writes only with `--apply`.
+- `compare`/`sync` need `--source <env>` and `--target <env>`. Resource
+  selectors use one unified syntax: `--select <name>=<value>` (for example
+  `--select code=PURCHASE`, `--select flow=采购申请`); the CLI validates the
+  name against the current contract.
+- `--apply` is the only switch that writes. Preview first for every mutation.
 
-   Replace `<query|write|compare|sync>` with the requested action and `<name>`
-   with the exact registered resource `id`. Run only the selected action's help
-   before constructing its command.
-3. Treat the current `list`, exact-name `describe`, and selected-action help as
-   the execution authority. The packaged resource summary below is orientation,
-   not an allowlist: if live output differs, follow the live contract. Never
-   maintain command-level per-resource branches or a static time-support table.
+## Inspect when parameters are missing or ambiguous
 
-The unified commands are:
+Only when the request is incomplete (unknown resource name, missing
+environment, unknown selector, or a needed option) run discovery, using
+`eadp resource inspect`:
 
-- `resource query <name>`: read according to the contract and aggregate every
-  required page.
-- `resource write <name>`: create or update one target environment; preview by
-  default and write only with `--apply`.
-- `resource compare <name>`: compare source and target read-only and return one
-  ChangeSet.
-- `resource sync <name>`: reuse the compare plan; preview by default and apply
-  only safe `create`, `update`, and contract-authorized `delete` changes with
-  `--apply`. Dependency resources are implicit engine behavior.
+- `eadp resource inspect` — list registered resources, CLI version, and
+  available environments.
+- `eadp resource inspect <name>` — contract digest: capabilities, tenant
+  policy, identity/compare/writable fields, enums, selectors, filtering.
+- `eadp resource inspect <name> <action>` — structured options for that exact
+  action: environments, tenant policy, required/optional options, this
+  resource's selectors, and action-relevant fields including safe
+  deletion/rollback declarations where applicable.
 
-## Drive actions from the selected contract
-
-Read the exact `describe` result and derive behavior mechanically. Treat `id`,
-`title`, `description`, `service`, and `help` as live identity/documentation
-facts. Treat `query`, `save`, `read`, and `pagination` as live transport/read
-facts. Do not infer an omitted endpoint or response shape. EADP paged endpoints
-accept `pageInfo.page` (1-based) and `pageInfo.rows: 500`; their inner `data`
-has `page` (current page), `records` (total records), `total` (total pages),
-`summaryInfo`, and `rows` (current page). Never treat `total` as a record count
-or `records` as a page length. For a declared pagination contract, honor
-`pageField`, `pageNumberField`, `pageSizeField`, `startPage`, `rowsField`,
-`pageSize: 500`, and `totalSemantics: "pages"`.
-
-- `query`: require `capabilities.query`; enforce `tenant.policy` and
-  `tenant.bindField`; use `query`, `read`, `pagination`, `filtering`, `enums`,
-  `selectors`, `adapter`, and `handler` exactly as declared.
-- `write`: require `capabilities.write`; enforce `tenant`; build only `save`
-  data from `writableFields`, validate `enums`, apply `defaults` only for
-  creation, use `adapter` or `handler` as registered, and retain `rollback` for
-  explicit recovery.
-- `compare`: require `capabilities.compare`; validate both `tenant` policies
-  before reads; use `query`, `read`, `pagination`, `identityFields`,
-  `compareFields`, `filtering`, `enums`, `selectors`, `adapter`, and `handler`
-  to produce the change plan. A target-only record is `delete` only when the
-  contract declares `deletion.remove`, `deletion.lookup`, and
-  `deletion.restore`; otherwise keep it `blocked`.
-- `sync`: require `capabilities.sync`; reuse the contract-driven compare plan,
-  then use `tenant`, `identityFields`, `compareFields`, `writableFields`,
-  `defaults`, `filtering`, `enums`, `selectors`, `adapter`, `handler`, and
-  `rollback` and `deletion` to apply only safe changes. Creates/updates run
-  in dependency order; deletes run in reverse dependency order.
-
-For every action, honor `defaults.create`, `preserveTargetFields`, and
-`preserveTargetFieldsWhenMissing` only where declared. Use `filtering.time` and
-`filtering.defaultTimeField` to decide whether and how `--created-in`, `--from`,
-`--to`, or `--time-field` may be used. Pass only declared `selectors` with their
-`name`, `valuePlaceholder`, `description`, and `required` values, and retain
-each `enums` `value` and `meaning`. Use only registered `rollback` and
-`deletion` contracts and their `service`, `resource`, `remove`, `lookup`, and
-`restore` declarations, including `path`, `method`, `idField`, and
-`idPlacement`; never construct an undeclared delete or raw request.
-
-If a required contract fact, dependency mapping, request field, response shape,
-or tenant rule is absent or contradictory, stop and request a project-backed
-contract reference. Do not guess an endpoint, field, ID, page-count meaning, or
-fallback command.
+Resolve missing or ambiguous parameters with read-only CLI queries. Ask the
+user only after a lookup returns zero or multiple candidates; never guess a
+resource name, environment, selector, or option.
 
 ## Current registered resources
 
-The packaged catalog currently contains these registrations. Always refresh
-this view with `eadp resource list` before execution.
-
-| Resource `id` | Registration kind | Declared capabilities | Routing note |
-| --- | --- | --- | --- |
-| `app-module` | Ordinary contract | query, write, compare, sync | Use the unified resource commands |
-| `employee` | Ordinary contract with adapter | query, write, compare, sync | `user` is an alias; map `organizationCode` to the target organization ID |
-| `feature` | Ordinary contract with adapter | query, write, compare, sync | Generic actions use `resource`; high-level create-only intent may use `permission apply feature` |
-| `feature-group` | Ordinary contract with adapter | query, write, compare, sync | Generic actions use `resource`; high-level create-only intent may use `permission apply feature-group` |
-| `serial-number` | Ordinary contract with adapter | query, write, compare, sync | This is the only CLI resource name for serial-number configuration |
-| `menu` | Behavior-extension resource | query, compare, sync | Generic actions use tree-aware hooks; one-menu creation uses `menu create` |
-| `bpm` | Behavior-extension resource | compare, sync | Migration uses `resource`; project discovery/configuration uses `bpm` commands |
-
-`serialNumberConfig` may appear in the `serial-number` transport or rollback
-paths; it is not another resource `id` and must not be passed as `<name>`.
-Future ordinary resources remain usable through live discovery even when they
-are not listed in this packaged snapshot.
+Current resource names (the live `eadp resource inspect` output is
+authoritative): `app-module`、`feature`、`feature-group`、`serial-number`、
+`employee`（别名 `user`）、`menu`、`bpm`. Future ordinary resources remain
+usable through live discovery without any Skill change.
 
 ## Special domain commands
 
-Route only the following domain intents away from ordinary resource actions:
+Route only these domain intents away from ordinary resource actions:
 
-- High-level create-only feature or feature-group intent: use
-  `eadp permission apply feature ...` or
-  `eadp permission apply feature-group ...`. Their generic query, write,
-  compare, and sync actions remain in the resource framework.
-- Permission inspection, role configuration, relationship assignment or
-  revocation, and verification: use `eadp permission ...` and load
-  [permission-management.md](references/permission-management.md) when needed.
-- Creating one menu: use `eadp menu create ...`. Menu query, compare, and
-  migration remain `eadp resource query|compare|sync menu`.
-- Discovering BPM from project code or configuring one project's BPM base data:
-  use `eadp bpm inspect ...` or `eadp bpm configure ...`. BPM environment
-  comparison/migration remains `eadp resource compare|sync bpm`.
-- Explicit recovery by operation ID: use `eadp rollback <operation-id...>` and
-  load [rollback.md](references/rollback.md).
+- Create-only feature or feature-group intent: `eadp permission apply feature`
+  or `eadp permission apply feature-group`; their generic actions stay in the
+  resource framework.
+- Permission inspection, role configuration, grant/revoke, verification:
+  `eadp permission ...` (load permission-management.md when needed).
+- Creating one menu: `eadp menu create ...`. Menu query/compare/migration stay
+  `eadp resource query|compare|sync menu`.
+- BPM project discovery or configuration: `eadp bpm inspect ...` or
+  `eadp bpm configure ...`; BPM environment migration stays
+  `eadp resource compare|sync bpm --select flow=<code-or-name>`.
+- Explicit recovery: `eadp rollback <operation-id...>`.
 
-Serial-number query, write, compare, and migration have no separate domain
-command; use the unified resource commands with resource `serial-number`.
-`env`, `skill`, and `update` are tool-management commands rather than registered
-resources. Do not translate a domain term into an unrelated resource or invent
-`api`, `call`, or `catalog` commands.
+`env`, `skill`, and `update` are tool-management commands, not resources. Do
+not translate a domain term into an unrelated resource or invent `api`, `call`,
+or `catalog` commands.
 
-## Run the common state machine
+## Write protocol (preview, authorize, apply, verify)
 
-Follow these phases for every resource query, mutation, or migration:
+Every mutation follows the same sequence:
 
-1. Parse the request exactly. Resolve missing or ambiguous environments,
-   resources, selectors, identities, and dependencies with read-only CLI queries.
-   Ask the user only after a lookup returns zero or multiple candidates.
-2. Resolve one exact resource and validate the requested capability, tenant
-   policy, selectors, filters, enums, identity, writable data, and defaults from
-   its contract. For a migration, preserve source/target direction.
-3. For `write` or `sync`, build a preview with the same command and no
-   `--apply`. Show `create`, `update`, `delete`, `unchanged`, and `blocked`
-   changes, changed fields, and every missing or ambiguous dependency. The
-   dependency chain is automatic; do not expose a dependency-selection step.
-   Target-only deletes must identify the declared deletion contract.
-4. Request or confirm explicit authorization for the shown write/delete set. Then run
-   that same command with `--apply`; do not switch to a separate apply command,
-   raw endpoint, or modified environment/credential.
-5. Apply only safe changes. Skip `blocked` records while continuing the full
-   plan; never treat skipped records as success. Apply dependency creates and
-   updates parent-first, and target-only deletes child-first. Require the
-   CLI's post-write verification to report `verified: true`.
-6. Report the operation ID when the CLI returns one. To test idempotency, query
-   or preview again and expect already equal records to be `unchanged` with no
-   duplicate write. Request rollback separately and follow
-   [rollback.md](references/rollback.md).
+1. Build the command from the action schema; enforce tenant, selectors, enums,
+   identity, and writable fields from the contract.
+2. Run it **without `--apply`** and show the preview: `create`, `update`,
+   `delete`, `unchanged`, `blocked`, changed fields, and missing or ambiguous
+   dependencies. Target-only deletes must identify the declared deletion
+   contract.
+3. Confirm explicit authorization for the shown write/delete set, then run that
+   same command with `--apply`. Do not switch to a separate apply command, raw
+   endpoint, or modified environment/credential.
+4. Apply only safe changes; skip `blocked` records while continuing the full
+   plan and never treat skipped records as success. The CLI reports
+   `verified: true` after post-write verification.
+5. Report the operation ID when the CLI returns one. For idempotency, query or
+   preview again and expect already equal records to be `unchanged`.
 
-`write` is preview-only by default and never deletes target records. `sync` is
-preview-only by default; it may delete target-only records only when the live
-resource contract declares the complete deletion semantics. A
-transport, CLI, or EADP failure stops the current workflow immediately. Do not
-retry, alter parameters, switch endpoints/environments/credentials, or infer a
-batch-wide result from one item. Continue only after the user reviews the
-failure and requests a new action.
+## Stop on failure
 
-## Protect identity and secrets
-
-- Use `eadp env list` and only configured environment names.
-- Resolve a person by employee number when possible. Accept an exact name only
-  when it yields one candidate; stop on duplicates.
-- Never send a source environment ID to a target environment. Resolve target
-  dependencies through the contract's adapter/handler or a target read.
-- Keep output structured. State environments, exact selectors and time range,
-  action counts, preview/applied status, verification, skipped blocked records,
-  and unresolved dependencies.
+A transport, CLI, or EADP failure stops the current workflow immediately. Do
+not retry, alter parameters, switch endpoints/environments/credentials, or
+infer a batch-wide result from one item. Do not debug on your own: never read
+or modify the eadp configuration file, never run `eadp update`/`npm`/network
+commands, never search the filesystem for config or CLI installation, and never
+fall back to a legacy or invented command. Report the exact CLI error and wait
+for the user to review it and request a new action.
 
 ## Load references only when needed
 
-After live resource discovery, read only the direct reference required by the
+After the command surface is clear, read at most one reference required by the
 selected workflow; do not load every reference by default:
 
 - Querying or auditing: [query-audit.md](references/query-audit.md)
@@ -222,5 +141,5 @@ selected workflow; do not load every reference by default:
 - Explicit rollback: [rollback.md](references/rollback.md)
 
 References add domain constraints only. They do not register resources, decide
-whether an action is supported, or replace the live `list`/`describe`/action-help
+whether an action is supported, or replace live `eadp resource inspect`
 evidence.

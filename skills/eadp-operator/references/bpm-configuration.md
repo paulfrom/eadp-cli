@@ -1,12 +1,13 @@
 # BPM configuration
 
 Use this workflow for `eadp bpm inspect`, `eadp bpm configure`, and the BPM special resource handler
-`eadp resource compare/sync bpm --flow <code-or-name>`.
+`eadp resource compare/sync bpm --select flow=<code-or-name>`.
 
-Before planning, run `eadp resource list`, `eadp resource describe bpm`, and the selected
-`eadp bpm ... --help` or `eadp resource compare/sync --help`. Use those outputs to confirm the
-current registration, capability, selector, tenant policy, and accepted options. This reference
-adds BPM rules only; it does not register BPM or decide support for another resource.
+When the BPM action, environments, flow selector, or option is missing or
+ambiguous, run only the needed `eadp bpm ... --help` or
+`eadp resource inspect bpm [compare|sync]` form. When they are complete,
+execute the domain command or resource preview directly. This reference adds
+BPM rules only; it does not register BPM or decide support for another resource.
 
 ## Route BPM intent before generic resources
 
@@ -15,21 +16,24 @@ adds BPM rules only; it does not register BPM or decide support for another reso
   功能项 or feature operation.
 - Parse “把开发环境的bpm采购申请配置迁移到ead环境” as:
   source environment = 开发环境, target environment = ead环境, BPM flow selector = 采购申请.
-  Resolve both environment names with `eadp env list` and the non-global BPM tenant rule.
+  Resolve either environment with `eadp env list` only when its name is missing
+  or ambiguous, then enforce the non-global BPM tenant rule.
 - Use the dedicated command and never substitute `resource sync feature`, another resource, or a raw request:
 
 ```text
-eadp resource compare bpm --source 开发环境 --target ead环境 --flow 采购申请
-eadp resource sync bpm --source 开发环境 --target ead环境 --flow 采购申请 --apply
+eadp resource compare bpm --source 开发环境 --target ead环境 --select flow=采购申请
+eadp resource sync bpm --source 开发环境 --target ead环境 --select flow=采购申请
+eadp resource sync bpm --source 开发环境 --target ead环境 --select flow=采购申请 --apply
 ```
 
-- Resolve `--flow` against the source flow code, flow name, Entity code, or Entity name. Require one
-  exact match; stop on zero or multiple matches.
+- Resolve the `flow` selector against the source flow code, flow name, Entity
+  code, or Entity name. Require one exact match; stop on zero or multiple
+  matches.
 - Require both environments to be non-global before reading source or target BPM data.
 - Preview without `--apply`. After authorization, repeat with `--apply` and require `verified: true`.
-- Select exactly one source flow with `--flow`. Add time options only when the live `describe` result
-  declares `filtering.time: true` and the action help accepts them; otherwise stop instead of
-  substituting a time field or another resource.
+- Select exactly one source flow with `--select flow=<value>`. Add time options only when the live
+  `inspect` result declares `filtering.time: true` and the action schema accepts
+  them; otherwise stop instead of substituting a time field or another resource.
 - Synchronize the business module, entity, pages, integration interfaces, flow type, and missing
   entity-page/entity-interface relations. Map dependencies to target IDs; never copy source IDs.
 - Always set target business-entity `auditTypeId` and `auditTypeName` to null. Ignore source audit
