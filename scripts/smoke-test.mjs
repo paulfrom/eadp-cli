@@ -42,8 +42,13 @@ try {
   const environments = run(["env", "list"]);
   const rootHelp = run(["--help"]);
   const resourceHelp = run(["resource", "--help"]);
-  const resourceList = run(["resource", "list"]);
-  const resourceDescribe = run(["resource", "describe", "feature"]);
+  const resourceList = run(["resource", "inspect"]);
+  const resourceDescribe = run(["resource", "inspect", "feature"]);
+  const resourceValidate = run([
+    "resource",
+    "validate",
+    join(process.cwd(), "skills", "eadp-resource-contract", "assets", "db-info.resource.yaml")
+  ]);
   const bpmHelp = run(["bpm", "inspect", "--help"]);
   const permissionHelp = run(["permission", "inspect", "--help"]);
   const functionalPermissionHelp = run([
@@ -80,9 +85,11 @@ try {
     !resourceDescribe.includes('"kind": "eadp.resource.contract.v1"') ||
     !resourceDescribe.includes('"id": "feature"') ||
     !resourceDescribe.includes('"identityFields"') ||
-    !resourceDescribe.includes('"capabilities"')
+    !resourceDescribe.includes('"capabilities"') ||
+    !resourceValidate.includes('"kind": "eadp.resource-contract-validation.v1"') ||
+    !resourceValidate.includes('"id": "db-info"')
   ) {
-    throw new Error("资源 list/describe 烟雾测试失败");
+    throw new Error("资源 inspect/validate 烟雾测试失败");
   }
   if (
     !bpmHelp.includes("从真实项目代码发现 BPM 流程骨架及可选集成回调") ||
@@ -108,6 +115,8 @@ try {
     !skillHelp.includes("upgrade") ||
     !skillHelp.includes("WorkBuddy") ||
     !skillInstall.includes('"operation": "install"') ||
+    !skillInstall.includes('"skill": "eadp-operator"') ||
+    !skillInstall.includes('"skill": "eadp-resource-contract"') ||
     !skillInstall.includes('"host": "workbuddy"') ||
     !skillInstall.includes('"host": "claude"') ||
     !skillInstall.includes('"host": "qoder"') ||

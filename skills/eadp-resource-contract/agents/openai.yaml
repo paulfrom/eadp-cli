@@ -1,0 +1,4 @@
+interface:
+  display_name: "EADP Resource Contract"
+  short_description: "Generate strict EADP resource contracts from code"
+  default_prompt: "Use $eadp-resource-contract to generate and locally validate a strict .resource.yaml contract from the Controller/API/DTO/enum evidence I provide."

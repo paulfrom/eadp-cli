@@ -15,7 +15,7 @@ export const environmentSchema = z
 export const configSchema = z.object({
   currentEnvironment: z.string().min(1).optional(),
   environments: z.record(z.string(), environmentSchema).default({})
-});
+}).strict();
 
 export type EnvironmentConfig = z.infer<typeof environmentSchema>;
 export type EadpConfig = z.infer<typeof configSchema>;

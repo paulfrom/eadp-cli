@@ -38,7 +38,7 @@ eadp resource sync <name> --source <env> --target <env>
 - `query` 支持结果裁剪：`--count`（只输出总数，分页资源仅读第一页）、`--summary`
   （总数加 summaryInfo）、`--fields <a,b>`、`--limit <n>`、`--filter <field:op:value>`、
   `--quick <text>`，以及契约声明时间过滤时的 `--created-in`/`--from`/`--to`/`--time-field`。
-- 资源选择器统一为 `--select <name>=<value>`（如 `--select code=PURCHASE`、`--select flow=采购申请`），
+- 资源选择器统一为 `--select <name>=<value>`（如 `--select code=EXAMPLE_FEATURE`、`--select flow=示例流程`），
   CLI 按当前资源契约校验选择器名称与必填项。
 - 并非每个资源都支持全部动作，执行前必须以当前契约的 `capabilities`、租户策略、选择器和过滤能力为准。
 
@@ -119,7 +119,7 @@ eadp update
 ```
 
 该命令执行 `npm install --global eadp-cli@latest`，然后调用升级后的 CLI 同步
-`eadp-operator` Skill。需要可用的 npm 网络和全局安装权限；任一步失败都会停止，
+`eadp-operator` 与 `eadp-resource-contract` 两个 Skill。需要可用的 npm 网络和全局安装权限；任一步失败都会停止，
 不会自动重试。
 
 ## 配置环境
@@ -139,6 +139,19 @@ eadp env remove dev2
 ```
 
 配置文件默认位于 `~/.eadp-cli/config.yaml`。也可使用 `--token-env <变量名>`，只保存环境变量名。
+
+资源契约目录固定为配置目录下的 `contracts`，不提供动态目录配置。默认布局为：
+
+```text
+~/.eadp-cli/
+├── config.yaml
+└── contracts/
+    └── *.resource.yaml
+```
+
+设置 `EADP_CONFIG_DIR` 时，`config.yaml` 与 `contracts` 一起移动到指定目录。npm 安装或升级 EADP CLI
+会自动创建 `contracts`。运行时只读该固定位置：目录不存在表示没有外部资源，不会在业务命令中写磁盘。
+CLI 只读取目录直属的 `*.resource.yaml`，不加载脚本、adapter、handler 或子目录。
 
 `env add` 会读取并保存 `tenantCode`；验证失败时不会保存新的 Token。
 Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env add`。
@@ -421,7 +434,7 @@ eadp permission assign data \
 记录额外包含 `parentCode`，可使用 `--quick` 或 `--filter` 在本地筛选：
 
 ```bash
-eadp resource query menu --env global-dev --quick 采购
+eadp resource query menu --env global-dev --quick 示例菜单
 ```
 
 新增菜单默认只预览。父菜单和功能项均按代码唯一解析，正式新增后返回可供事后回滚的
@@ -430,17 +443,17 @@ eadp resource query menu --env global-dev --quick 采购
 ```bash
 eadp menu create \
   --env global-dev \
-  --name 采购申请 \
-  --code PURCHASE_APPLY \
-  --parent-code PURCHASE \
-  --feature-code PURCHASE_APPLY
+  --name 示例菜单 \
+  --code EXAMPLE_MENU \
+  --parent-code EXAMPLE_ROOT \
+  --feature-code EXAMPLE_FEATURE
 
 eadp menu create \
   --env global-dev \
-  --name 采购申请 \
-  --code PURCHASE_APPLY \
-  --parent-code PURCHASE \
-  --feature-code PURCHASE_APPLY \
+  --name 示例菜单 \
+  --code EXAMPLE_MENU \
+  --parent-code EXAMPLE_ROOT \
+  --feature-code EXAMPLE_FEATURE \
   --apply
 ```
 
@@ -528,8 +541,8 @@ eadp resource sync feature-group \
 `parentId`、`featureId`：
 
 ```bash
-eadp resource sync menu --source global-dev --target global-test --select code=PURCHASE
-eadp resource sync menu --source global-dev --target global-test --select code=PURCHASE --apply
+eadp resource sync menu --source global-dev --target global-test --select code=EXAMPLE_ROOT
+eadp resource sync menu --source global-dev --target global-test --select code=EXAMPLE_ROOT --apply
 ```
 
 目标父菜单或功能项缺失/不唯一时，相关菜单标记为 `blocked`，其余菜单继续完成差异预览；
@@ -543,8 +556,8 @@ eadp resource sync menu --source global-dev --target global-test --select code=P
 按流程代码、名称或 Entity 代码同步 BPM 基础配置：
 
 ```bash
-eadp resource compare bpm --source dev --target ead --select flow=采购申请
-eadp resource sync bpm --source dev --target ead --select flow=采购申请 --apply
+eadp resource compare bpm --source dev --target ead --select flow=示例流程
+eadp resource sync bpm --source dev --target ead --select flow=示例流程 --apply
 ```
 
 按实体完整类名同步给号配置；`configType` 需要筛选时显式传入：
@@ -577,7 +590,49 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 
 ## 扩展资源框架
 
-资源通过单一模块清单接入，不需要新增通用命令：
+资源有两种接入方式，共用同一个契约校验器、资源注册表和执行引擎：
+
+1. 包内领域模块：适用于需要随 CLI 发布的内置资源，以及必须包含 adapter/handler 的复杂行为。
+2. 外部声明式契约：适用于普通 API 资源；用户把契约放入固定 `contracts` 目录，无需修改 CLI 源码或新增命令。
+
+### 通过目录挂载普通 API 资源
+
+外部文件采用严格的 `eadp.resource-contract.v1` YAML，只能声明数据，不能加载可执行代码。先离线校验：
+
+```powershell
+eadp resource validate C:\Users\lin\.eadp-cli\contracts\db-info.resource.yaml
+eadp resource validate C:\Users\lin\.eadp-cli\contracts
+```
+
+`validate` 只读取指定本地文件或目录，不读取环境配置、不访问远端，也不会复制文件。校验通过后，把文件放入
+与 `config.yaml` 同目录的 `contracts`，下一次资源命令会自动加载：
+
+```powershell
+eadp resource inspect db-info
+eadp resource query db-info --env dev --fields dbName,dbType,dbPass
+```
+
+查询输出会把契约 `sensitiveFields` 中存在的字段替换为 `[REDACTED]`，即使用户通过 `--fields` 显式选择该字段。
+外部契约若声明敏感字段，只允许 query，避免秘密进入 ChangeSet 或操作日志。
+加载时会按文件名顺序尝试解析所有直属 `*.resource.yaml`。单个文件失败不会中断后续文件解析；扫描完成后
+CLI 按“最大可用”原则注册：解析无效的文件被跳过；与内置资源或其他外部契约名称/别名冲突的契约全部跳过；
+依赖缺失、依赖已被隔离或处于循环依赖中的契约也被跳过，其余契约继续可用。资源命令成功结果通过
+`contractIssues` 一次性列出本轮扫描与隔离的全部文件及原因；请求被跳过的资源时返回 `UNKNOWN_RESOURCE`，
+并在错误信封的 `issues` 中带回这些原因。某个坏契约不会阻止无关的有效资源执行查询或其他已声明动作。
+
+`eadp resource validate <absolute-file-or-directory>` 保持严格语义：它仍会完整扫描目录，但只要存在文件解析错误、
+名称冲突、依赖缺失或循环依赖，命令就以非零状态结束。该命令只用于挂载前检查，不代表运行时采用原子注册。
+
+仓库中的 [DbInfo 示例](skills/eadp-resource-contract/assets/db-info.resource.yaml) 来自
+`DbInfoController`、继承的 `DbInfoApi`/分页接口、DTO、Entity 和 `DbType` 枚举证据。它只声明
+`dbInfo/findByPage` 查询：现有代码没有证明业务唯一键，也没有完整的租户写入、恢复和安全回滚语义，
+所以不能仅凭继承的 `save/delete/findOne` 推断 write、compare 或 sync；`dbPass` 被标为敏感字段。
+
+生成其他资源契约时使用独立的 `eadp-resource-contract` Skill。它负责读取用户指定的 Controller 及其
+API、DTO/Entity、枚举和继承框架证据，生成 `.resource.yaml` 并且只运行一次本地 `resource validate`；
+它不得把文件复制到固定 `contracts` 目录、配置环境或执行资源命令。生成后由用户明确决定是否放入目录生效。
+
+外部契约适合契约能够完整表达的普通资源。树结构、聚合规划、依赖 ID 重映射或领域写入仍应作为包内模块实现：
 
 - `src/domains/<resource>/contract.ts`：每个资源一个 `ResourceContract`，声明 API 事实与业务语义。
 - `src/domains/<resource>/adapter.ts`：只有需要依赖 ID 重映射或字段规范化时才增加同领域适配器。
@@ -668,8 +723,15 @@ eadp permission revoke role \
 
 ## AI Skill
 
-项目只维护一个 `eadp-operator` Skill，内部按需加载查询审计、资源同步、权限管理、BPM、
-给号和回滚等工作流；后续新增工作流也继续加入该 Skill，不拆分为多个 Skill。主要入口包括：
+项目包含两个职责隔离的 Skill，不能混用：
+
+| Skill | 只负责 | 明确不负责 |
+| --- | --- | --- |
+| `eadp-operator` | 发现并操作 CLI；按需加载查询审计、资源同步、权限管理、BPM、给号、回滚等运行工作流 | 生成资源契约 |
+| `eadp-resource-contract` | 根据代码证据生成严格的 `.resource.yaml`，并用 `eadp resource validate` 离线校验 | 挂载资源、配置环境、读取 Token、访问远端、执行 query/write/compare/sync |
+
+后续 CLI 运行工作流继续放入 `eadp-operator`，资源契约生成规则放入 `eadp-resource-contract`，不互相承载。
+`eadp-operator` 的主要入口包括：
 
 - 查询与审计
 - 跨环境资源同步
@@ -677,24 +739,25 @@ eadp permission revoke role \
 - BPM 与给号
 - 回滚
 
-Skill 源码位于 `skills/eadp-operator`，不包含任何环境 URL 或 Token。AI 使用 Skill 时
+Skill 源码分别位于 `skills/eadp-operator` 和 `skills/eadp-resource-contract`，都不包含任何环境 URL 或 Token。AI 使用运行 Skill 时
 仍会先通过 `eadp --help`、`eadp env list` 和相关子命令帮助发现当前 CLI 能力。
 任何 CLI 或 EADP 接口返回失败时，Skill 要求 AI 立即停止并如实反馈，不自动重试、
 修改参数重试或改用其他接口绕过；只有用户明确给出新指令后才能继续。
 
-安装或升级当前 npm 包内置的 Skill：
+安装或升级当前 npm 包内置的两个 Skill：
 
 ```bash
 eadp skill install
 eadp skill upgrade
 ```
 
-命令始终安装到 `~/.codex/skills/eadp-operator`；设置 `CODEX_HOME` 后改用
-`$CODEX_HOME/skills/eadp-operator`。还会自动同步到已发现平台的用户级目录：
+命令始终安装到 `~/.codex/skills/eadp-operator` 和 `~/.codex/skills/eadp-resource-contract`；
+设置 `CODEX_HOME` 后改用 `$CODEX_HOME/skills/<skill-name>`。还会自动同步到已发现平台的用户级目录：
 
-- WorkBuddy：`~/.workbuddy/skills/eadp-operator`，可用 `WORKBUDDY_HOME` 覆盖根目录；
-- Claude：`~/.claude/skills/eadp-operator`，可用 `CLAUDE_HOME` 覆盖根目录；
-- Qoder：`~/.qoder/skills/eadp-operator`，可用 `QODER_HOME` 覆盖根目录。
+- WorkBuddy：`~/.workbuddy/skills/<skill-name>`，可用 `WORKBUDDY_HOME` 覆盖根目录；
+- Claude：`~/.claude/skills/<skill-name>`，可用 `CLAUDE_HOME` 覆盖根目录；
+- Qoder：`~/.qoder/skills/<skill-name>`，可用 `QODER_HOME` 覆盖根目录。
 
 默认根目录不存在且没有设置对应环境变量时，该平台会被跳过。`upgrade` 只升级各平台中
-已经安装的 Skill；所有已发现平台都未安装时会提示先执行 `eadp skill install`。
+已经安装任一 EADP Skill 的平台，并在该平台同步两个 Skill；所有已发现平台都未安装时会提示先执行
+`eadp skill install`。

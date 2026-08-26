@@ -2,8 +2,11 @@ import { access, cp, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const source = resolve("skills", "eadp-operator");
-await access(join(source, "SKILL.md"));
+const skillNames = ["eadp-operator", "eadp-resource-contract"];
+const bundledSkillsRoot = resolve("skills");
+for (const skillName of skillNames) {
+  await access(join(bundledSkillsRoot, skillName, "SKILL.md"));
+}
 
 const codexRoot = resolve(process.env.CODEX_HOME || join(homedir(), ".codex"));
 const targets = [{ host: "codex", root: codexRoot }];
@@ -23,22 +26,25 @@ for (const item of optionalHosts) {
 const installations = [];
 for (const item of targets) {
   const skillsRoot = join(item.root, "skills");
-  const target = join(skillsRoot, "eadp-operator");
   await mkdir(skillsRoot, { recursive: true });
-  await cp(source, target, { recursive: true, force: true });
+  for (const skillName of skillNames) {
+    const source = join(bundledSkillsRoot, skillName);
+    const target = join(skillsRoot, skillName);
+    await cp(source, target, { recursive: true, force: true });
 
-  const installedSkill = await readFile(join(target, "SKILL.md"), "utf8");
-  if (!installedSkill.includes("name: eadp-operator")) {
-    throw new Error(`eadp-operator Skill 安装后校验失败：${item.host}`);
+    const installedSkill = await readFile(join(target, "SKILL.md"), "utf8");
+    if (!installedSkill.includes(`name: ${skillName}`)) {
+      throw new Error(`${skillName} Skill 安装后校验失败：${item.host}`);
+    }
+    installations.push({ host: item.host, skill: skillName, directory: target });
   }
-  installations.push({ host: item.host, directory: target });
 }
 
 process.stdout.write(
   `${JSON.stringify(
       {
         success: true,
-        skill: "eadp-operator",
+        skills: skillNames,
         installations
       },
     null,

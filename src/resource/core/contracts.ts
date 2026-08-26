@@ -126,6 +126,8 @@ export interface ResourceContract {
   identityFields: string[];
   compareFields: string[];
   writableFields: string[];
+  /** Fields redacted from query output; values remain available only inside the client lifecycle. */
+  sensitiveFields?: string[];
   tenant: ResourceTenantContract;
   capabilities: ResourceCapability[];
   help: string;
@@ -289,11 +291,16 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
   for (const [name, fields] of [
     ["业务唯一键", candidate.identityFields],
     ["比较", candidate.compareFields],
-    ["写入", candidate.writableFields]
+    ["写入", candidate.writableFields],
+    ["敏感", candidate.sensitiveFields ?? []]
   ] as const) {
     if (fields.some((field) => !field.trim()) || new Set(fields).size !== fields.length) {
       throw new CliError(`资源契约 ${candidate.id} 的${name}字段无效或重复`);
     }
+  }
+  if ((candidate.sensitiveFields?.length ?? 0) > 0 &&
+      candidate.capabilities.some((capability) => capability !== "query")) {
+    throw new CliError(`资源契约 ${candidate.id} 包含敏感字段时只能声明 query 能力`);
   }
   for (const field of Object.keys(candidate.defaults?.create ?? {})) {
     if (!candidate.writableFields.includes(field)) {
@@ -352,6 +359,9 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     identityFields: [...candidate.identityFields],
     compareFields: [...candidate.compareFields],
     writableFields: [...candidate.writableFields],
+    ...(candidate.sensitiveFields === undefined
+      ? {}
+      : { sensitiveFields: [...candidate.sensitiveFields] }),
     capabilities: [...new Set(candidate.capabilities)],
     ...(candidate.dependencies === undefined ? {} : { dependencies: [...candidate.dependencies] }),
     ...(selectors === undefined ? {} : { selectors })

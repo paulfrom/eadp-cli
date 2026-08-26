@@ -97,7 +97,9 @@ describe("eadp-operator Skill：契约自适应协议", () => {
     expect(skill).not.toMatch(/api-gateway/i);
     expect(skill).not.toMatch(/eadp\s+(?:api|call|interface)\s+(?:list|catalog|describe)/i);
     expect(skill).not.toMatch(/eadp\s+(?:query|inspect|call)\s+<name>/i);
-    expect(resourceCommand).toContain("listResourceContracts()");
+    expect(resourceCommand).toContain("loadResourceCatalog(store.contractsDirectory, {");
+    expect(resourceCommand).toContain("allowMissingDirectory: true");
+    expect(resourceCommand).toContain("loaded.catalog.registry");
     expect(resourceCommand).not.toMatch(/(?:feature|menu|bpm|serial-number)\s*===\s*["']/i);
 
     // 参考文档保持一层目录深度，不嵌套引用

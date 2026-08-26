@@ -10,7 +10,7 @@ import { printValue } from "../io.js";
 import { getRuntimeOptions } from "../runtime-options.js";
 
 const cliPackageName = "eadp-cli";
-const skillName = "eadp-operator";
+const skillNames = ["eadp-operator", "eadp-resource-contract"] as const;
 
 export type CommandRunner = (
   command: string,
@@ -87,7 +87,7 @@ export async function updateCliAndSkill(
     shell: process.platform === "win32"
   });
   try {
-    assertSucceeded(skillUpgrade, "升级 eadp-operator Skill 失败");
+    assertSucceeded(skillUpgrade, "升级 EADP Skills 失败");
   } catch (error) {
     throw new CliError(`eadp-cli 已升级，但 ${errorMessage(error)}`);
   }
@@ -100,8 +100,8 @@ export async function updateCliAndSkill(
         version: currentVersion,
         operation: "upgrade"
       },
-      skill: {
-        name: skillName,
+      skills: {
+        names: skillNames,
         operation: "install-or-upgrade"
       },
       executable

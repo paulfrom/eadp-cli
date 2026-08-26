@@ -7,21 +7,20 @@ import { CliError } from "../errors.js";
 import { printValue } from "../io.js";
 import { getRuntimeOptions } from "../runtime-options.js";
 
-const skillName = "eadp-operator";
+const skillNames = ["eadp-operator", "eadp-resource-contract"] as const;
+type SkillName = typeof skillNames[number];
 type SkillHost = "codex" | "workbuddy" | "claude" | "qoder";
 
 interface SkillTarget {
   host: SkillHost;
-  directory: string;
-  manifest: string;
+  skillsRoot: string;
 }
 
-const bundledSkillDirectory = resolve(
+const bundledSkillsRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
-  "skills",
-  skillName
+  "skills"
 );
 
 export function registerSkillCommands(program: Command): void {
@@ -48,15 +47,16 @@ async function syncSkill(
   operation: "install" | "upgrade",
   compact: boolean
 ): Promise<void> {
-  const sourceManifest = join(bundledSkillDirectory, "SKILL.md");
-  await assertBundledSkill(sourceManifest);
+  for (const skillName of skillNames) {
+    await assertBundledSkill(join(bundledSkillsRoot, skillName, "SKILL.md"), skillName);
+  }
   const discoveredTargets = await resolveSkillTargets();
   let targets = discoveredTargets;
 
   if (operation === "upgrade") {
     targets = [];
     for (const target of discoveredTargets) {
-      if (await pathExists(target.manifest)) {
+      if (await hasInstalledSkill(target)) {
         targets.push(target);
       }
     }
@@ -65,28 +65,33 @@ async function syncSkill(
     }
   }
 
+  const installations: Array<{
+    host: SkillHost;
+    skill: SkillName;
+    directory: string;
+  }> = [];
   for (const target of targets) {
-    await mkdir(dirname(target.directory), { recursive: true });
-    await cp(bundledSkillDirectory, target.directory, {
-      recursive: true,
-      force: true
-    });
+    await mkdir(target.skillsRoot, { recursive: true });
+    for (const skillName of skillNames) {
+      const source = join(bundledSkillsRoot, skillName);
+      const directory = join(target.skillsRoot, skillName);
+      const manifest = join(directory, "SKILL.md");
+      await cp(source, directory, { recursive: true, force: true });
 
-    const installedManifest = await readFile(target.manifest, "utf8");
-    if (!installedManifest.includes(`name: ${skillName}`)) {
-      throw new CliError(`${skillName} Skill 安装后校验失败：${target.host}`);
+      const installedManifest = await readFile(manifest, "utf8");
+      if (!installedManifest.includes(`name: ${skillName}`)) {
+        throw new CliError(`${skillName} Skill 安装后校验失败：${target.host}`);
+      }
+      installations.push({ host: target.host, skill: skillName, directory });
     }
   }
 
   printValue(
     {
       success: true,
-      skill: skillName,
+      skills: skillNames,
       operation,
-      installations: targets.map((target) => ({
-        host: target.host,
-        directory: target.directory
-      }))
+      installations
     },
     compact
   );
@@ -117,15 +122,23 @@ async function resolveSkillTargets(): Promise<SkillTarget[]> {
 }
 
 function createTarget(host: SkillHost, root: string): SkillTarget {
-  const directory = join(root, "skills", skillName);
   return {
     host,
-    directory,
-    manifest: join(directory, "SKILL.md")
+    skillsRoot: join(root, "skills")
   };
 }
 
-async function assertBundledSkill(manifestPath: string): Promise<void> {
+async function hasInstalledSkill(target: SkillTarget): Promise<boolean> {
+  for (const skillName of skillNames) {
+    if (await pathExists(join(target.skillsRoot, skillName, "SKILL.md"))) return true;
+  }
+  return false;
+}
+
+async function assertBundledSkill(
+  manifestPath: string,
+  skillName: SkillName
+): Promise<void> {
   try {
     await access(manifestPath);
   } catch (error) {

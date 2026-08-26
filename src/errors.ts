@@ -9,6 +9,10 @@ export type CliErrorCode =
   | "INVALID_ACTION"
   | "UNKNOWN_SELECTOR"
   | "REQUIRED_SELECTOR_MISSING"
+  | "RESOURCE_DIRECTORY_INVALID"
+  | "RESOURCE_DIRECTORY_MISSING"
+  | "RESOURCE_CONTRACT_INVALID"
+  | "RESOURCE_CONTRACT_CONFLICT"
   | "EADP_REQUEST_FAILED";
 
 export interface CliErrorDetails {
@@ -18,6 +22,13 @@ export interface CliErrorDetails {
   candidates?: readonly string[];
   /** The parameter the caller must supply to proceed. */
   requiredInput?: string;
+  /** Per-file or per-item diagnostics collected before the command stops. */
+  issues?: readonly CliErrorIssue[];
+}
+
+export interface CliErrorIssue {
+  path: string;
+  message: string;
 }
 
 export class CliError extends Error {
@@ -25,6 +36,7 @@ export class CliError extends Error {
   readonly code: CliErrorCode;
   readonly candidates: readonly string[] | undefined;
   readonly requiredInput: string | undefined;
+  readonly issues: readonly CliErrorIssue[] | undefined;
 
   constructor(message: string, exitCode = 1, details: CliErrorDetails = {}) {
     super(message);
@@ -33,6 +45,7 @@ export class CliError extends Error {
     this.code = details.code ?? "CLI_ERROR";
     this.candidates = details.candidates;
     this.requiredInput = details.requiredInput;
+    this.issues = details.issues;
   }
 }
 
@@ -52,7 +65,10 @@ export function renderCliError(error: unknown): Record<string, unknown> {
       code: error.code,
       message: error.message,
       ...(error.candidates === undefined ? {} : { candidates: [...error.candidates] }),
-      ...(error.requiredInput === undefined ? {} : { requiredInput: error.requiredInput })
+      ...(error.requiredInput === undefined ? {} : { requiredInput: error.requiredInput }),
+      ...(error.issues === undefined
+        ? {}
+        : { issues: error.issues.map((issue) => ({ ...issue })) })
     };
   }
   if (isCommanderError(error)) {

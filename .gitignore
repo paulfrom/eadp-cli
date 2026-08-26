@@ -5,3 +5,7 @@ dist/
 coverage/
 .codebase-memory/
 .npm-cache/
+.agents/
+.claude/
+.deck
+examples/

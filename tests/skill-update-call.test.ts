@@ -18,6 +18,7 @@ afterEach(async () => {
 });
 
 type HomeEnv = "CODEX_HOME" | "WORKBUDDY_HOME" | "CLAUDE_HOME" | "QODER_HOME";
+const skillNames = ["eadp-operator", "eadp-resource-contract"] as const;
 
 function withHomes(homes: Record<HomeEnv, string>, action: () => Promise<void>): Promise<void> {
   const previous = Object.fromEntries(
@@ -50,13 +51,15 @@ describe("skill install / upgrade：四个平台", () => {
       await createProgram().parseAsync(["skill", "install"], { from: "user" });
     });
     for (const home of Object.values(homes)) {
-      await expect(
-        readFile(join(home, "skills", "eadp-operator", "SKILL.md"), "utf8")
-      ).resolves.toContain("name: eadp-operator");
+      for (const skillName of skillNames) {
+        await expect(
+          readFile(join(home, "skills", skillName, "SKILL.md"), "utf8")
+        ).resolves.toContain(`name: ${skillName}`);
+      }
     }
   });
 
-  it("upgrade 只升级已安装 Skill 的平台，未安装平台不创建目录", async () => {
+  it("upgrade 在已安装平台同步两个 Skill，未安装平台不创建目录", async () => {
     const homes = await makeHomes();
     const workbuddyTarget = join(homes.WORKBUDDY_HOME, "skills", "eadp-operator");
     await mkdir(workbuddyTarget, { recursive: true });
@@ -64,11 +67,14 @@ describe("skill install / upgrade：四个平台", () => {
     await withHomes(homes, async () => {
       await createProgram().parseAsync(["skill", "upgrade"], { from: "user" });
     });
-    await expect(readFile(join(workbuddyTarget, "SKILL.md"), "utf8"))
-      .resolves.toContain("name: eadp-operator");
-    await expect(
-      readFile(join(homes.CODEX_HOME, "skills", "eadp-operator", "SKILL.md"), "utf8")
-    ).rejects.toMatchObject({ code: "ENOENT" });
+    for (const skillName of skillNames) {
+      await expect(
+        readFile(join(homes.WORKBUDDY_HOME, "skills", skillName, "SKILL.md"), "utf8")
+      ).resolves.toContain(`name: ${skillName}`);
+      await expect(
+        readFile(join(homes.CODEX_HOME, "skills", skillName, "SKILL.md"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    }
   });
 
   it("所有平台都未安装时 upgrade 失败并提示先安装", async () => {
@@ -85,12 +91,14 @@ describe("skill install / upgrade：四个平台", () => {
     await withHomes(homes, async () => {
       await createProgram().parseAsync(["skill", "install"], { from: "user" });
     });
-    await expect(
-      readFile(join(homes.CLAUDE_HOME, "skills", "eadp-operator", "SKILL.md"), "utf8")
-    ).resolves.toContain("name: eadp-operator");
-    await expect(
-      readFile(join(homes.QODER_HOME, "skills", "eadp-operator", "SKILL.md"), "utf8")
-    ).resolves.toContain("name: eadp-operator");
+    for (const skillName of skillNames) {
+      await expect(
+        readFile(join(homes.CLAUDE_HOME, "skills", skillName, "SKILL.md"), "utf8")
+      ).resolves.toContain(`name: ${skillName}`);
+      await expect(
+        readFile(join(homes.QODER_HOME, "skills", skillName, "SKILL.md"), "utf8")
+      ).resolves.toContain(`name: ${skillName}`);
+    }
   });
 });
 
@@ -157,7 +165,7 @@ describe("update：npm 升级失败立即停止", () => {
       { stdout: "", status: 1, stderr: "skill permission denied" }
     ]);
     await expect(updateCliAndSkill(runner)).rejects.toThrow(
-      "eadp-cli 已升级，但 升级 eadp-operator Skill 失败：skill permission denied"
+      "eadp-cli 已升级，但 升级 EADP Skills 失败：skill permission denied"
     );
     expect(calls).toHaveLength(4);
   });

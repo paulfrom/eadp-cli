@@ -14,16 +14,16 @@ BPM rules only; it does not register BPM or decide support for another resource.
 - Explicit BPM intent takes precedence over generic resource, configuration, or migration wording.
 - Never map a BPM flow name to `feature`. Select `feature` only when the user explicitly requests a
   功能项 or feature operation.
-- Parse “把开发环境的bpm采购申请配置迁移到ead环境” as:
-  source environment = 开发环境, target environment = ead环境, BPM flow selector = 采购申请.
+- Parse “把 dev 环境的 BPM 示例流程配置迁移到 test 环境” as:
+  source environment = dev, target environment = test, BPM flow selector = 示例流程.
   Resolve either environment with `eadp env list` only when its name is missing
   or ambiguous, then enforce the non-global BPM tenant rule.
 - Use the dedicated command and never substitute `resource sync feature`, another resource, or a raw request:
 
 ```text
-eadp resource compare bpm --source 开发环境 --target ead环境 --select flow=采购申请
-eadp resource sync bpm --source 开发环境 --target ead环境 --select flow=采购申请
-eadp resource sync bpm --source 开发环境 --target ead环境 --select flow=采购申请 --apply
+eadp resource compare bpm --source dev --target test --select flow=示例流程
+eadp resource sync bpm --source dev --target test --select flow=示例流程
+eadp resource sync bpm --source dev --target test --select flow=示例流程 --apply
 ```
 
 - Resolve the `flow` selector against the source flow code, flow name, Entity

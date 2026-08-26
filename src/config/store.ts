@@ -8,10 +8,12 @@ import { configSchema, emptyConfig, type EadpConfig } from "./schema.js";
 export class ConfigStore {
   readonly directory: string;
   readonly filePath: string;
+  readonly contractsDirectory: string;
 
   constructor(directory = process.env.EADP_CONFIG_DIR ?? join(homedir(), ".eadp-cli")) {
     this.directory = directory;
     this.filePath = join(directory, "config.yaml");
+    this.contractsDirectory = join(directory, "contracts");
   }
 
   async load(): Promise<EadpConfig> {

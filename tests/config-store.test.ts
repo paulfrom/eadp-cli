@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,6 +66,17 @@ describe("ConfigStore：一个环境名称对应一个 URL 与一种认证配置
   it("配置文件不存在时返回空配置", async () => {
     const store = new ConfigStore(await makeDirectory());
     await expect(store.load()).resolves.toEqual({ environments: {} });
+    expect(store.contractsDirectory).toBe(join(store.directory, "contracts"));
+  });
+
+  it("拒绝旧的动态资源目录配置", async () => {
+    const store = new ConfigStore(await makeDirectory());
+    await writeFile(
+      store.filePath,
+      "environments: {}\nresourceDirectories:\n  - D:\\\\dynamic-contracts\n",
+      "utf8"
+    );
+    await expect(store.load()).rejects.toMatchObject({ code: "CONFIG_INVALID" });
   });
 
   it("拒绝同时配置 token 与 tokenEnv", async () => {

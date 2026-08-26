@@ -5,13 +5,15 @@ import { spawnSync } from "node:child_process";
 
 const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8"));
 const installationDirectory = await mkdtemp(join(tmpdir(), "eadp-cli-package-"));
+const npmCacheDirectory = join(installationDirectory, "npm-cache");
+const installedConfigDirectory = join(installationDirectory, "installed-config");
 const npmCliPath = process.env.npm_execpath;
 if (!npmCliPath) {
   throw new Error("无法定位 npm CLI 入口");
 }
 const packagePath = process.argv[2]
   ? resolve(process.argv[2])
-  : createCurrentPackage(npmCliPath);
+  : createCurrentPackage(npmCliPath, npmCacheDirectory);
 
 try {
   const installation = spawnSync(
@@ -21,11 +23,16 @@ try {
       "install",
       "--prefix",
       installationDirectory,
-      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
       packagePath
     ],
     {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...isolatedNpmEnvironment(npmCacheDirectory),
+        EADP_CONFIG_DIR: installedConfigDirectory
+      }
     }
   );
   if (installation.status !== 0) {
@@ -37,6 +44,7 @@ try {
       ? join(installationDirectory, "node_modules", ".bin", "eadp.cmd")
       : join(installationDirectory, "node_modules", ".bin", "eadp");
   await access(executable);
+  await access(join(installedConfigDirectory, "contracts"));
   const executableDirectory = join(installationDirectory, "node_modules", ".bin");
   const alternateNodeModules = process.platform === "win32"
     ? join(installationDirectory, "alternate-node_modules")
@@ -77,16 +85,18 @@ try {
     ].join("\n"),
     "utf8"
   );
-  await access(
-    join(
-      installationDirectory,
-      "node_modules",
-      "eadp-cli",
-      "skills",
-      "eadp-operator",
-      "SKILL.md"
-    )
-  );
+  for (const skillName of ["eadp-operator", "eadp-resource-contract"]) {
+    await access(
+      join(
+        installationDirectory,
+        "node_modules",
+        "eadp-cli",
+        "skills",
+        skillName,
+        "SKILL.md"
+      )
+    );
+  }
   const helpCases = [
     {
       args: ["--version"],
@@ -378,7 +388,10 @@ try {
         "--no-fund",
         legacyPackageDirectory
       ],
-      { encoding: "utf8" }
+      {
+        encoding: "utf8",
+        env: isolatedNpmEnvironment(npmCacheDirectory)
+      }
     );
     if (legacyInstallation.status !== 0) {
       throw new Error(
@@ -462,10 +475,10 @@ try {
       );
     }
   }
-  await access(join(codexHome, "skills", "eadp-operator", "SKILL.md"));
-  await access(join(workbuddyHome, "skills", "eadp-operator", "SKILL.md"));
-  await access(join(claudeHome, "skills", "eadp-operator", "SKILL.md"));
-  await access(join(qoderHome, "skills", "eadp-operator", "SKILL.md"));
+  for (const home of [codexHome, workbuddyHome, claudeHome, qoderHome]) {
+    await access(join(home, "skills", "eadp-operator", "SKILL.md"));
+    await access(join(home, "skills", "eadp-resource-contract", "SKILL.md"));
+  }
 
   if (process.env.EADP_LIVE_FEATURE_TEST === "1") {
     const liveTest = spawnSync(
@@ -503,9 +516,10 @@ try {
   await rm(installationDirectory, { recursive: true, force: true });
 }
 
-function createCurrentPackage(npmCliPath) {
+function createCurrentPackage(npmCliPath, cacheDirectory) {
   const packed = spawnSync(process.execPath, [npmCliPath, "pack", "--silent"], {
-    encoding: "utf8"
+    encoding: "utf8",
+    env: isolatedNpmEnvironment(cacheDirectory)
   });
   if (packed.status !== 0) {
     throw new Error(`生成 npm 包失败：${packed.stderr || packed.stdout}`);
@@ -515,4 +529,8 @@ function createCurrentPackage(npmCliPath) {
     throw new Error("npm pack 未返回包文件名");
   }
   return resolve(archive);
+}
+
+function isolatedNpmEnvironment(cacheDirectory) {
+  return { ...process.env, npm_config_cache: cacheDirectory };
 }

@@ -133,48 +133,48 @@ describe("menu query", () => {
   it("query 使用菜单树接口并输出带 parentCode 的扁平结果", async () => {
     const fixture = await createFixture();
     const state = menuState();
-    state.roots = [menuNode({ code: "PURCHASE", name: "采购管理" }, [
-      menuNode({ code: "PURCHASE_APPLY", name: "采购申请", rank: 1 })
+    state.roots = [menuNode({ code: "EXAMPLE_ROOT", name: "示例目录" }, [
+      menuNode({ code: "EXAMPLE_MENU", name: "示例菜单", rank: 1 })
     ])];
     registerMenuTreeRoutes(fixture.server("source"), state);
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "resource", "query", "menu", "--env", "source", "--quick", "申请"
+      "resource", "query", "menu", "--env", "source", "--quick", "示例菜单"
     ])) as { items: Array<Record<string, unknown>>; total: number };
     expect(output.total).toBe(1);
-    expect(output.items[0]).toMatchObject({ code: "PURCHASE_APPLY", parentCode: "PURCHASE" });
+    expect(output.items[0]).toMatchObject({ code: "EXAMPLE_MENU", parentCode: "EXAMPLE_ROOT" });
   });
 });
 
 describe("menu create：六大场景", () => {
   it("场景1 预览：解析依赖但不写入，输出计划", async () => {
     const fixture = await createFixture();
-    const state = menuState([{ id: "feature-target-id", code: "PURCHASE_APPLY" }]);
-    state.roots = [menuNode({ code: "PURCHASE", name: "采购管理" })];
+    const state = menuState([{ id: "feature-target-id", code: "EXAMPLE_FEATURE" }]);
+    state.roots = [menuNode({ code: "EXAMPLE_ROOT", name: "示例目录" })];
     registerMenuTreeRoutes(fixture.server("source"), state);
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "menu", "create", "--env", "source", "--name", "采购申请",
-      "--code", "PURCHASE_APPLY", "--parent-code", "PURCHASE", "--feature-code", "PURCHASE_APPLY"
+      "--compact", "menu", "create", "--env", "source", "--name", "示例菜单",
+      "--code", "EXAMPLE_MENU", "--parent-code", "EXAMPLE_ROOT", "--feature-code", "EXAMPLE_FEATURE"
     ])) as { applied: boolean; action: string; desired: Record<string, unknown> };
     expect(output.applied).toBe(false);
     expect(output.action).toBe("create");
     expect(output.desired).toMatchObject({
-      code: "PURCHASE_APPLY",
-      parentCode: "PURCHASE",
-      featureCode: "PURCHASE_APPLY"
+      code: "EXAMPLE_MENU",
+      parentCode: "EXAMPLE_ROOT",
+      featureCode: "EXAMPLE_FEATURE"
     });
     expect(state.saves).toHaveLength(0);
   });
 
   it("场景2+3 正式执行：断言完整请求体（重映射 ID）并回查，产生可回滚 operationId", async () => {
     const fixture = await createFixture();
-    const state = menuState([{ id: "feature-target-id", code: "PURCHASE_APPLY" }]);
-    state.roots = [menuNode({ code: "PURCHASE", name: "采购管理" })];
+    const state = menuState([{ id: "feature-target-id", code: "EXAMPLE_FEATURE" }]);
+    state.roots = [menuNode({ code: "EXAMPLE_ROOT", name: "示例目录" })];
     registerMenuTreeRoutes(fixture.server("source"), state);
     // save 后把新建菜单加入树，回查才能看到
     state.saveHandler = (context) => {
       const body = context.body as Record<string, unknown>;
       state.saves.push(body);
-      const saved = { ...body, id: "menu-new-id", code: body.code, featureCode: "PURCHASE_APPLY" };
+      const saved = { ...body, id: "menu-new-id", code: body.code, featureCode: "EXAMPLE_FEATURE" };
       const parent = findMenuById(state.roots, String(body.parentId));
       if (parent) {
         (parent.children as Array<Record<string, unknown>>).push({ ...saved, children: [] });
@@ -185,8 +185,8 @@ describe("menu create：六大场景", () => {
     };
 
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "menu", "create", "--env", "source", "--name", "采购申请",
-      "--code", "PURCHASE_APPLY", "--parent-code", "PURCHASE", "--feature-code", "PURCHASE_APPLY",
+      "--compact", "menu", "create", "--env", "source", "--name", "示例菜单",
+      "--code", "EXAMPLE_MENU", "--parent-code", "EXAMPLE_ROOT", "--feature-code", "EXAMPLE_FEATURE",
       "--rank", "10", "--apply"
     ])) as { applied: boolean; action: string; verified: boolean; operationId: string };
 
@@ -196,9 +196,9 @@ describe("menu create：六大场景", () => {
     expect(state.saves).toHaveLength(1);
     // 完整请求体：parentId/featureId 使用目标解析结果，不含源 ID
     expect(state.saves[0]).toEqual({
-      code: "PURCHASE_APPLY",
-      name: "采购申请",
-      parentId: "id-PURCHASE",
+      code: "EXAMPLE_MENU",
+      name: "示例菜单",
+      parentId: "id-EXAMPLE_ROOT",
       featureId: "feature-target-id",
       rank: 10
     });
@@ -214,12 +214,12 @@ describe("menu create：六大场景", () => {
   it("场景4 再次执行：同 code 同字段返回 unchanged 且零写入；字段冲突则报错不覆盖", async () => {
     const fixture = await createFixture();
     const state = menuState();
-    state.roots = [menuNode({ code: "PURCHASE_APPLY", name: "采购申请", rank: 0 })];
+    state.roots = [menuNode({ code: "EXAMPLE_MENU", name: "示例菜单", rank: 0 })];
     registerMenuTreeRoutes(fixture.server("source"), state);
 
     const unchanged = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "menu", "create", "--env", "source", "--name", "采购申请",
-      "--code", "PURCHASE_APPLY", "--apply"
+      "--compact", "menu", "create", "--env", "source", "--name", "示例菜单",
+      "--code", "EXAMPLE_MENU", "--apply"
     ])) as { applied: boolean; action: string; verified: boolean };
     expect(unchanged.applied).toBe(false);
     expect(unchanged.action).toBe("unchanged");
@@ -228,7 +228,7 @@ describe("menu create：六大场景", () => {
 
     const conflict = await runExpectError(fixture.program(), [
       "--compact", "menu", "create", "--env", "source", "--name", "不同名称",
-      "--code", "PURCHASE_APPLY", "--apply"
+      "--code", "EXAMPLE_MENU", "--apply"
     ]);
     expect(conflict).toContain("已存在且字段不同");
     expect(state.saves).toHaveLength(0);
@@ -237,12 +237,12 @@ describe("menu create：六大场景", () => {
   it("场景5 歧义/依赖：父菜单不存在或已绑定功能项时报错且零写入", async () => {
     const fixture = await createFixture();
     const state = menuState();
-    state.roots = [menuNode({ code: "PURCHASE", name: "采购管理", featureCode: "FEATURE_X" })];
+    state.roots = [menuNode({ code: "EXAMPLE_ROOT", name: "示例目录", featureCode: "FEATURE_X" })];
     registerMenuTreeRoutes(fixture.server("source"), state);
 
     const error = await runExpectError(fixture.program(), [
       "--compact", "menu", "create", "--env", "source", "--name", "子菜单",
-      "--code", "CHILD", "--parent-code", "PURCHASE", "--apply"
+      "--code", "CHILD", "--parent-code", "EXAMPLE_ROOT", "--apply"
     ]);
     expect(error).toContain("已绑定功能项，不能作为父菜单");
     expect(state.saves).toHaveLength(0);
@@ -287,13 +287,13 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     const fixture = await createFixture();
     const source = menuState();
     source.roots = [menuNode(
-      { code: "PURCHASE", name: "采购管理" },
+      { code: "EXAMPLE_ROOT", name: "示例目录" },
       [menuNode({
-        code: "PURCHASE_APPLY", name: "采购申请", rank: 1,
-        parentId: "source-root-id", featureId: "source-feature-id", featureCode: "PURCHASE_APPLY"
+        code: "EXAMPLE_MENU", name: "示例菜单", rank: 1,
+        parentId: "source-root-id", featureId: "source-feature-id", featureCode: "EXAMPLE_FEATURE"
       })]
     )];
-    const target = menuState([{ id: "target-feature-id", code: "PURCHASE_APPLY" }]);
+    const target = menuState([{ id: "target-feature-id", code: "EXAMPLE_FEATURE" }]);
     registerMenuTreeRoutes(fixture.server("source"), source);
     // 目标 save 后加入目标树，便于回查
     target.saveHandler = (context) => {
@@ -302,7 +302,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
       const saved = {
         ...body,
         id: `target-${String(body.code)}`,
-        ...(body.featureId ? { featureCode: "PURCHASE_APPLY" } : {}),
+        ...(body.featureId ? { featureCode: "EXAMPLE_FEATURE" } : {}),
         children: []
       };
       if (body.parentId) {
@@ -317,7 +317,7 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     registerMenuTreeRoutes(fixture.server("target"), target);
 
     const output = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=PURCHASE", "--apply"
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=EXAMPLE_ROOT", "--apply"
     ])) as {
       summary: Record<string, number>;
       applied: boolean;
@@ -328,11 +328,11 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     expect(output.applied).toBe(true);
     expect(output.verified).toBe(true);
     // 父先子后：先保存父（无 parentId），再保存子（parentId=目标父 ID）
-    expect(target.saves[0]).toMatchObject({ code: "PURCHASE", name: "采购管理" });
+    expect(target.saves[0]).toMatchObject({ code: "EXAMPLE_ROOT", name: "示例目录" });
     expect(target.saves[0]).not.toHaveProperty("id");
     expect(target.saves[1]).toMatchObject({
-      code: "PURCHASE_APPLY",
-      parentId: "target-PURCHASE",
+      code: "EXAMPLE_MENU",
+      parentId: "target-EXAMPLE_ROOT",
       featureId: "target-feature-id"
     });
     expect(target.saves[1]).not.toMatchObject({
@@ -341,13 +341,13 @@ describe("menu sync：父先子后与 ID 重映射", () => {
     });
     // 幂等
     const again = JSON.parse(await runCommand(fixture.program(), [
-      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=PURCHASE", "--apply"
+      "--compact", "resource", "sync", "menu", "--source", "source", "--target", "target", "--select", "code=EXAMPLE_ROOT", "--apply"
     ])) as { summary: Record<string, number> };
     expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(target.saves).toHaveLength(2);
     const record = await new OperationLogStore(fixture.store.directory).load(output.operationId);
     expect(record.actions.map((action) => action.entityId)).toEqual([
-      "target-PURCHASE", "target-PURCHASE_APPLY"
+      "target-EXAMPLE_ROOT", "target-EXAMPLE_MENU"
     ]);
   });
 

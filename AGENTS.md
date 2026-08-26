@@ -1,37 +1,25 @@
 # EADP CLI 项目规则
 
-- 除非已经完全理解需求，否则继续向用户确认，不提前实施。
-- 编写代码后，列出可能出现的问题，并建议覆盖这些问题的测试用例。
-- 发现 Bug 时，先编写能够复现问题的测试，再修复直到测试通过。
-- 验证 npm CLI 时必须执行 npm 实际生成的全局或隔离 `.cmd`/PowerShell shim；不能只运行包内 `dist/cli.js` 就宣称命令可用。
 - EADP 配置采用“一个环境名称直接对应一个 URL 和一个 Token”的模型；不得在命令、配置或帮助中重新引入 account/credential 概念。
 - 发起 EADP 请求时，Token 必须绑定用户明确指定的环境 URL；不得根据历史示例或其他环境地址进行推断。
 - CLI 的高层业务能力必须能在全新对话上下文中，仅通过 `eadp --help`、子命令帮助和项目路径被 AI 自主发现、规划、执行并验证；不得依赖历史会话中的接口知识或临时 ID。
-- BPM 自动配置必须模拟真实项目与真实 EADP 环境，不得要求业务项目额外提供 YAML 配置文件；应从项目现有文档、后端 Entity/Controller、前端路由和远端现状中发现配置。
-- BPM 发现与自动配置不得依赖 `BPM流程配置登记册.md` 或其他额外登记册；必须以项目代码中已实现的业务流程逻辑为依据，并拒绝为没有实际业务逻辑的流程生成配置。
-- BPM 流程模型代码默认使用业务 Entity 的全限定类路径，与 `startDefaultFlow` 使用的实体标识保持一致。
 - BPM 流程配置名称必须依据代码注释概括实际业务含义，使用“XXX流程结束后”“XXX选人”“XXX流程提交前”等短名称，且不超过 15 个字；禁止直接照搬方法名或生成无业务语义的名称。
-- BPM 集成接口必须根据代码契约区分接口类型：返回 `Executor` 人员结果的回调登记为 `CUSTOM_PERSON`，流程事件登记为 `EVENT`；禁止将所有回调统一登记为事件。
-- 用户请求中明确出现 BPM 或流程配置时，必须优先路由到 BPM 工作流；流程名称（如“采购申请”）不得解析为功能项。缺少专用 BPM 环境迁移命令时必须如实停止，禁止改用 `eadp resource sync feature` 或原始接口绕过。
+- BPM 集成接口必须根据代码契约区分接口类型：返回 `Executor` 人员结果的回调登记为 `CUSTOM_PERSON`，流程事件登记为 `EVENT`；
+- 用户请求中明确出现 BPM 或流程配置时，必须优先路由到 BPM 工作流；流程名称（如“示例流程”）不得解析为功能项。缺少专用 BPM 环境迁移命令时必须如实停止，禁止改用 `eadp resource sync feature` 或原始接口绕过。
 - BPM 与给号配置跨环境迁移必须使用 `eadp resource sync bpm`、`eadp resource sync serial-number`；默认预览、按业务唯一键查重、重新映射目标 ID、正式写入后回查，并保证重复执行幂等。
 - BPM 跨环境同步不得迁移或解析源业务实体的 `auditTypeId`、`auditTypeName`；目标业务实体这两个字段始终明确置空，且不得因源环境存在审计对象关联而终止。
 - Skill 描述同步能力时必须提供可直接执行的时间筛选与差异同步示例，并明确 `create`、`update`、`unchanged` 语义及不支持时间参数的资源边界。
 - EADP Skill 安装与升级必须支持 Codex、WorkBuddy、Claude 和 Qoder；Claude 与 Qoder 分别使用其用户级 `skills` 目录，不得混用平台根目录。
-- EADP AI 编排只维护一个 `eadp-operator` Skill，在同一个 Skill 内按需加载查询审计、资源同步、权限管理三个工作流；不得拆成三个彼此独立的 Skill,有其他新增的工作流也放在这Skill里面
+- EADP AI 能力维护两个职责隔离的 Skill：`eadp-operator` 只负责发现并操作 CLI，在同一个 Skill 内按需加载查询审计、资源同步、权限管理及后续运行工作流；`eadp-resource-contract` 只依据 Controller/API/DTO/Entity/枚举等代码证据生成并离线校验声明式资源契约，不得挂载资源、配置环境、读取认证或执行远端操作。不得混淆两个 Skill 的职责，也不得把运行工作流继续拆成其他 Skill。
 - EADP CLI 或 EADP 请求返回失败后必须立即停止当前工作流并如实反馈；不得自动重试、修改参数重试、切换接口或环境重试，也不得绕过资源契约或领域命令。只有用户查看失败信息并明确要求新动作后才能继续。
 - 当用户提供的 EADP 需求参数缺失、模糊、无效或无法唯一确定时，Skill 必须先使用 EADP CLI 的只读查询能力尝试解析候选；只有查询不到或存在多个候选时，才能要求用户补充或选择，禁止猜测参数或提前执行写操作。
 - 需求参数完整时 Skill 必须直接执行目标命令（如 `eadp resource query feature --env dev --count`），不得先做发现；只有资源名、环境或选择器缺失/歧义时才使用 `eadp resource inspect`（无参数列资源及能力、`inspect <name>` 契约摘要、`inspect <name> <action>` 该动作的结构化参数）。"有多少"类问题使用 `--count`/`--summary`，禁止读取并输出全部记录。
-- 资源选择器统一使用 `--select <name>=<value>`（如 `--select code=PURCHASE`、`--select flow=采购申请`），由 CLI 按当前资源契约校验选择器名称与必填项；禁止为各资源维护专属选项（如 `--code`、`--flow`）。`bpm inspect`/`bpm configure` 等领域命令的 `--flow` 不受此限。
+- 资源选择器统一使用 `--select <name>=<value>`（如 `--select code=EXAMPLE_FEATURE`、`--select flow=示例流程`），由 CLI 按当前资源契约校验选择器名称与必填项；禁止为各资源维护专属选项（如 `--code`、`--flow`）。`bpm inspect`/`bpm configure` 等领域命令的 `--flow` 不受此限。
 - CLI 错误统一输出结构化 JSON 信封（`success`/`code`/`message`/`candidates`/`requiredInput`），供模型确定性处理；`code` 使用稳定枚举（如 `ENVIRONMENT_UNKNOWN`、`UNKNOWN_RESOURCE`、`CAPABILITY_MISSING`、`UNKNOWN_SELECTOR`），不得让模型各自解读自然语言错误。
 - 当资源契约的服务、查询/保存接口、请求参数或返回结构不清楚时，必须先向用户索取明确的项目参考（如 API 接口定义、Controller、Api 或 Swagger/OpenAPI 文档），不得凭经验猜测并注册资源或实现领域命令。
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
 - 查询接口只有在资源契约或领域命令明确要求 global 时才允许使用 `tenantCode === "global"` 的环境；未明确要求 global（包括 `tenant.policy: "any"`）时默认按 non-global 查询校验，`query`、`compare`、`sync` 必须在任何远端请求前拒绝 global 环境。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
-- 真实 BPM 回调不是流程成立或可发现的必要条件；回调仅用于发现需要登记的集成接口，不得以缺少回调为由排除已有流程业务骨架。`startDefaultFlow` 是免人工选择流程与下一节点办理人的默认启动能力，也不得被误解为所有 BPM 流程必须具备的成立条件。
-- `eadp bpm configure --flow` 仅按 Entity 全限定名或流程代码匹配；基础流程配置不得受完整流程发现清单限制，只要 Entity 全限定名唯一且不冲突即可新增。流程集成接口和流程页面必须分别以 URL 作为发现、查重和关联边界。
-- 处理分页响应时必须依据真实接口契约或真实响应验证 `total` 的语义（总记录数或总页数）；不得仅凭字段名推断，也不得在未验证已请求全部页时宣称结果已完整聚合。
-- 环境差异预览不得因个别记录缺少目标依赖而中止；必须完成全量差异并将相关记录标记为 `blocked`、列出 `missingDependencies`。正式同步时仅应用安全记录并跳过 `blocked` 记录。可独立迁移的依赖资源必须提供专用同步能力，不得要求用户绕过 CLI 手工对比或写入。
-- 新增给号配置时，若 `returnStrategy` 缺失、为 `null` 或空白，必须明确使用服务端枚举默认值 `NEW`；不得以该新增默认规则覆盖已有目标配置。
 - 给号配置涉及的枚举必须在 CLI 帮助、注册资源契约（可由 `eadp resource inspect serial-number` 查看）和 `eadp-operator` Skill 中完整列出合法值及业务含义，供 AI 选择；不得只展示示例值或依靠猜测。
 - 实现或维护回滚能力时，权限接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller`，给号接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\serial\controller\SerialNumberConfigController.java`，BPM 接口固定参考 `D:\project\ead\sei-bpm\sei-bpm-service\src\main\java\com\changhong\sei\bpm\controller`；这些路径已由用户确认，无需再次询问。
 - 菜单接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller\MenuController.java`；菜单查询使用 `getMenuTree`，跨环境同步以 `code` 为业务唯一键，按父先子后处理，并依据 `parentCode`、`featureCode` 在目标环境重新映射 ID，禁止复制源 `parentId`、`featureId`。

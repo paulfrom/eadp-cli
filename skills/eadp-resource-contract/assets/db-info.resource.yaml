@@ -1,0 +1,43 @@
+schemaVersion: eadp.resource-contract.v1
+id: db-info
+title: 数据库连接配置
+description: 查询 sei-eai 中由 DbInfoController 暴露的数据库连接配置；密码字段始终脱敏。
+service: sei-eai
+query:
+  path: dbInfo/findByPage
+  method: POST
+read: paged
+pagination:
+  pageField: pageInfo
+  pageNumberField: page
+  pageSizeField: rows
+  startPage: 1
+  rowsField: rows
+  pageSize: 500
+  totalSemantics: pages
+identityFields: []
+compareFields: []
+writableFields: []
+sensitiveFields:
+  - dbPass
+tenant:
+  policy: any
+capabilities:
+  - query
+help: 仅提供分页查询。现有后端证据没有证明业务唯一键、租户边界与安全回滚语义，因此不声明 write、compare 或 sync。
+filtering:
+  time: false
+enums:
+  dbType:
+    - value: MYSQL
+      meaning: MySQL
+    - value: POSTGRESQL
+      meaning: PostgreSQL
+    - value: SQLITE
+      meaning: SQLite
+    - value: MS_SQL
+      meaning: Microsoft SQL Server
+    - value: CH_DB
+      meaning: ClickHouse
+    - value: ORACLE
+      meaning: Oracle

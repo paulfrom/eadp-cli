@@ -25,10 +25,10 @@ describe("compact-ndjson output", () => {
 
   it("unwraps common pagination containers and preserves count/cursor", () => {
     const lines = parseLines(
-      formatCompactNdjson({ rows: [{ code: "PURCHASE" }], total: 7, nextCursor: "cursor-2" })
+      formatCompactNdjson({ rows: [{ code: "EXAMPLE_FEATURE" }], total: 7, nextCursor: "cursor-2" })
     );
     expect(lines[0]).toMatchObject({ type: "meta", schema: ["code"], count: 1, cursor: "cursor-2" });
-    expect(lines[1]).toEqual({ type: "row", key: "PURCHASE", v: ["PURCHASE"] });
+    expect(lines[1]).toEqual({ type: "row", key: "EXAMPLE_FEATURE", v: ["EXAMPLE_FEATURE"] });
   });
 
   it("prefers a business code over a technical id for row keys", () => {

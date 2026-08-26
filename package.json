@@ -9,6 +9,7 @@
   "files": [
     "dist",
     "skills",
+    "scripts/ensure-contracts-directory.mjs",
     "README.md"
   ],
   "scripts": {
@@ -21,6 +22,7 @@
     "smoke": "node ./scripts/smoke-test.mjs",
     "test:package": "node ./scripts/package-install-test.mjs",
     "install:local": "npm pack && node ./scripts/install-local-package.mjs && node ./scripts/install-local-skill.mjs",
+    "postinstall": "node ./scripts/ensure-contracts-directory.mjs",
     "release": "node ./scripts/release.mjs",
     "check": "npm run build && npm test",
     "prepack": "npm run check",

@@ -187,27 +187,27 @@ public class ProjectController extends BaseFlowController<Project, ProjectDto> {
   return project;
 }
 
-/** 构造真实的采购流程源环境。 */
-function purchaseSourceState(): BpmState {
+/** 构造真实的示例流程源环境。 */
+function exampleSourceState(): BpmState {
   const state = createBpmState([{
-    id: "source-module", code: "purchase", name: "采购", serviceName: "purchase-service",
-    webBaseAddress: "purchase-web"
+    id: "source-module", code: "example", name: "示例功能", serviceName: "example-service",
+    webBaseAddress: "example-web"
   }]);
   state.entities.push({
-    id: "source-entity", name: "采购申请", code: "com.example.PurchaseRequest",
-    businessModuleId: "source-module", serviceName: "/purchaseRequest",
-    auditTypeId: "source-audit-type", auditTypeName: "采购审计"
+    id: "source-entity", name: "示例流程", code: "com.example.ExampleEntity",
+    businessModuleId: "source-module", serviceName: "/example/flow",
+    auditTypeId: "source-audit-type", auditTypeName: "示例审计"
   });
   state.pages.push({
-    id: "source-page", name: "采购申请处理", pcUrl: "/purchase/request",
+    id: "source-page", name: "示例流程处理", pcUrl: "/example/flow",
     businessModuleId: "source-module"
   });
   state.interfaces.push({
-    id: "source-interface", name: "采购流程结束后", url: "/purchaseRequest/afterEndFlow",
+    id: "source-interface", name: "示例流程结束后", url: "/example/flow/afterEndFlow",
     interfaceType: "EVENT", businessModuleId: "source-module"
   });
   state.flowTypes.push({
-    id: "source-flow", name: "采购申请", code: "PURCHASE_REQUEST",
+    id: "source-flow", name: "示例流程", code: "EXAMPLE_FLOW",
     businessEntityId: "source-entity", realtimeNodeStatus: false
   });
   state.pageRelations.set("source-entity", ["source-page"]);
@@ -226,7 +226,7 @@ async function bpmSyncFixture(): Promise<{
       { name: "target", tenantCode: "tenant-b", token: "target-token" }
     ]
   });
-  const source = purchaseSourceState();
+  const source = exampleSourceState();
   const target = createBpmState();
   registerBpmRoutes(fixture.server("source"), source);
   registerBpmRoutes(fixture.server("target"), target);
@@ -411,17 +411,17 @@ describe("resource sync bpm：跨环境迁移", () => {
     const { fixture, source, target } = await bpmSyncFixture();
     // 目标环境已有同 URL 页面/接口和旧审计对象
     target.entities.push({
-      id: "target-entity", name: "采购申请", code: "com.example.PurchaseRequest",
-      businessModuleId: "target-module", serviceName: "/purchaseRequest",
+      id: "target-entity", name: "示例流程", code: "com.example.ExampleEntity",
+      businessModuleId: "target-module", serviceName: "/example/flow",
       auditTypeId: "target-old-audit", auditTypeName: "旧审计对象"
     });
-    target.pages.push({ id: "target-page-by-url", name: "旧页面", pcUrl: "/purchase/request", businessModuleId: "another-module" });
-    target.interfaces.push({ id: "target-interface-by-url", name: "旧接口", url: "/purchaseRequest/afterEndFlow", interfaceType: "CUSTOM_PERSON", businessModuleId: "another-module" });
-    target.modules[0] = { id: "target-module", code: "purchase", name: "采购", serviceName: "purchase-service", webBaseAddress: "purchase-web" };
+    target.pages.push({ id: "target-page-by-url", name: "旧页面", pcUrl: "/example/flow", businessModuleId: "another-module" });
+    target.interfaces.push({ id: "target-interface-by-url", name: "旧接口", url: "/example/flow/afterEndFlow", interfaceType: "CUSTOM_PERSON", businessModuleId: "another-module" });
+    target.modules[0] = { id: "target-module", code: "example", name: "示例功能", serviceName: "example-service", webBaseAddress: "example-web" };
 
     const args = [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--select", "flow=采购申请", "--apply"
+      "--select", "flow=示例流程", "--apply"
     ];
     const first = JSON.parse(await runCommand(fixture.program(), args)) as {
       kind: string;
@@ -473,7 +473,7 @@ describe("resource sync bpm：跨环境迁移", () => {
     };
     const error = await runExpectError(fixture.program(), [
       "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--select", "flow=PURCHASE_REQUEST", "--apply"
+      "--select", "flow=EXAMPLE_FLOW", "--apply"
     ]);
     expect(error).toContain("源 BPM 流程类型缺少名称");
     expect(target.modules.length).toBe(snapshot.modules);
@@ -486,12 +486,12 @@ describe("resource sync bpm：跨环境迁移", () => {
   it("目标重复页面标记 blocked，安全资源照常应用", async () => {
     const { fixture, target } = await bpmSyncFixture();
     target.pages.push(
-      { id: "duplicate-page-1", name: "重复页面一", pcUrl: "/purchase/request" },
-      { id: "duplicate-page-2", name: "重复页面二", pcUrl: "/purchase/request" }
+      { id: "duplicate-page-1", name: "重复页面一", pcUrl: "/example/flow" },
+      { id: "duplicate-page-2", name: "重复页面二", pcUrl: "/example/flow" }
     );
     const output = JSON.parse(await runCommand(fixture.program(), [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--select", "flow=PURCHASE_REQUEST", "--apply"
+      "--select", "flow=EXAMPLE_FLOW", "--apply"
     ])) as {
       summary: Record<string, number>;
       skippedBlocked: number;
@@ -505,13 +505,13 @@ describe("resource sync bpm：跨环境迁移", () => {
     expect(output.changes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         resource: "conPage",
-        key: "/purchase/request",
+        key: "/example/flow",
         action: "blocked",
         desired: null
       })
     ]));
     expect(output.blockingIssues[0]).toMatchObject({
-      resource: "conPage", identityField: "pcUrl", value: "/purchase/request", reason: "ambiguous"
+      resource: "conPage", identityField: "pcUrl", value: "/example/flow", reason: "ambiguous"
     });
     expect(target.pages).toHaveLength(2);
     expect(target.interfaces).toHaveLength(1);
@@ -520,10 +520,10 @@ describe("resource sync bpm：跨环境迁移", () => {
 
   it("源页面名称超过 15 个 Unicode 字符时标记 blocked，其他安全资源继续同步", async () => {
     const { fixture, source, target } = await bpmSyncFixture();
-    source.pages[0]!.name = "采购申请处理工作台首页超长页面名称";
+    source.pages[0]!.name = "示例流程处理工作台首页超长页面名称";
     const output = JSON.parse(await runCommand(fixture.program(), [
       "--compact", "resource", "sync", "bpm", "--source", "source", "--target", "target",
-      "--select", "flow=PURCHASE_REQUEST", "--apply"
+      "--select", "flow=EXAMPLE_FLOW", "--apply"
     ])) as {
       summary: Record<string, number>;
       skippedBlocked: number;
@@ -532,7 +532,7 @@ describe("resource sync bpm：跨环境迁移", () => {
     expect(output.summary.blocked).toBe(1);
     expect(output.skippedBlocked).toBe(1);
     expect(output.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ resource: "conPage", action: "blocked", key: "/purchase/request" })
+      expect.objectContaining({ resource: "conPage", action: "blocked", key: "/example/flow" })
     ]));
     expect(target.pages).toHaveLength(0);
     expect(target.interfaces).toHaveLength(1);

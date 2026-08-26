@@ -27,6 +27,21 @@ describe("统一命令面", () => {
       code: "CLI_ERROR",
       message: "普通错误"
     });
+    const aggregate = new CliError("资源契约目录解析失败", 1, {
+      code: "RESOURCE_CONTRACT_INVALID",
+      issues: [
+        { path: "a.resource.yaml", message: "schemaVersion 无效" },
+        { path: "b.resource.yaml", message: "包含未知字段" }
+      ]
+    });
+    expect(renderCliError(aggregate)).toMatchObject({
+      success: false,
+      code: "RESOURCE_CONTRACT_INVALID",
+      issues: [
+        { path: "a.resource.yaml", message: "schemaVersion 无效" },
+        { path: "b.resource.yaml", message: "包含未知字段" }
+      ]
+    });
   });
 
   it("Commander 参数失败只向 stderr 输出一行 JSON", async () => {

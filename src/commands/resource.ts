@@ -1,7 +1,13 @@
 import { Option, type Command } from "commander";
 import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
+import type { EadpConfig } from "../config/schema.js";
 import { ConfigStore } from "../config/store.js";
-import { CliError, errorMessage, type CliErrorCode } from "../errors.js";
+import {
+  CliError,
+  errorMessage,
+  type CliErrorCode,
+  type CliErrorIssue
+} from "../errors.js";
 import { getRuntimeOptions, type RuntimeOptions } from "../runtime-options.js";
 import { formatCompactNdjson, printValue, readJsonInput } from "../io.js";
 import { cliVersion } from "../version.js";
@@ -9,13 +15,11 @@ import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
 import { ResourceClient, createResourceClient, type ResourceFilter, type ResourceRecord } from "../resource/core/client.js";
 import {
-  getResourceContract,
-  listResourceContracts,
-  resourceAdapterRegistry,
-  resourcePhaseHooksRegistry,
-  specialResourceHandlerRegistry,
-  resourceRegistry
+  builtInResourceCatalog,
+  loadResourceCatalog,
+  validateExternalResourceContracts
 } from "../resource/catalog.js";
+import { loadResourceContractPath } from "../resource/external/loader.js";
 import type {
   ResourceContract,
   ResourceSelectorContract
@@ -28,6 +32,7 @@ import {
 import type {
   SpecialResourceHandler
 } from "../resource/handlers/contracts.js";
+import type { ResourceModuleCatalog } from "../resource/modules/contracts.js";
 
 interface FilterOptions {
   filter: string[];
@@ -53,14 +58,12 @@ interface ResourceMigrationOptions extends FilterOptions {
   apply?: boolean;
   select?: string[];
 }
-const engine = new ResourceEngine(resourceAdapterRegistry, resourcePhaseHooksRegistry, resourceRegistry);
-
 /** Register the generic resource-first command tree. */
 export function registerResourceCommands(
   store: ConfigStore,
   root: Command
 ): void {
-  const registeredContracts = listResourceContracts();
+  const registeredContracts = builtInResourceCatalog.registry.list();
   const ordinaryResources = registeredContracts
     .filter((contract) => !contract.handler)
     .map((contract) => formatResourceName(contract))
@@ -81,7 +84,9 @@ export function registerResourceCommands(
 动作统一为 create、update、delete、unchanged、blocked；delete 只来自资源声明的完整删除契约；传输失败立即停止，不自动重试。
 参数完整时直接执行；资源名、环境或选择器不明确时用 inspect 发现。
 使用 eadp resource inspect [name] [action] 发现资源能力、契约摘要或单个动作的结构化参数。
+外部契约固定从 config.yaml 同目录下的 contracts 文件夹按最大可用原则加载；validate 保持严格离线校验，不执行远端请求。
 示例：
+  eadp resource validate D:\\contracts
   eadp resource inspect
   eadp resource inspect feature
   eadp resource inspect menu compare
@@ -89,8 +94,27 @@ export function registerResourceCommands(
   eadp resource query feature --env dev --fields code,name --limit 20
   eadp resource write app-module --env global-dev --data '{"code":"ORDER","name":"订单"}' --apply
   eadp resource compare feature --source dev --target test
-  eadp resource sync menu --source dev --target test --select code=PURCHASE --apply`
+  eadp resource sync menu --source dev --target test --select code=EXAMPLE_MENU --apply`
     );
+
+  resource
+    .command("validate")
+    .description("离线校验一个 *.resource.yaml 文件或资源契约目录；不读取环境、不访问远端")
+    .argument("<path>", "规范化绝对文件或目录路径")
+    .action(async (path: string) => {
+      const runtime = getRuntimeOptions(root);
+      const contracts = await loadResourceContractPath(path);
+      validateExternalResourceContracts(contracts);
+      printValue(
+        {
+          success: true,
+          kind: "eadp.resource-contract-validation.v1",
+          path,
+          contracts: contracts.map((contract) => contractSummary(contract))
+        },
+        runtime.compact
+      );
+    });
 
   resource
     .command("inspect")
@@ -99,27 +123,30 @@ export function registerResourceCommands(
     .argument("[action]", "动作：query、write、compare 或 sync")
     .action(async (name: string | undefined, action: string | undefined) => {
       const runtime = getRuntimeOptions(root);
-      const environment = await readEnvironmentOverview(store);
+      const loaded = await loadCommandResources(store);
+      const environment = readEnvironmentOverview(loaded.config);
       if (name === undefined) {
         printValue(
           {
             kind: "eadp.resource.catalog.v2",
             cliVersion,
             environment,
-            resources: listResourceContracts().map((contract) => catalogEntry(contract))
+            resources: loaded.catalog.registry.list().map((contract) => catalogEntry(contract)),
+            ...contractIssueFields(loaded)
           },
           runtime.compact
         );
         return;
       }
-      const contract = getResourceContract(name);
+      const contract = resolveLoadedContract(loaded, name);
       if (action === undefined) {
         printValue(
           {
             kind: "eadp.resource.contract.v1",
             cliVersion,
             environment,
-            ...contractSummary(contract)
+            ...contractSummary(contract),
+            ...contractIssueFields(loaded)
           },
           runtime.compact
         );
@@ -150,7 +177,8 @@ export function registerResourceCommands(
           requiredOptions: actionRequiredOptions(action as ResourceAction),
           optionalOptions: actionOptionalOptions(action as ResourceAction, contract),
           selectors: selectorDigest(contract),
-          fields: actionFields(action as ResourceAction, contract)
+          fields: actionFields(action as ResourceAction, contract),
+          ...contractIssueFields(loaded)
         },
         runtime.compact
       );
@@ -167,13 +195,14 @@ export function registerResourceCommands(
     .option("--fields <fields>", "只输出指定字段，逗号分隔"), true)
     .addHelpText("after", "\n支持 EQ、NE、LIKE、GT、GE、LT、LE；分页资源会在返回前完成全部页面读取。")
     .action(async (name: string, options: ResourceQueryOptions) => {
-      const contract = getResourceContract(name);
+      const loaded = await loadCommandResources(store);
+      const contract = resolveLoadedContract(loaded, name);
       assertCapability(contract, "query");
-      const environment = resolveEnvironment(await store.load(), options.env);
+      const environment = resolveEnvironment(loaded.config, options.env);
       assertResourceTenant(contract, environment.config.tenantCode, environment.name, "query");
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
-      const special = getSpecialHandler(contract, "query");
+      const special = getSpecialHandler(loaded.catalog, contract, "query");
       const countMode: "none" | "count" | "summary" = options.count
         ? "count"
         : options.summary
@@ -194,7 +223,8 @@ export function registerResourceCommands(
               resource: contract.id,
               environment: environment.name,
               count: result.items.length,
-              ...(countMode === "summary" ? { summaryInfo: null } : {})
+              ...(countMode === "summary" ? { summaryInfo: null } : {}),
+              ...contractIssueFields(loaded)
             },
             runtime.compact
           );
@@ -211,7 +241,8 @@ export function registerResourceCommands(
             resource: contract.id,
             environment: environment.name,
             count: counted.count,
-            ...(countMode === "summary" ? { summaryInfo: counted.summaryInfo } : {})
+            ...(countMode === "summary" ? { summaryInfo: counted.summaryInfo } : {}),
+            ...contractIssueFields(loaded)
           },
           runtime.compact
         );
@@ -228,13 +259,13 @@ export function registerResourceCommands(
         });
       } else {
         const client = createClient(environment, contract.service, runtime.timeoutMs);
-        result = await engine.query(contract, client, environment.name, {
+        result = await loaded.engine.query(contract, client, environment.name, {
           filters,
           ...(options.quick === undefined ? {} : { quickSearchValue: options.quick })
         });
       }
-      const items = applyResultTrimming(result.items, options);
-      printQuery({ ...result, items }, runtime);
+      const items = applyResultTrimming(result.items, options, contract);
+      printQuery({ ...result, items, ...contractIssueFields(loaded) }, runtime);
     });
 
   resource
@@ -245,9 +276,10 @@ export function registerResourceCommands(
     .requiredOption("--data <json>", "JSON 对象或对象数组")
     .option("--apply", "执行 create/update；默认预览")
     .action(async (name: string, options: ResourceWriteOptions) => {
-      const contract = getResourceContract(name);
+      const loaded = await loadCommandResources(store);
+      const contract = resolveLoadedContract(loaded, name);
       assertCapability(contract, "write");
-      const environment = resolveEnvironment(await store.load(), options.env);
+      const environment = resolveEnvironment(loaded.config, options.env);
       assertResourceTenant(contract, environment.config.tenantCode, environment.name, "write");
       const input = await readJsonInput({ data: options.data });
       if (!isRecordOrArray(input)) throw new CliError("--data 必须是 JSON 对象或对象数组");
@@ -259,7 +291,7 @@ export function registerResourceCommands(
         command: `eadp resource write ${contract.id}`,
         targetEnvironment: environment.name
       }, async (recorder) => {
-        return engine.write(
+        return loaded.engine.write(
           contract,
           createClient(environment, contract.service, runtime.timeoutMs),
           input,
@@ -272,7 +304,11 @@ export function registerResourceCommands(
           }
         );
       });
-      printValue({ ...result, environment: environment.name }, runtime.compact);
+      printValue({
+        ...result,
+        environment: environment.name,
+        ...contractIssueFields(loaded)
+      }, runtime.compact);
     });
 
   addResourceMigrationOptions(resource
@@ -282,9 +318,10 @@ export function registerResourceCommands(
     .requiredOption("--source <env>", "源环境名称")
     .requiredOption("--target <env>", "目标环境名称"))
     .action(async (name: string, options: ResourceMigrationOptions) => {
-      const contract = getResourceContract(name);
+      const loaded = await loadCommandResources(store);
+      const contract = resolveLoadedContract(loaded, name);
       assertCapability(contract, "compare");
-      const { source, target } = await resolveMigrationEnvironments(store, options);
+      const { source, target } = resolveMigrationEnvironments(loaded.config, options);
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
@@ -292,7 +329,7 @@ export function registerResourceCommands(
         throw new CliError(`资源 ${contract.id} 不支持通用过滤条件`);
       }
       const selectors = parseSelectOptions(contract, options.select ?? []);
-      const result = await engine.compare(
+      const result = await loaded.engine.compare(
         contract,
         createClient(source, contract.service, runtime.timeoutMs),
         createClient(target, contract.service, runtime.timeoutMs),
@@ -303,7 +340,7 @@ export function registerResourceCommands(
           selectors
         }
       );
-      printValue(result, runtime.compact);
+      printValue({ ...result, ...contractIssueFields(loaded) }, runtime.compact);
     });
 
   addResourceMigrationOptions(resource
@@ -314,9 +351,10 @@ export function registerResourceCommands(
     .requiredOption("--target <env>", "目标环境名称")
     .option("--apply", "执行同步；仅按显式删除契约执行 delete，blocked 记录会跳过"))
     .action(async (name: string, options: ResourceMigrationOptions) => {
-      const contract = getResourceContract(name);
+      const loaded = await loadCommandResources(store);
+      const contract = resolveLoadedContract(loaded, name);
       assertCapability(contract, "sync");
-      const { source, target } = await resolveMigrationEnvironments(store, options);
+      const { source, target } = resolveMigrationEnvironments(loaded.config, options);
       assertMigrationTenants(contract, sourceForTenant(source), sourceForTenant(target));
       const runtime = getRuntimeOptions(root);
       const filters = buildResourceFilters(contract, options);
@@ -331,7 +369,7 @@ export function registerResourceCommands(
         command: `eadp resource sync ${contract.id}`,
         targetEnvironment: target.name
       }, async (recorder) => {
-        return engine.sync(
+        return loaded.engine.sync(
           contract,
           createClient(source, contract.service, runtime.timeoutMs),
           createClient(target, contract.service, runtime.timeoutMs),
@@ -345,7 +383,7 @@ export function registerResourceCommands(
           }
         );
       });
-      printValue(result, runtime.compact);
+      printValue({ ...result, ...contractIssueFields(loaded) }, runtime.compact);
     });
 }
 
@@ -355,6 +393,7 @@ interface ResourceQueryResult {
   environment: string;
   total: number;
   items: ResourceRecord[];
+  contractIssues?: readonly CliErrorIssue[];
 }
 
 interface ResourceEnvironmentOverview {
@@ -364,8 +403,61 @@ interface ResourceEnvironmentOverview {
   tenantCodes: Record<string, string | null>;
 }
 
-async function readEnvironmentOverview(store: ConfigStore): Promise<ResourceEnvironmentOverview> {
+interface LoadedCommandResources {
+  config: EadpConfig;
+  catalog: ResourceModuleCatalog;
+  engine: ResourceEngine;
+  contractIssues: readonly CliErrorIssue[];
+}
+
+async function loadCommandResources(store: ConfigStore): Promise<LoadedCommandResources> {
   const config = await store.load();
+  const loadedCatalog = await loadResourceCatalog(store.contractsDirectory, {
+    allowMissingDirectory: true
+  });
+  const catalog = loadedCatalog.catalog;
+  return {
+    config,
+    catalog,
+    contractIssues: loadedCatalog.issues,
+    engine: new ResourceEngine(
+      catalog.adapterRegistry,
+      catalog.phaseHooksRegistry,
+      catalog.registry
+    )
+  };
+}
+
+function resolveLoadedContract(
+  loaded: LoadedCommandResources,
+  name: string
+): ResourceContract {
+  try {
+    return loaded.catalog.registry.get(name);
+  } catch (error) {
+    if (error instanceof CliError &&
+        error.code === "UNKNOWN_RESOURCE" &&
+        loaded.contractIssues.length > 0) {
+      throw new CliError(error.message, error.exitCode, {
+        code: error.code,
+        ...(error.candidates === undefined ? {} : { candidates: error.candidates }),
+        ...(error.requiredInput === undefined ? {} : { requiredInput: error.requiredInput }),
+        issues: loaded.contractIssues
+      });
+    }
+    throw error;
+  }
+}
+
+function contractIssueFields(
+  loaded: LoadedCommandResources
+): { contractIssues?: readonly CliErrorIssue[] } {
+  return loaded.contractIssues.length > 0
+    ? { contractIssues: loaded.contractIssues }
+    : {};
+}
+
+function readEnvironmentOverview(config: EadpConfig): ResourceEnvironmentOverview {
   const environments = Object.entries(config.environments ?? {});
   return {
     current: config.currentEnvironment ?? null,
@@ -392,6 +484,7 @@ function catalogEntry(contract: ResourceContract): Record<string, unknown> {
     identityFields: contract.identityFields,
     compareFields: contract.compareFields,
     writableFields: contract.writableFields,
+    sensitiveFields: contract.sensitiveFields ?? [],
     tenant: contract.tenant,
     filtering: contract.filtering ?? { time: false },
     enums: contract.enums ?? {},
@@ -415,6 +508,7 @@ function contractSummary(contract: ResourceContract): Record<string, unknown> {
     identityFields: contract.identityFields,
     compareFields: contract.compareFields,
     writableFields: contract.writableFields,
+    sensitiveFields: contract.sensitiveFields ?? [],
     filtering: contract.filtering ?? { time: false },
     enums: contract.enums ?? {},
     selectors: contract.selectors ?? [],
@@ -483,7 +577,8 @@ function actionFields(action: ResourceAction, contract: ResourceContract): Recor
     case "query":
       return {
         filtering: contract.filtering ?? { time: false },
-        enums: contract.enums ?? {}
+        enums: contract.enums ?? {},
+        sensitiveFields: contract.sensitiveFields ?? []
       };
     case "write":
       return {
@@ -515,7 +610,8 @@ function actionFields(action: ResourceAction, contract: ResourceContract): Recor
 
 function applyResultTrimming(
   items: ResourceRecord[],
-  options: ResourceQueryOptions
+  options: ResourceQueryOptions,
+  contract: ResourceContract
 ): ResourceRecord[] {
   let result = items;
   if (options.fields) {
@@ -532,15 +628,24 @@ function applyResultTrimming(
     }
     result = result.slice(0, limit);
   }
-  return result;
+  const sensitiveFields = contract.sensitiveFields ?? [];
+  if (sensitiveFields.length === 0) return result;
+  return result.map((row) => {
+    const redacted = { ...row };
+    for (const field of sensitiveFields) {
+      if (Object.prototype.hasOwnProperty.call(redacted, field)) {
+        redacted[field] = "[REDACTED]";
+      }
+    }
+    return redacted;
+  });
 }
 
-async function resolveMigrationEnvironments(
-  store: ConfigStore,
+function resolveMigrationEnvironments(
+  config: EadpConfig,
   options: ResourceMigrationOptions
-): Promise<{ source: ResolvedEnvironment; target: ResolvedEnvironment }> {
+): { source: ResolvedEnvironment; target: ResolvedEnvironment } {
   if (options.source === options.target) throw new CliError("源环境和目标环境不能相同");
-  const config = await store.load();
   return { source: resolveEnvironment(config, options.source), target: resolveEnvironment(config, options.target) };
 }
 
@@ -584,7 +689,7 @@ function addResourceFilterOptions(command: Command, quick: boolean): Command {
 function addResourceMigrationOptions(command: Command): Command {
   command
     .addOption(
-      new Option("--select <name=value>", "资源选择器，可重复（如 code=PURCHASE）")
+      new Option("--select <name=value>", "资源选择器，可重复（如 code=EXAMPLE_MENU）")
         .default([])
         .argParser(collect)
     );
@@ -686,11 +791,12 @@ function parseSelectOptions(
 }
 
 function getSpecialHandler(
+  catalog: ResourceModuleCatalog,
   contract: ResourceContract,
   capability: "query"
 ): SpecialResourceHandler | undefined {
   if (!contract.handler) return undefined;
-  const handler = specialResourceHandlerRegistry.get(contract.handler);
+  const handler = catalog.handlerRegistry.get(contract.handler);
   if (typeof handler[capability] !== "function") {
     throw new CliError(`资源 ${contract.id} 的 ${capability} 处理器未注册`);
   }

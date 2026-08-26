@@ -40,7 +40,7 @@ filters, run the action immediately with one command — do not discover first:
 eadp resource query feature --env dev --count
 eadp resource query feature --env dev --fields code,name --limit 20
 eadp resource compare feature --source dev --target test
-eadp resource sync menu --source dev --target test --select code=PURCHASE
+eadp resource sync menu --source dev --target test --select code=EXAMPLE_FEATURE
 ```
 
 - `query` supports `--count` (total records only), `--summary` (count plus
@@ -52,7 +52,7 @@ eadp resource sync menu --source dev --target test --select code=PURCHASE
   writes only with `--apply`.
 - `compare`/`sync` need `--source <env>` and `--target <env>`. Resource
   selectors use one unified syntax: `--select <name>=<value>` (for example
-  `--select code=PURCHASE`, `--select flow=采购申请`); the CLI validates the
+  `--select code=EXAMPLE_FEATURE`, `--select flow=示例流程`); the CLI validates the
   name against the current contract.
 - `--apply` is the only switch that writes. Preview first for every mutation.
 
