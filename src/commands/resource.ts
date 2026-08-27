@@ -1,4 +1,5 @@
 import { Option, type Command } from "commander";
+import { join, resolve } from "node:path";
 import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
 import type { EadpConfig } from "../config/schema.js";
 import { ConfigStore } from "../config/store.js";
@@ -84,8 +85,9 @@ export function registerResourceCommands(
 动作统一为 create、update、delete、unchanged、blocked；delete 只来自资源声明的完整删除契约；传输失败立即停止，不自动重试。
 参数完整时直接执行；资源名、环境或选择器不明确时用 inspect 发现。
 使用 eadp resource inspect [name] [action] 发现资源能力、契约摘要或单个动作的结构化参数。
-外部契约固定从 config.yaml 同目录下的 contracts 文件夹按最大可用原则加载；validate 保持严格离线校验，不执行远端请求。
+外部契约固定从 config.yaml 同目录下的 contracts 文件夹按最大可用原则加载；contract-path 返回默认生成目标，validate 保持严格离线校验。
 示例：
+  eadp resource contract-path db-info
   eadp resource validate D:\\contracts
   eadp resource inspect
   eadp resource inspect feature
@@ -98,9 +100,34 @@ export function registerResourceCommands(
     );
 
   resource
+    .command("contract-path")
+    .description("返回资源契约默认生成目标；不读取配置内容、不访问远端、不创建文件")
+    .argument("<name>", "资源契约 ID")
+    .action((name: string) => {
+      if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+        throw new CliError(`资源契约 ID 无效：${name}`, 1, {
+          code: "INVALID_ARGUMENT",
+          requiredInput: "resource"
+        });
+      }
+      const runtime = getRuntimeOptions(root);
+      const directory = resolve(store.contractsDirectory);
+      printValue(
+        {
+          success: true,
+          kind: "eadp.resource-contract-path.v1",
+          resource: name,
+          directory,
+          path: join(directory, `${name}.resource.yaml`)
+        },
+        runtime.compact
+      );
+    });
+
+  resource
     .command("validate")
     .description("离线校验一个 *.resource.yaml 文件或资源契约目录；不读取环境、不访问远端")
-    .argument("<path>", "规范化绝对文件或目录路径")
+    .argument("<path>", "绝对文件或目录路径")
     .action(async (path: string) => {
       const runtime = getRuntimeOptions(root);
       const contracts = await loadResourceContractPath(path);

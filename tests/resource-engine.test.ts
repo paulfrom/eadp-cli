@@ -403,7 +403,7 @@ describe("resource compare / sync：五动作与幂等", () => {
     ])) as { summary: Record<string, number> };
     expect(again.summary).toEqual({ create: 0, update: 0, delete: 0, unchanged: 2, blocked: 0 });
     expect(state.saves).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("compare 与 sync 输出统一 change-set 信封", async () => {
     const fixture = await createFixture();

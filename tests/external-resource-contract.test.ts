@@ -23,8 +23,11 @@ describe("declarative external resource contracts", () => {
     const fixture = await createFixture();
     await mountExampleContract(fixture.store.contractsDirectory);
 
+    const validationPath = process.platform === "win32"
+      ? exampleFile.replaceAll("\\", "/")
+      : exampleFile;
     const validation = JSON.parse(await runCommand(fixture.program(), [
-      "resource", "validate", exampleFile
+      "resource", "validate", validationPath
     ])) as { success: boolean; contracts: Array<{ id: string }> };
     expect(validation.success).toBe(true);
     expect(validation.contracts.map((contract) => contract.id)).toEqual(["db-info"]);
@@ -37,6 +40,27 @@ describe("declarative external resource contracts", () => {
       name: "db-info",
       sensitiveFields: ["dbPass"]
     }));
+    expect(fixture.server("source").requests).toHaveLength(0);
+  });
+
+  it("returns the fixed default generation target without reading environments", async () => {
+    const fixture = await createFixture();
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "contract-path", "content-template"
+    ])) as {
+      success: boolean;
+      kind: string;
+      resource: string;
+      directory: string;
+      path: string;
+    };
+    expect(output).toEqual({
+      success: true,
+      kind: "eadp.resource-contract-path.v1",
+      resource: "content-template",
+      directory: resolve(fixture.store.contractsDirectory),
+      path: resolve(fixture.store.contractsDirectory, "content-template.resource.yaml")
+    });
     expect(fixture.server("source").requests).toHaveLength(0);
   });
 

@@ -24,7 +24,7 @@ The specialized methods `getBaseName`, `testConfig`, `clearCache`, and `getTable
 
 ## Generated contract
 
-Use the maintained [DbInfo contract asset](../assets/db-info.resource.yaml). Copy it only to the user-requested generation output path; do not copy it into the CLI runtime `contracts` directory.
+Use the maintained [DbInfo contract asset](../assets/db-info.resource.yaml). Write it to the user-requested absolute output when one is explicit; otherwise use the exact path returned by `eadp resource contract-path db-info`.
 
 `tenant.policy: any` is the policy selected for this example contract; it does not establish a default for other resources. The presence of `tenantCode` in a DTO alone is not enough to reuse this policy elsewhere.
 

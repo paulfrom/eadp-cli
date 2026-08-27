@@ -305,6 +305,33 @@ try {
     );
   }
 
+  const contractPath = spawnSync(
+    process.platform === "win32" ? "eadp.cmd" : executable,
+    ["resource", "contract-path", "content-template"],
+    {
+      cwd: executableDirectory,
+      encoding: "utf8",
+      env: { ...process.env, EADP_CONFIG_DIR: inspectConfigDirectory },
+      shell: process.platform === "win32"
+    }
+  );
+  const expectedContractPath = join(
+    inspectConfigDirectory,
+    "contracts",
+    "content-template.resource.yaml"
+  );
+  if (
+    contractPath.status !== 0 ||
+    !contractPath.stdout.includes('"kind": "eadp.resource-contract-path.v1"') ||
+    !contractPath.stdout.includes(JSON.stringify(expectedContractPath).slice(1, -1))
+  ) {
+    throw new Error(
+      `npm 命令入口未返回固定资源契约目标：eadp resource contract-path content-template\n${
+        contractPath.stderr || contractPath.stdout
+      }`
+    );
+  }
+
   const invalid = spawnSync(
     process.platform === "win32" ? "eadp.cmd" : executable,
     ["resource", "query", "feature", "--bogus"],
@@ -477,7 +504,15 @@ try {
   }
   for (const home of [codexHome, workbuddyHome, claudeHome, qoderHome]) {
     await access(join(home, "skills", "eadp-operator", "SKILL.md"));
-    await access(join(home, "skills", "eadp-resource-contract", "SKILL.md"));
+    const generatorSkillPath = join(home, "skills", "eadp-resource-contract", "SKILL.md");
+    await access(generatorSkillPath);
+    const generatorSkill = await readFile(generatorSkillPath, "utf8");
+    if (
+      !generatorSkill.includes("eadp resource contract-path <id>") ||
+      !generatorSkill.includes("Do not run a separate mount/register step")
+    ) {
+      throw new Error(`安装后的资源契约 Skill 不是当前默认生成路径规则：${generatorSkillPath}`);
+    }
   }
 
   if (process.env.EADP_LIVE_FEATURE_TEST === "1") {

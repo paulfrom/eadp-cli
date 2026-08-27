@@ -12,8 +12,12 @@ describe("eadp-resource-contract Skill", () => {
     expect(skill).toContain("name: eadp-resource-contract");
     expect(skill).toContain("references/resource-contract-schema.md");
     expect(skill).toContain("references/db-info-example.md");
+    expect(skill).toContain("eadp resource contract-path <id>");
     expect(skill).toContain("eadp resource validate <absolute-file-or-directory>");
-    expect(skill).toContain("never executes resource operations");
+    expect(skill).toContain("never mounts resources or executes resource operations");
+    expect(skill).toContain("Otherwise run `eadp resource contract-path <id>` once");
+    expect(skill).toContain("Do not create memory logs");
+    expect(skill).toContain("Do not run a separate mount/register step");
   });
 
   it("DbInfo 示例是可校验的 query-only 契约并保护 dbPass", async () => {

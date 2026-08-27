@@ -73,10 +73,16 @@ Target-only deletion additionally requires a complete `deletion` contract with `
 
 ## Validation
 
-After writing the file, validate only the generated artifact:
+Unless the user explicitly supplies another output location, first resolve the fixed generation target and write the contract there:
+
+```powershell
+eadp resource contract-path example-resource
+```
+
+Use the returned `path` exactly. After writing the file, validate only that generated artifact:
 
 ```powershell
 eadp resource validate D:\absolute\path\example.resource.yaml
 ```
 
-The path must be normalized and absolute. A directory is also accepted and validates every direct `*.resource.yaml` file. One invalid file does not stop later files from being parsed; after the scan, report every entry from the structured `issues` array and stop. Do not copy files into the CLI configuration directory's fixed `contracts` folder, configure, query, or retry with changed semantics.
+The path must be absolute; the CLI normalizes Windows slash style internally. A directory is also accepted and validates every direct `*.resource.yaml` file. One invalid file does not stop later files from being parsed; after the scan, report every entry from the structured `issues` array and stop. Do not create a temporary copy, configure environments, query resources, or retry with changed semantics.

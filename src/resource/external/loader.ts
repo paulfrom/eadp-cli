@@ -40,9 +40,10 @@ export async function loadResourceContractPath(path: string): Promise<ResourceCo
 /** Scan every manifest and retain all individually usable contracts. */
 export async function scanResourceContractPath(path: string): Promise<ResourceContractScanResult> {
   assertAbsolutePath(path);
+  const normalizedPath = resolve(path);
   let resolved: string;
   try {
-    resolved = await realpath(path);
+    resolved = await realpath(normalizedPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       throw new CliError(`资源契约路径不存在：${path}`, 1, {
@@ -146,8 +147,8 @@ async function loadResourceContractFile(filePath: string): Promise<ResourceContr
 }
 
 function assertAbsolutePath(path: string): void {
-  if (!isAbsolute(path) || resolve(path) !== path) {
-    throw new CliError(`资源契约路径必须是规范化绝对路径：${path}`, 1, {
+  if (!isAbsolute(path)) {
+    throw new CliError(`资源契约路径必须是绝对路径：${path}`, 1, {
       code: "RESOURCE_DIRECTORY_INVALID",
       requiredInput: "resourceContractPath"
     });

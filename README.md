@@ -152,6 +152,7 @@ eadp env remove dev2
 设置 `EADP_CONFIG_DIR` 时，`config.yaml` 与 `contracts` 一起移动到指定目录。npm 安装或升级 EADP CLI
 会自动创建 `contracts`。运行时只读该固定位置：目录不存在表示没有外部资源，不会在业务命令中写磁盘。
 CLI 只读取目录直属的 `*.resource.yaml`，不加载脚本、adapter、handler 或子目录。
+`eadp resource contract-path <id>` 可在不读取配置内容、不访问远端的情况下返回该资源的默认生成文件路径。
 
 `env add` 会读取并保存 `tenantCode`；验证失败时不会保存新的 Token。
 Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env add`。
@@ -604,8 +605,9 @@ eadp resource validate C:\Users\lin\.eadp-cli\contracts\db-info.resource.yaml
 eadp resource validate C:\Users\lin\.eadp-cli\contracts
 ```
 
-`validate` 只读取指定本地文件或目录，不读取环境配置、不访问远端，也不会复制文件。校验通过后，把文件放入
-与 `config.yaml` 同目录的 `contracts`，下一次资源命令会自动加载：
+`validate` 只读取指定本地文件或目录，不读取环境配置、不访问远端，也不会复制文件。契约生成器在用户没有
+显式指定其他输出位置时，先执行 `eadp resource contract-path <id>`，再把契约直接写到返回的固定目标；无需先写
+临时文件再手工复制。下一次资源命令会自动加载：
 
 ```powershell
 eadp resource inspect db-info
@@ -629,8 +631,10 @@ CLI 按“最大可用”原则注册：解析无效的文件被跳过；与内�
 所以不能仅凭继承的 `save/delete/findOne` 推断 write、compare 或 sync；`dbPass` 被标为敏感字段。
 
 生成其他资源契约时使用独立的 `eadp-resource-contract` Skill。它负责读取用户指定的 Controller 及其
-API、DTO/Entity、枚举和继承框架证据，生成 `.resource.yaml` 并且只运行一次本地 `resource validate`；
-它不得把文件复制到固定 `contracts` 目录、配置环境或执行资源命令。生成后由用户明确决定是否放入目录生效。
+API、DTO/Entity、枚举和继承框架证据，生成 `.resource.yaml` 并且只运行一次本地 `resource validate`。
+除非用户显式指定其他输出位置，否则生成地址就是 `resource contract-path <id>` 返回的固定 `contracts` 目标；
+这仍然只是生成与离线校验，Skill 不执行单独的挂载/注册步骤，不配置环境，也不执行
+query/write/compare/sync 等资源操作。
 
 外部契约适合契约能够完整表达的普通资源。树结构、聚合规划、依赖 ID 重映射或领域写入仍应作为包内模块实现：
 
@@ -728,7 +732,7 @@ eadp permission revoke role \
 | Skill | 只负责 | 明确不负责 |
 | --- | --- | --- |
 | `eadp-operator` | 发现并操作 CLI；按需加载查询审计、资源同步、权限管理、BPM、给号、回滚等运行工作流 | 生成资源契约 |
-| `eadp-resource-contract` | 根据代码证据生成严格的 `.resource.yaml`，并用 `eadp resource validate` 离线校验 | 挂载资源、配置环境、读取 Token、访问远端、执行 query/write/compare/sync |
+| `eadp-resource-contract` | 根据代码证据生成严格的 `.resource.yaml`；默认直接写入固定契约目标，并用 `eadp resource validate` 离线校验 | 配置环境、读取 Token、访问远端、执行 query/write/compare/sync |
 
 后续 CLI 运行工作流继续放入 `eadp-operator`，资源契约生成规则放入 `eadp-resource-contract`，不互相承载。
 `eadp-operator` 的主要入口包括：
