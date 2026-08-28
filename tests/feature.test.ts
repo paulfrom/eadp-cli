@@ -82,6 +82,41 @@ function pageArgs(extra: string[] = []): string[] {
   ];
 }
 
+describe("feature detail", () => {
+  it("声明 detail 能力并按 code 调用 findByCode 明细接口", async () => {
+    const fixture = await createFixture();
+    const state = featureApplyState();
+    state.features.push({ id: "feature-1", code: "BASIC_VIEW", name: "查看" });
+    registerFeatureApplyRoutes(fixture.server("source"), state);
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "feature", "detail"
+    ])) as {
+      resource: string;
+      action: string;
+      selectors: Record<string, Record<string, unknown>>;
+    };
+    expect(action).toMatchObject({ resource: "feature", action: "detail" });
+    expect(action.selectors).toEqual({
+      code: { required: true, valuePlaceholder: "code", description: "功能项 code" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "feature", "--env", "source", "--select", "code=BASIC_VIEW"
+    ])) as { item: Record<string, unknown>; selectors: Record<string, string> };
+    expect(output).toMatchObject({
+      selectors: { code: "BASIC_VIEW" },
+      item: { id: "feature-1", code: "BASIC_VIEW", name: "查看" }
+    });
+    const request = fixture.server("source").requests.find((item) =>
+      item.path.endsWith("/feature/findByCode")
+    );
+    expect(request).toMatchObject({ method: "GET" });
+    expect(request?.query.get("code")).toBe("BASIC_VIEW");
+    expect(request?.body).toBeUndefined();
+  });
+});
+
 describe("permission apply feature：六大场景", () => {
   it("场景1 预览：输出计划（desired）且远端写接口调用次数为 0", async () => {
     const fixture = await createFixture();

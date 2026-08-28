@@ -4,6 +4,42 @@ Use this reference for read-only resource queries, time-scoped audits, and
 permission verification. Treat the live CLI contract as the authority; this
 file contains no resource or time-support allowlist.
 
+## Query one resource detail
+
+Use the detail action when the user asks for one resource's complete record and
+the resource contract declares `detail` in `capabilities` plus a `detail`
+endpoint. This is a single-record read, not a list query narrowed locally.
+
+1. If the resource, environment, or selector name/value is missing or
+   ambiguous, run only the needed `eadp resource inspect [name] [action]` form.
+   For a detail request, `eadp resource inspect <name> detail` is the source of
+   truth for the required `detail.selectors`; do not infer them from `id`,
+   `identityFields`, or an endpoint name.
+2. Confirm `detail` in `capabilities`, confirm the environment's recorded
+   `tenantCode` satisfies `tenant.policy`, and provide every declared detail
+   selector exactly once with `--select <name>=<value>`.
+3. When all values are complete, execute the same direct command:
+
+   ```text
+   eadp resource detail <name> --env <env> --select <selector>=<value>
+   ```
+
+   Repeat `--select` for additional declared selectors. Do not add
+   `--filter`, `--quick`, time options, pagination options, or an undocumented
+   `--id` option.
+4. Interpret `eadp.resource.detail.v1` as one result containing the canonical
+   resource, environment, selectors, and `item`. `item: null` means the exact
+   selector did not identify a record; it is not permission to broaden the
+   selector or fall back to `resource query`.
+5. Honor `sensitiveFields`: redact those fields in the reported `item` even
+   when the detail endpoint returns them. Report the exact environment and
+   selectors used, without exposing credentials or endpoint details.
+
+If `detail` is absent, a selector is unknown/missing, tenant validation fails,
+or the detail request fails, stop with the structured CLI error. Do not guess a
+detail endpoint, retry with a list query, switch environments, or alter the
+selector.
+
 ## Query an ordinary resource
 
 1. When the resource, environment, filter, or option is missing or ambiguous,

@@ -6,6 +6,17 @@ export const serialNumberContract: ResourceContract =   {
     description: "查询、创建或更新给号配置；业务唯一键为 entityClassName + tenantCode。",
     service: "sei-basic",
     query: { path: "serialNumberConfig/findByPage", method: "POST" },
+    detail: {
+      path: "serialNumberConfig/getDetail",
+      method: "GET",
+      selectors: [{
+        name: "id",
+        field: "id",
+        placement: "query",
+        valuePlaceholder: "id",
+        description: "给号配置 ID"
+      }]
+    },
     save: { path: "serialNumberConfig/save", method: "POST" },
     read: "paged",
     pagination: {
@@ -31,7 +42,7 @@ export const serialNumberContract: ResourceContract =   {
       "tenantIsolation", "isolationExpression", "configItem"
     ],
     tenant: { policy: "global", bindField: "tenantCode" },
-    capabilities: ["query", "write", "compare", "sync"],
+    capabilities: ["query", "detail", "write", "compare", "sync"],
     help: "给号配置自动绑定目标环境 tenantCode；新增时缺失/null/空白 configType 默认 CODE_TYPE、returnStrategy 默认 NEW。",
     defaults: {
       create: { returnStrategy: "NEW", configType: "CODE_TYPE" },

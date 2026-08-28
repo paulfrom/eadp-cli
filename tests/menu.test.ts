@@ -145,6 +145,52 @@ describe("menu query", () => {
   });
 });
 
+describe("menu detail", () => {
+  it("按 id 通过 GET 查询参数调用 menu/findOne 并返回单条明细", async () => {
+    const fixture = await createFixture();
+    const state = menuState();
+    state.roots = [menuNode({ code: "EXAMPLE_MENU", name: "示例菜单" })];
+    registerMenuTreeRoutes(fixture.server("source"), state);
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "menu", "--env", "source", "--select", "id=id-EXAMPLE_MENU"
+    ])) as {
+      kind: string;
+      resource: string;
+      selectors: Record<string, string>;
+      item: Record<string, unknown> | null;
+    };
+
+    expect(output).toMatchObject({
+      kind: "eadp.resource.detail.v1",
+      resource: "menu",
+      selectors: { id: "id-EXAMPLE_MENU" },
+      item: { id: "id-EXAMPLE_MENU", code: "EXAMPLE_MENU", name: "示例菜单" }
+    });
+    const request = fixture.server("source").requests.find((item) =>
+      item.path.endsWith("/menu/findOne")
+    );
+    expect(request).toMatchObject({
+      method: "GET",
+      path: "/api-gateway/sei-basic/menu/findOne"
+    });
+    expect(request?.query.get("id")).toBe("id-EXAMPLE_MENU");
+    expect(request?.body).toBeUndefined();
+  });
+
+  it("找不到菜单时返回 item=null", async () => {
+    const fixture = await createFixture();
+    const state = menuState();
+    registerMenuTreeRoutes(fixture.server("source"), state);
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "menu", "--env", "source", "--select", "id=missing-menu"
+    ])) as { item: Record<string, unknown> | null };
+
+    expect(output.item).toBeNull();
+  });
+});
+
 describe("menu create：六大场景", () => {
   it("场景1 预览：解析依赖但不写入，输出计划", async () => {
     const fixture = await createFixture();

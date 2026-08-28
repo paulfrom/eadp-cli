@@ -6,13 +6,24 @@ export const appModuleContract: ResourceContract =   {
     description: "查询、创建或更新应用模块；业务唯一键为 code。",
     service: "sei-basic",
     query: { path: "appModule/findAll", method: "GET" },
+    detail: {
+      path: "appModule/findByCode",
+      method: "GET",
+      selectors: [{
+        name: "code",
+        field: "code",
+        placement: "query",
+        valuePlaceholder: "code",
+        description: "应用模块 code"
+      }]
+    },
     save: { path: "appModule/save", method: "POST" },
     read: "findAll",
     identityFields: ["code"],
     compareFields: ["code", "name", "remark", "webBaseAddress", "apiBaseAddress", "rank"],
     writableFields: ["code", "name", "remark", "webBaseAddress", "apiBaseAddress", "rank"],
     tenant: { policy: "global" },
-    capabilities: ["query", "write", "compare", "sync"],
+    capabilities: ["query", "detail", "write", "compare", "sync"],
     help: "应用模块按 code 查询、创建或更新；新增缺少 rank 时默认 1；仅允许 global 租户。",
     defaults: {
       create: { rank: 1 },

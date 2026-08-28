@@ -1,4 +1,4 @@
-schemaVersion: eadp.resource-contract.v1
+schemaVersion: eadp.resource-contract.v2
 id: db-info
 title: 数据库连接配置
 description: 查询 sei-eai 中由 DbInfoController 暴露的数据库连接配置；密码字段始终脱敏。

@@ -16,7 +16,7 @@ this Skill only routes intents and sequences commands.
 EADP CLI has one contract-driven resource framework plus explicit domain
 commands:
 
-- `resource query|write|compare|sync <name>`: every registered resource runs on
+- `resource query|detail|write|compare|sync <name>`: every registered resource runs on
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
@@ -39,6 +39,7 @@ filters, run the action immediately with one command — do not discover first:
 ```text
 eadp resource query feature --env dev --count
 eadp resource query feature --env dev --fields code,name --limit 20
+eadp resource detail feature --env global-dev --select code=EXAMPLE_FEATURE
 eadp resource compare feature --source dev --target test
 eadp resource sync menu --source dev --target test --select code=EXAMPLE_FEATURE
 ```
@@ -48,6 +49,12 @@ eadp resource sync menu --source dev --target test --select code=EXAMPLE_FEATURE
   `--quick <text>`, and `--created-in`/`--from`/`--to`/`--time-field` when the
   contract declares time filtering. Read the count from `--count` output; do
   not dump every record for a "how many" question.
+- `detail` reads exactly one record through the contract's `detail` endpoint.
+  It requires `--env` (or the current environment) and every declared
+  `detail.selectors` entry as `--select <name>=<value>`. It does not accept list
+  filters, time ranges, pagination, or guessed endpoint/ID syntax. A detail
+  request is complete only when the resource, environment, and all selector
+  values are known.
 - `write` needs `--env <env>` and `--data <json>`; it previews by default and
   writes only with `--apply`.
 - `compare`/`sync` need `--source <env>` and `--target <env>`. Resource
@@ -65,15 +72,20 @@ environment, unknown selector, or a needed option) run discovery, using
 - `eadp resource inspect` — list registered resources, CLI version, available
   environments, and each environment's recorded `tenantCode`.
 - `eadp resource inspect <name>` — contract digest: capabilities, tenant
-  policy, identity/compare/writable fields, enums, selectors, filtering.
+  policy, identity/compare/writable fields, enums, selectors, filtering, and
+  the available detail selectors.
 - `eadp resource inspect <name> <action>` — structured options for that exact
-  action: environments, tenant policy, required/optional options, this
-  resource's selectors, and action-relevant fields including safe
-  deletion/rollback declarations where applicable.
+  action (`query`, `detail`, `write`, `compare`, or `sync`): environments,
+  tenant policy, required/optional options, this resource's selectors, and
+  action-relevant fields including safe deletion/rollback declarations where
+  applicable. For a detail request, use `eadp resource inspect <name> detail`
+  to obtain the required `detail.selectors` names and meanings.
 
 Resolve missing or ambiguous parameters with read-only CLI queries. Ask the
 user only after a lookup returns zero or multiple candidates; never guess a
-resource name, environment, selector, or option.
+resource name, environment, selector value, endpoint, or option. Do not fall
+back from an unavailable detail capability to a list query or a guessed
+`findOne` request.
 
 ## Current registered resources
 
@@ -81,6 +93,11 @@ Current resource names (the live `eadp resource inspect` output is
 authoritative): `app-module`、`feature`、`feature-group`、`serial-number`、
 `employee`（别名 `user`）、`menu`、`bpm`. Future ordinary resources remain
 usable through live discovery without any Skill change.
+
+The built-in detail selectors currently exposed by live contracts are:
+`app-module.code`, `feature.code`, `employee.code`, `feature-group.id`,
+`serial-number.id`, and `menu.id`. `bpm` is an aggregate workflow resource and
+does not declare `detail`; do not emulate it with a list query.
 
 ## Special domain commands
 

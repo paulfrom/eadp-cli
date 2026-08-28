@@ -6,13 +6,24 @@ export const featureGroupContract: ResourceContract =   {
     description: "查询、创建或更新功能项组；业务唯一键为 code。",
     service: "sei-basic",
     query: { path: "featureGroup/getAuthorizedFeatureGroup", method: "GET" },
+    detail: {
+      path: "featureGroup/findOne",
+      method: "GET",
+      selectors: [{
+        name: "id",
+        field: "id",
+        placement: "query",
+        valuePlaceholder: "id",
+        description: "功能项组 ID"
+      }]
+    },
     save: { path: "featureGroup/save", method: "POST" },
     read: "findAll",
     identityFields: ["code"],
     compareFields: ["code", "name", "appModuleId"],
     writableFields: ["code", "name", "appModuleId"],
     tenant: { policy: "global" },
-    capabilities: ["query", "write", "compare", "sync"],
+    capabilities: ["query", "detail", "write", "compare", "sync"],
     help: "功能项组通过 appModuleCode 适配到目标应用模块；仅允许 global 租户。",
     filtering: { time: true, defaultTimeField: "createdDate" },
     adapter: "feature-group",

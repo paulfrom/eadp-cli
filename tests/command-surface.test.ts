@@ -93,6 +93,10 @@ describe("统一命令面", () => {
     for (const legacyCommand of ["request", "api", "apply", "assign", "revoke", "verify"]) {
       expect(help).not.toMatch(new RegExp(`^\\s+${legacyCommand}\\b`, "m"));
     }
+    const resource = program.commands.find((command) => command.name() === "resource");
+    expect(resource?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(["inspect", "query", "detail", "write", "compare", "sync"])
+    );
   });
 
   it("rollback 帮助明确直接执行且不暴露 --apply", () => {
@@ -183,6 +187,12 @@ describe("统一命令面", () => {
     await expect(
       program.parseAsync(["resource", "inspect", "menu", "write"], { from: "user" })
     ).rejects.toThrow("未声明 write 能力");
+    await expect(
+      program.parseAsync(["resource", "inspect", "bpm", "detail"], { from: "user" })
+    ).rejects.toMatchObject({
+      code: "CAPABILITY_MISSING",
+      message: "资源 bpm 未声明 detail 能力"
+    });
     await expect(
       program.parseAsync(["resource", "inspect", "feature", "bogus"], { from: "user" })
     ).rejects.toThrow("不支持的动作");

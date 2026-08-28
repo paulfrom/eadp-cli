@@ -7,6 +7,17 @@ export const employeeContract: ResourceContract = {
   description: "查询、创建或更新企业员工；user 是 employee 的资源别名，业务唯一键为 code。",
   service: "sei-basic",
   query: { path: "employee/findByPage", method: "POST" },
+  detail: {
+    path: "employee/findByCode",
+    method: "GET",
+    selectors: [{
+      name: "code",
+      field: "code",
+      placement: "query",
+      valuePlaceholder: "code",
+      description: "员工编号"
+    }]
+  },
   save: { path: "employee/save", method: "POST" },
   read: "paged",
   pagination: {
@@ -26,7 +37,7 @@ export const employeeContract: ResourceContract = {
     "code", "userName", "organizationId", "frozen", "email", "mobile", "gender", "idCard"
   ],
   tenant: { policy: "non-global" },
-  capabilities: ["query", "write", "compare", "sync"],
+  capabilities: ["query", "detail", "write", "compare", "sync"],
   help: "企业员工使用 sei-basic/employee；写入或跨环境同步必须提供 organizationCode，由目标环境 organization/findByCode 映射 organizationId，绝不复制源 organizationId。",
   defaults: { create: { frozen: false, gender: false } },
   filtering: { time: true, defaultTimeField: "createdDate" },

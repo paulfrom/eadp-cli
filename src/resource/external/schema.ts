@@ -2,7 +2,7 @@ import { z } from "zod";
 import { EADP_PAGE_SIZE } from "../../http/pagination.js";
 import type { ResourceContract } from "../core/contracts.js";
 
-export const RESOURCE_CONTRACT_SCHEMA_VERSION = "eadp.resource-contract.v1" as const;
+export const RESOURCE_CONTRACT_SCHEMA_VERSION = "eadp.resource-contract.v2" as const;
 
 const relativeEndpointPath = z.string().min(1).refine(
   (value) => !value.startsWith("/") && !value.split("/").includes("..") && !value.includes("://"),
@@ -12,6 +12,18 @@ const relativeEndpointPath = z.string().min(1).refine(
 const endpointSchema = z.object({
   path: relativeEndpointPath,
   method: z.enum(["GET", "POST", "PUT", "PATCH"])
+}).strict();
+
+const detailSchema = z.object({
+  path: relativeEndpointPath,
+  method: z.enum(["GET", "POST"]),
+  selectors: z.array(z.object({
+    name: z.string().min(1),
+    field: z.string().min(1),
+    placement: z.enum(["path", "query", "body"]),
+    valuePlaceholder: z.string().min(1),
+    description: z.string().min(1)
+  }).strict()).min(1)
 }).strict();
 
 const removeEndpointSchema = z.object({
@@ -50,6 +62,7 @@ const manifestSchema = z.object({
   description: z.string().min(1),
   service: z.string().min(1),
   query: endpointSchema,
+  detail: detailSchema.optional(),
   save: endpointSchema.optional(),
   read: z.enum(["paged", "findAll"]),
   pagination: z.object({
@@ -69,7 +82,7 @@ const manifestSchema = z.object({
     policy: z.enum(["any", "global", "non-global"]),
     bindField: z.string().min(1).optional()
   }).strict(),
-  capabilities: z.array(z.enum(["query", "write", "compare", "sync"])).min(1),
+  capabilities: z.array(z.enum(["query", "detail", "write", "compare", "sync"])).min(1),
   help: z.string().min(1),
   defaults: z.object({
     create: z.record(z.string(), z.unknown()).optional(),
@@ -95,11 +108,14 @@ const manifestSchema = z.object({
     context.addIssue({ code: "custom", message: "read=findAll 时不得声明 pagination" });
   }
   const sensitive = new Set(manifest.sensitiveFields ?? []);
-  if (manifest.capabilities.some((capability) => capability !== "query") && sensitive.size > 0) {
+  if (manifest.capabilities.some((capability) => capability !== "query" && capability !== "detail") && sensitive.size > 0) {
     context.addIssue({
       code: "custom",
-      message: "外部契约包含敏感字段时只能声明 query；通用变更计划和操作日志不承载秘密字段"
+      message: "外部契约包含敏感字段时只能声明 query/detail；通用变更计划和操作日志不承载秘密字段"
     });
+  }
+  if (manifest.capabilities.includes("detail") !== (manifest.detail !== undefined)) {
+    context.addIssue({ code: "custom", message: "detail 能力与明细接口声明必须同时存在" });
   }
   if (manifest.capabilities.includes("write") && manifest.identityFields.length === 0) {
     context.addIssue({ code: "custom", message: "write 能力必须声明业务唯一键" });

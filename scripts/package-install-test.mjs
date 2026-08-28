@@ -138,6 +138,10 @@ try {
       expected: ["按资源契约查询", "--env <env>", "分页自动聚合", "--count", "--summary", "--limit", "--fields"]
     },
     {
+      args: ["resource", "detail", "--help"],
+      expected: ["查询一个资源明细", "--env <env>", "--select <name=value>"]
+    },
+    {
       args: ["resource", "inspect"],
       expected: [
         '"kind": "eadp.resource.catalog.v2"',
@@ -165,6 +169,16 @@ try {
         '"id": "feature"',
         '"identityFields"',
         '"capabilities"'
+      ]
+    },
+    {
+      args: ["resource", "inspect", "feature", "detail"],
+      expected: [
+        '"kind": "eadp.resource.action-schema.v1"',
+        '"action": "detail"',
+        '"selectors"',
+        '"code": {',
+        '"required": true'
       ]
     },
     {

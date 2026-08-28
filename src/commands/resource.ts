@@ -43,10 +43,11 @@ interface FilterOptions {
   to?: string;
   timeField?: string;
 }
-type ResourceAction = "query" | "write" | "compare" | "sync";
-const RESOURCE_ACTIONS: readonly ResourceAction[] = ["query", "write", "compare", "sync"];
+type ResourceAction = "query" | "detail" | "write" | "compare" | "sync";
+const RESOURCE_ACTIONS: readonly ResourceAction[] = ["query", "detail", "write", "compare", "sync"];
 interface ResourceEnvironmentOptions { env?: string; }
 interface ResourceWriteOptions extends ResourceEnvironmentOptions { data?: string; apply?: boolean; }
+interface ResourceDetailOptions extends ResourceEnvironmentOptions { select?: string[]; }
 interface ResourceQueryOptions extends FilterOptions, ResourceEnvironmentOptions {
   count?: boolean;
   summary?: boolean;
@@ -77,7 +78,7 @@ export function registerResourceCommands(
     .join("、") || "无";
   const resource = root
     .command("resource")
-    .description("按声明式资源契约查询、写入、比较和迁移（默认预览；删除仅按显式契约执行）")
+    .description("按声明式资源契约查询列表/明细、写入、比较和迁移（默认预览；删除仅按显式契约执行）")
     .addHelpText(
       "after",
       `
@@ -93,6 +94,7 @@ export function registerResourceCommands(
   eadp resource inspect feature
   eadp resource inspect menu compare
   eadp resource query feature --env dev --count
+  eadp resource detail feature --env global-dev --select code=EXAMPLE_FEATURE
   eadp resource query feature --env dev --fields code,name --limit 20
   eadp resource write app-module --env global-dev --data '{"code":"ORDER","name":"订单"}' --apply
   eadp resource compare feature --source dev --target test
@@ -147,7 +149,7 @@ export function registerResourceCommands(
     .command("inspect")
     .description("发现资源：无参数列出资源及能力；<name> 输出契约摘要；<name> <action> 输出该动作的结构化参数")
     .argument("[name]", "资源名")
-    .argument("[action]", "动作：query、write、compare 或 sync")
+    .argument("[action]", "动作：query、detail、write、compare 或 sync")
     .action(async (name: string | undefined, action: string | undefined) => {
       const runtime = getRuntimeOptions(root);
       const loaded = await loadCommandResources(store);
@@ -181,7 +183,7 @@ export function registerResourceCommands(
       }
       if (!RESOURCE_ACTIONS.includes(action as ResourceAction)) {
         throw new CliError(
-          `不支持的动作：${action}，应为 query、write、compare 或 sync`,
+          `不支持的动作：${action}，应为 query、detail、write、compare 或 sync`,
           1,
           { code: "INVALID_ACTION", candidates: RESOURCE_ACTIONS, requiredInput: "action" }
         );
@@ -203,7 +205,7 @@ export function registerResourceCommands(
           tenant: contract.tenant,
           requiredOptions: actionRequiredOptions(action as ResourceAction),
           optionalOptions: actionOptionalOptions(action as ResourceAction, contract),
-          selectors: selectorDigest(contract),
+          selectors: selectorDigest(contract, action as ResourceAction),
           fields: actionFields(action as ResourceAction, contract),
           ...contractIssueFields(loaded)
         },
@@ -293,6 +295,39 @@ export function registerResourceCommands(
       }
       const items = applyResultTrimming(result.items, options, contract);
       printQuery({ ...result, items, ...contractIssueFields(loaded) }, runtime);
+    });
+
+  resource
+    .command("detail")
+    .description("按契约声明的唯一选择器查询一个资源明细")
+    .argument("<name>", "资源名")
+    .option("--env <env>", "环境名称；默认使用当前环境")
+    .addOption(
+      new Option("--select <name=value>", "明细选择器，可重复")
+        .default([])
+        .argParser(collect)
+    )
+    .action(async (name: string, options: ResourceDetailOptions) => {
+      const loaded = await loadCommandResources(store);
+      const contract = resolveLoadedContract(loaded, name);
+      assertCapability(contract, "detail");
+      const environment = resolveEnvironment(loaded.config, options.env);
+      assertResourceTenant(contract, environment.config.tenantCode, environment.name, "query");
+      const runtime = getRuntimeOptions(root);
+      const selectors = parseDetailSelectOptions(contract, options.select ?? []);
+      const client = createClient(environment, contract.service, runtime.timeoutMs);
+      const item = await client.detailContract(contract, selectors);
+      printValue(
+        {
+          kind: "eadp.resource.detail.v1",
+          resource: contract.id,
+          environment: environment.name,
+          selectors,
+          item: item === null ? null : redactSensitiveFields([item], contract)[0],
+          ...contractIssueFields(loaded)
+        },
+        runtime.compact
+      );
     });
 
   resource
@@ -505,6 +540,7 @@ function catalogEntry(contract: ResourceContract): Record<string, unknown> {
     capabilities: contract.capabilities,
     read: contract.read,
     query: contract.query,
+    detail: contract.detail ?? null,
     save: contract.save ?? null,
     rollback: contract.rollback ?? null,
     deletion: contract.deletion ?? null,
@@ -539,18 +575,26 @@ function contractSummary(contract: ResourceContract): Record<string, unknown> {
     filtering: contract.filtering ?? { time: false },
     enums: contract.enums ?? {},
     selectors: contract.selectors ?? [],
+    detailSelectors: selectorDigest(contract, "detail"),
     defaults: contract.defaults ?? {},
     rollback: contract.rollback ?? null,
     deletion: contract.deletion ?? null
   };
 }
 
-function selectorDigest(contract: ResourceContract): Record<string, { required: boolean; description?: string }> {
+function selectorDigest(
+  contract: ResourceContract,
+  action: ResourceAction
+): Record<string, { required: boolean; valuePlaceholder: string; description?: string }> {
+  const selectors = action === "detail"
+    ? (contract.detail?.selectors ?? []).map((selector) => ({ ...selector, required: true }))
+    : contract.selectors ?? [];
   return Object.fromEntries(
-    (contract.selectors ?? []).map((selector) => [
+    selectors.map((selector) => [
       selector.name,
       {
         required: selector.required,
+        valuePlaceholder: selector.valuePlaceholder,
         ...(selector.description ? { description: selector.description } : {})
       }
     ])
@@ -559,6 +603,8 @@ function selectorDigest(contract: ResourceContract): Record<string, { required: 
 
 function actionRequiredOptions(action: ResourceAction): string[] {
   switch (action) {
+    case "detail":
+      return ["--select <name=value>"];
     case "write":
       return ["--env <env>", "--data <json>"];
     case "compare":
@@ -579,6 +625,8 @@ function actionOptionalOptions(action: ResourceAction, contract: ResourceContrac
     : [];
   const filter = contract.handler ? [] : ["--filter <field:operator:value>"];
   switch (action) {
+    case "detail":
+      return ["--env <env>"];
     case "query":
       return [
         "--env <env>",
@@ -601,6 +649,10 @@ function actionOptionalOptions(action: ResourceAction, contract: ResourceContrac
 
 function actionFields(action: ResourceAction, contract: ResourceContract): Record<string, unknown> {
   switch (action) {
+    case "detail":
+      return {
+        sensitiveFields: contract.sensitiveFields ?? []
+      };
     case "query":
       return {
         filtering: contract.filtering ?? { time: false },
@@ -655,9 +707,16 @@ function applyResultTrimming(
     }
     result = result.slice(0, limit);
   }
+  return redactSensitiveFields(result, contract);
+}
+
+function redactSensitiveFields(
+  items: ResourceRecord[],
+  contract: ResourceContract
+): ResourceRecord[] {
   const sensitiveFields = contract.sensitiveFields ?? [];
-  if (sensitiveFields.length === 0) return result;
-  return result.map((row) => {
+  if (sensitiveFields.length === 0) return items;
+  return items.map((row) => {
     const redacted = { ...row };
     for (const field of sensitiveFields) {
       if (Object.prototype.hasOwnProperty.call(redacted, field)) {
@@ -777,8 +836,16 @@ function parseSelectOptions(
   contract: ResourceContract,
   values: string[]
 ): Readonly<Record<string, string>> {
+  return parseDeclaredSelectOptions(contract, contract.selectors ?? [], values);
+}
+
+function parseDeclaredSelectOptions(
+  contract: ResourceContract,
+  selectors: readonly ResourceSelectorContract[],
+  values: string[]
+): Readonly<Record<string, string>> {
   const declared = new Map<string, ResourceSelectorContract>(
-    (contract.selectors ?? []).map((selector) => [selector.name, selector])
+    selectors.map((selector) => [selector.name, selector])
   );
   const resolved: Record<string, string> = {};
   for (const raw of values) {
@@ -803,9 +870,12 @@ function parseSelectOptions(
     if (value === "") {
       throw new CliError(`资源 ${contract.id} 的 --select ${name} 值不能为空`, 1, { code: "INVALID_ARGUMENT", requiredInput: "selector" });
     }
+    if (resolved[name] !== undefined) {
+      throw new CliError(`资源 ${contract.id} 的 --select ${name} 不能重复`, 1, { code: "INVALID_ARGUMENT", requiredInput: "selector" });
+    }
     resolved[name] = value;
   }
-  for (const selector of contract.selectors ?? []) {
+  for (const selector of selectors) {
     if (selector.required && resolved[selector.name] === undefined) {
       throw new CliError(
         `资源 ${contract.id} 必须提供 --select ${selector.name}=<${selector.valuePlaceholder}>`,
@@ -815,6 +885,24 @@ function parseSelectOptions(
     }
   }
   return Object.freeze(resolved);
+}
+
+function parseDetailSelectOptions(
+  contract: ResourceContract,
+  values: string[]
+): Readonly<Record<string, string>> {
+  const detail = contract.detail;
+  if (!detail) throw new CliError(`资源 ${contract.id} 未声明明细接口`);
+  return parseDeclaredSelectOptions(
+    contract,
+    detail.selectors.map((selector) => ({
+      name: selector.name,
+      valuePlaceholder: selector.valuePlaceholder,
+      description: selector.description,
+      required: true
+    })),
+    values
+  );
 }
 
 function getSpecialHandler(
@@ -859,7 +947,7 @@ async function executeResourceChangeAction<T extends object>(
 
 function assertCapability(
   contract: ResourceContract,
-  capability: "query" | "write" | "compare" | "sync"
+  capability: ResourceAction
 ): void {
   if (!contract.capabilities.includes(capability)) {
     throw new CliError(

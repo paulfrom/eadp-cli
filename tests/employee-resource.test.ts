@@ -46,6 +46,10 @@ function registerEmployeeRoutes(server: MockEadpServer, state: EmployeeState): v
       total: state.rows.length === 0 ? 0 : 1
     }));
   });
+  server.onEndsWith("/employee/findByCode", (context) => {
+    const code = context.query.get("code");
+    context.json(state.rows.find((row) => String(row.code) === code) ?? null);
+  });
   server.onEndsWith("/organization/findByCode", (context) => {
     const code = context.query.get("code");
     context.json(state.organizations.find((organization) => organization.code === code) ?? null);
@@ -75,6 +79,60 @@ function registerEmployeeRoutes(server: MockEadpServer, state: EmployeeState): v
 }
 
 describe("employee resource", () => {
+  it("声明 detail 能力并按 code 调用 findByCode 明细接口，查不到时返回 null", async () => {
+    const fixture = await createEmployeeFixture();
+    const state = employeeState([{ id: "employee-1", code: "E001", userName: "员工一" }]);
+    registerEmployeeRoutes(fixture.server("target"), state);
+
+    const summary = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "employee"
+    ])) as { capabilities: string[] };
+    expect(summary.capabilities).toContain("detail");
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "employee", "detail"
+    ])) as {
+      resource: string;
+      action: string;
+      selectors: Record<string, Record<string, unknown>>;
+    };
+    expect(action).toMatchObject({ resource: "employee", action: "detail" });
+    expect(action.selectors).toEqual({
+      code: { required: true, valuePlaceholder: "code", description: "员工编号" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "employee", "--env", "target", "--select", "code=E001"
+    ])) as { item: Record<string, unknown>; selectors: Record<string, string> };
+    expect(output).toMatchObject({
+      selectors: { code: "E001" },
+      item: { id: "employee-1", code: "E001", userName: "员工一" }
+    });
+    const request = fixture.server("target").requests.find((item) =>
+      item.path.endsWith("/employee/findByCode")
+    );
+    expect(request).toMatchObject({ method: "GET" });
+    expect(request?.query.get("code")).toBe("E001");
+    expect(request?.body).toBeUndefined();
+
+    const missing = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "employee", "--env", "target", "--select", "code=MISSING"
+    ])) as { item: unknown };
+    expect(missing.item).toBeNull();
+  });
+
+  it("detail 在 global 租户下请求前失败", async () => {
+    const fixture = await createFixture({
+      environments: [{ name: "global", tenantCode: "global", token: "global-token" }]
+    });
+
+    const error = await runExpectError(fixture.program(), [
+      "resource", "detail", "employee", "--env", "global", "--select", "code=E001"
+    ]);
+    expect(error).toContain("必须使用非 global 租户");
+    expect(fixture.server("global").requests).toHaveLength(0);
+  });
+
   it("查询支持 user 别名并使用 employee/findByPage 分页契约", async () => {
     const fixture = await createEmployeeFixture();
     const state = employeeState([{ id: "employee-1", code: "E001", userName: "员工一" }]);

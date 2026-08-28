@@ -30,6 +30,10 @@ function appModuleState(rows: Array<Record<string, unknown>> = []): AppModuleSta
 
 function registerAppModuleRoutes(server: MockEadpServer, state: AppModuleState): void {
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.rows));
+  server.onEndsWith("/appModule/findByCode", (context) => {
+    const code = context.query.get("code");
+    context.json(state.rows.find((row) => String(row.code) === code) ?? null);
+  });
   server.onEndsWith("/appModule/findOne", (context) => {
     const id = context.query.get("id");
     context.json(state.rows.find((row) => String(row.id) === id) ?? null);
@@ -56,6 +60,38 @@ function registerAppModuleRoutes(server: MockEadpServer, state: AppModuleState):
 }
 
 describe("app-module", () => {
+  it("声明 detail 能力并按 code 调用 findByCode 明细接口", async () => {
+    const fixture = await createFixture();
+    const state = appModuleState([{ id: "module-1", code: "ORDER", name: "订单" }]);
+    registerAppModuleRoutes(fixture.server("source"), state);
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "app-module", "detail"
+    ])) as {
+      resource: string;
+      action: string;
+      selectors: Record<string, Record<string, unknown>>;
+    };
+    expect(action).toMatchObject({ resource: "app-module", action: "detail" });
+    expect(action.selectors).toEqual({
+      code: { required: true, valuePlaceholder: "code", description: "应用模块 code" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "app-module", "--env", "source", "--select", "code=ORDER"
+    ])) as { item: Record<string, unknown>; selectors: Record<string, string> };
+    expect(output).toMatchObject({
+      selectors: { code: "ORDER" },
+      item: { id: "module-1", code: "ORDER", name: "订单" }
+    });
+    const request = fixture.server("source").requests.find((item) =>
+      item.path.endsWith("/appModule/findByCode")
+    );
+    expect(request).toMatchObject({ method: "GET" });
+    expect(request?.query.get("code")).toBe("ORDER");
+    expect(request?.body).toBeUndefined();
+  });
+
   it("六大场景：预览零写入 → 正式执行断言请求体 → 回查 → 再次执行 unchanged", async () => {
     const fixture = await createFixture();
     const state = appModuleState();
@@ -171,6 +207,10 @@ function featureGroupState(
 
 function registerFeatureGroupRoutes(server: MockEadpServer, state: FeatureGroupState): void {
   server.onEndsWith("/featureGroup/getAuthorizedFeatureGroup", (context) => context.json(state.rows));
+  server.onEndsWith("/featureGroup/findOne", (context) => {
+    const id = context.query.get("id");
+    context.json(state.rows.find((row) => String(row.id) === id) ?? null);
+  });
   server.onEndsWith("/appModule/findAll", (context) => context.json(state.modules));
   server.onEndsWith("/appModule/save", (context) => {
     const body = context.body as Record<string, unknown>;
@@ -193,6 +233,40 @@ function registerFeatureGroupRoutes(server: MockEadpServer, state: FeatureGroupS
 }
 
 describe("feature-group", () => {
+  it("声明 detail 能力并按 id 调用 findOne 明细接口", async () => {
+    const fixture = await createFixture();
+    const state = featureGroupState([
+      { id: "group-1", code: "GROUP", name: "Group", appModuleId: "target-module" }
+    ]);
+    registerFeatureGroupRoutes(fixture.server("source"), state);
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "feature-group", "detail"
+    ])) as {
+      resource: string;
+      action: string;
+      selectors: Record<string, Record<string, unknown>>;
+    };
+    expect(action).toMatchObject({ resource: "feature-group", action: "detail" });
+    expect(action.selectors).toEqual({
+      id: { required: true, valuePlaceholder: "id", description: "功能项组 ID" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "feature-group", "--env", "source", "--select", "id=group-1"
+    ])) as { item: Record<string, unknown>; selectors: Record<string, string> };
+    expect(output).toMatchObject({
+      selectors: { id: "group-1" },
+      item: { id: "group-1", code: "GROUP", name: "Group" }
+    });
+    const request = fixture.server("source").requests.find((item) =>
+      item.path.endsWith("/featureGroup/findOne")
+    );
+    expect(request).toMatchObject({ method: "GET" });
+    expect(request?.query.get("id")).toBe("group-1");
+    expect(request?.body).toBeUndefined();
+  });
+
   it("permission apply feature-group 按 code 查重使用授权查询端点", async () => {
     const fixture = await createFixture({
       environments: [{ name: "global", tenantCode: "global", token: "global-admin-token" }]

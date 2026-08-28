@@ -1,4 +1,4 @@
 interface:
   display_name: "EADP Operator"
   short_description: "Adaptive EADP operations from live resource contracts"
-  default_prompt: "Use $eadp-operator to run resource list, exact resource describe, and matching action help before contract-driven query/write/compare/sync or domain work; preview, authorize, apply with the same command, and verify."
+  default_prompt: "Use $eadp-operator to execute complete contract-driven resource query/detail/write/compare/sync requests directly; when a resource, environment, selector, or option is missing or ambiguous, use resource inspect and the matching action schema; preview writes, authorize, apply with the same command, and verify."

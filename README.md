@@ -8,7 +8,7 @@ EADP CLI 先区分“资源能力”和“领域工作流”，再选择命令�
 
 1. **统一资源框架**：资源通过 `ResourceContract` 注册。契约声明服务与接口、读取和分页策略、
    业务唯一键、可比较/可写字段、租户策略、能力开关、枚举、默认值及安全回滚接口。
-2. **通用执行引擎**：已注册资源按契约自动获得 `resource query/write/compare/sync` 中声明的能力，
+2. **通用执行引擎**：已注册资源按契约自动获得 `resource query/detail/write/compare/sync` 中声明的能力，
    统一执行租户校验、差异规划、默认预览、`--apply`、`blocked` 门禁、操作日志和写后验证。
 3. **资源行为扩展**：普通契约无法表达树结构或聚合规划时，资源可以绑定 adapter 或 handler/hooks，
    但仍复用同一组 `resource` 命令和 ChangeSet 生命周期，不另建一套同步协议。
@@ -27,6 +27,7 @@ eadp resource inspect
 eadp resource inspect <name>
 eadp resource inspect <name> <action>
 eadp resource query <name> --env <env>
+eadp resource detail <name> --env <env> --select <name>=<value>
 eadp resource write <name> --env <env> --data <json>
 eadp resource compare <name> --source <env> --target <env>
 eadp resource sync <name> --source <env> --target <env>
@@ -38,6 +39,8 @@ eadp resource sync <name> --source <env> --target <env>
 - `query` 支持结果裁剪：`--count`（只输出总数，分页资源仅读第一页）、`--summary`
   （总数加 summaryInfo）、`--fields <a,b>`、`--limit <n>`、`--filter <field:op:value>`、
   `--quick <text>`，以及契约声明时间过滤时的 `--created-in`/`--from`/`--to`/`--time-field`。
+- `detail` 通过外挂契约声明的单记录接口读取明细；所有 `detail.selectors` 均必填并统一使用
+  `--select <name>=<value>`。CLI 按契约把值放入 path、query 或 body，不扫描列表、不猜测接口。
 - 资源选择器统一为 `--select <name>=<value>`（如 `--select code=EXAMPLE_FEATURE`、`--select flow=示例流程`），
   CLI 按当前资源契约校验选择器名称与必填项。
 - 并非每个资源都支持全部动作，执行前必须以当前契约的 `capabilities`、租户策略、选择器和过滤能力为准。
@@ -45,6 +48,7 @@ eadp resource sync <name> --source <env> --target <env>
 | 统一命令 | 用途 | 写入语义 |
 | --- | --- | --- |
 | `resource query <name>` | 按契约读取并完成分页聚合 | 只读 |
+| `resource detail <name>` | 按契约选择器读取一个资源明细 | 只读 |
 | `resource write <name>` | 对目标环境生成新增或更新计划 | 默认预览，`--apply` 后写入并回查 |
 | `resource compare <name>` | 只读比较源、目标环境 | 输出统一 ChangeSet |
 | `resource sync <name>` | 复用 compare 计划迁移安全差异 | 默认预览，`--apply` 执行安全的 create/update 及显式契约 delete |
@@ -61,12 +65,12 @@ eadp resource sync <name> --source <env> --target <env>
 
 | CLI 资源名 | 类型 | 当前能力 | 租户 | 说明 |
 | --- | --- | --- | --- | --- |
-| `app-module` | 普通契约 | query、write、compare、sync | global | 应用模块，按 `code` 识别 |
-| `employee` | 普通契约 + adapter | query、write、compare、sync | non-global | 企业员工；`user` 是别名，按 `organizationCode` 映射目标组织 ID |
-| `feature` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature` |
-| `feature-group` | 普通契约 + adapter | query、write、compare、sync | global | 通用操作走 `resource`；创建型高层工作流可走 `permission apply feature-group` |
-| `serial-number` | 普通契约 + adapter | query、write、compare、sync | global | 给号配置，复合键为 `entityClassName + tenantCode`；`serialNumberConfig` 仅是后端接口路径 |
-| `menu` | 行为扩展资源 | query、compare、sync | global | 通用操作走 `resource`；单菜单新增走 `menu create` |
+| `app-module` | 普通契约 | query、detail、write、compare、sync | global | 应用模块，按 `code` 读取明细和识别 |
+| `employee` | 普通契约 + adapter | query、detail、write、compare、sync | non-global | 企业员工；`user` 是别名，按 `code` 读取明细，按 `organizationCode` 映射目标组织 ID |
+| `feature` | 普通契约 + adapter | query、detail、write、compare、sync | global | 按 `code` 读取明细；创建型高层工作流可走 `permission apply feature` |
+| `feature-group` | 普通契约 + adapter | query、detail、write、compare、sync | global | 按 `id` 读取明细；创建型高层工作流可走 `permission apply feature-group` |
+| `serial-number` | 普通契约 + adapter | query、detail、write、compare、sync | global | 按 `id` 读取明细；复合业务键为 `entityClassName + tenantCode` |
+| `menu` | 行为扩展资源 | query、detail、compare、sync | global | 按 `id` 读取明细；单菜单新增走 `menu create` |
 | `bpm` | 行为扩展资源 | compare、sync | non-global | 跨环境操作走 `resource`；项目发现/配置走 `bpm inspect/configure` |
 
 普通资源与行为扩展资源都从同一个注册表发现，并由同一个 `resource` 命令入口执行其已声明能力。
@@ -598,7 +602,7 @@ BPM 同步会先完成整个流程的只读规划，再开始目标写入。源�
 
 ### 通过目录挂载普通 API 资源
 
-外部文件采用严格的 `eadp.resource-contract.v1` YAML，只能声明数据，不能加载可执行代码。先离线校验：
+外部文件采用严格的 `eadp.resource-contract.v2` YAML，只能声明数据，不能加载可执行代码。先离线校验：
 
 ```powershell
 eadp resource validate C:\Users\lin\.eadp-cli\contracts\db-info.resource.yaml
@@ -614,8 +618,18 @@ eadp resource inspect db-info
 eadp resource query db-info --env dev --fields dbName,dbType,dbPass
 ```
 
+声明了 `detail` 的外挂资源还可执行：
+
+```powershell
+eadp resource inspect <name> detail
+eadp resource detail <name> --env dev --select id=<id>
+```
+
+`detail` 必须同时声明 GET/POST 明细端点和全部必填选择器；选择器分别映射到 path、query 或 body，
+返回值必须是单个对象或 `null`。未声明 `detail` 时 CLI 返回 `CAPABILITY_MISSING`，不会退回集合查询。
+
 查询输出会把契约 `sensitiveFields` 中存在的字段替换为 `[REDACTED]`，即使用户通过 `--fields` 显式选择该字段。
-外部契约若声明敏感字段，只允许 query，避免秘密进入 ChangeSet 或操作日志。
+明细输出使用同一脱敏规则。外部契约若声明敏感字段，只允许 query/detail，避免秘密进入 ChangeSet 或操作日志。
 加载时会按文件名顺序尝试解析所有直属 `*.resource.yaml`。单个文件失败不会中断后续文件解析；扫描完成后
 CLI 按“最大可用”原则注册：解析无效的文件被跳过；与内置资源或其他外部契约名称/别名冲突的契约全部跳过；
 依赖缺失、依赖已被隔离或处于循环依赖中的契约也被跳过，其余契约继续可用。资源命令成功结果通过
@@ -634,7 +648,7 @@ CLI 按“最大可用”原则注册：解析无效的文件被跳过；与内�
 API、DTO/Entity、枚举和继承框架证据，生成 `.resource.yaml` 并且只运行一次本地 `resource validate`。
 除非用户显式指定其他输出位置，否则生成地址就是 `resource contract-path <id>` 返回的固定 `contracts` 目标；
 这仍然只是生成与离线校验，Skill 不执行单独的挂载/注册步骤，不配置环境，也不执行
-query/write/compare/sync 等资源操作。
+query/detail/write/compare/sync 等资源操作。
 
 外部契约适合契约能够完整表达的普通资源。树结构、聚合规划、依赖 ID 重映射或领域写入仍应作为包内模块实现：
 
@@ -651,7 +665,7 @@ query/write/compare/sync 等资源操作。
 契约必须描述服务与接口、读取/分页策略、业务唯一键、可比较和可写字段、租户策略、能力开关、
 时间过滤边界、创建默认值，以及包含显式回查 API 的安全回滚目标；需要同步目标独有记录时还必须
 声明完整删除契约（remove、lookup、restore）；具备对应能力的注册资源自动获得
-`resource query/write/compare/sync`。
+`resource query/detail/write/compare/sync`。
 分页契约中已确认的 `total` 记录数/页数语义会用于校验完整性；语义为 `unknown` 时不猜测，
 持续读取到短页或空页后才返回完整结果。
 声明 `sync` 的普通资源在注册阶段必须同时提供已确认的保存接口和安全回滚契约；查询接口同时

@@ -44,6 +44,18 @@ const base = (overrides: Partial<ResourceContract> = {}): ResourceContract => ({
   ...overrides
 });
 
+const validDetail: NonNullable<ResourceContract["detail"]> = {
+  path: "demo/detail/{id}",
+  method: "GET",
+  selectors: [{
+    name: "id",
+    field: "id",
+    placement: "path",
+    valuePlaceholder: "id",
+    description: "资源 ID"
+  }]
+};
+
 describe("声明式资源契约：注册校验", () => {
   it("拒绝重复 ID、缺保存接口与缺回滚契约", () => {
     expect(() => createResourceRegistry([base(), base()])).toThrow("资源契约 ID 重复");
@@ -78,6 +90,38 @@ describe("声明式资源契约：注册校验", () => {
         restore: { path: "demo/save", method: "POST" }
       }
     })])).toThrow("删除服务必须与资源服务一致");
+  });
+
+  it("detail 能力必须与明细接口声明一致", () => {
+    expect(() => createResourceRegistry([base({
+      capabilities: ["query", "detail"]
+    })])).toThrow("detail 能力与明细接口声明不一致");
+    expect(() => createResourceRegistry([base({
+      capabilities: ["query"],
+      detail: validDetail
+    })])).toThrow("detail 能力与明细接口声明不一致");
+  });
+
+  it("拒绝 GET 明细接口的 body 选择器与不匹配的路径占位符", () => {
+    expect(() => createResourceRegistry([base({
+      capabilities: ["query", "detail"],
+      detail: {
+        ...validDetail,
+        selectors: [{ ...validDetail.selectors[0]!, placement: "body" }]
+      }
+    })])).toThrow("GET 明细接口不能使用 body 选择器");
+    expect(() => createResourceRegistry([base({
+      capabilities: ["query", "detail"],
+      detail: {
+        ...validDetail,
+        path: "demo/detail/{code}"
+      }
+    })])).toThrow("明细路径无效");
+    expect(() => createResourceRegistry([base({
+      capabilities: ["query", "detail"],
+      sensitiveFields: ["id"],
+      detail: validDetail
+    })])).toThrow("敏感字段不能作为明细选择器");
   });
 
   it("别名解析到同一契约且不会重复出现在 canonical 列表", () => {

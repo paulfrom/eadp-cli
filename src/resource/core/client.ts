@@ -161,6 +161,44 @@ export class ResourceClient {
     return { count: page.records, summaryInfo: page.summaryInfo };
   }
 
+  /** Read exactly one record through the contract-declared detail endpoint. */
+  async detailContract(
+    contract: ResourceContract,
+    selectors: Readonly<Record<string, string>>
+  ): Promise<ResourceRecord | null> {
+    const detail = contract.detail;
+    if (!detail) throw new CliError(`资源 ${contract.id} 未声明明细接口`);
+    let path = detail.path;
+    const body: ResourceRecord = {};
+    const query: Record<string, string[]> = {};
+    for (const selector of detail.selectors) {
+      const value = selectors[selector.name];
+      if (value === undefined) {
+        throw new CliError(`资源 ${contract.id} 缺少明细选择器：${selector.name}`);
+      }
+      switch (selector.placement) {
+        case "path":
+          path = path.replace(`{${selector.field}}`, encodeURIComponent(value));
+          break;
+        case "query":
+          query[selector.field] = [value];
+          break;
+        case "body":
+          body[selector.field] = value;
+          break;
+      }
+    }
+    const data = await this.requestContract(
+      contract,
+      { path, method: detail.method },
+      Object.keys(body).length === 0 ? undefined : body,
+      Object.keys(query).length === 0 ? undefined : query
+    );
+    if (data === null || data === undefined) return null;
+    if (!isRecord(data)) throw new CliError(`${detail.path} 返回的资源明细格式无效`);
+    return data;
+  }
+
   /** Save a generic resource. The endpoint and method come from the contract. */
   async saveContract(
     contract: ResourceContract,

@@ -39,6 +39,10 @@ function registerSerialRoutes(server: MockEadpServer, state: SerialState): void 
   server.onEndsWith("/serialNumberConfig/findByPage", (context) => {
     context.json(eadpPage(state.rows));
   });
+  server.onEndsWith("/serialNumberConfig/getDetail", (context) => {
+    const id = context.query.get("id");
+    context.json(state.rows.find((row) => String(row.id) === id) ?? null);
+  });
   server.onEndsWith("/serialNumberConfig/save", (context) => {
     if (state.failSave) {
       context.fail("save failed", 500);
@@ -57,6 +61,62 @@ function registerSerialRoutes(server: MockEadpServer, state: SerialState): void 
 }
 
 describe("serial-number：目标租户绑定与复合唯一键", () => {
+  it("声明 detail 能力并按 id 调用 getDetail 明细接口，查不到时返回 null", async () => {
+    const fixture = await createFixture();
+    const state = serialState([{
+      id: "serial-a", entityClassName: "com.example.A", tenantCode: "global", configItem
+    }]);
+    registerSerialRoutes(fixture.server("target"), state);
+
+    const summary = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "serial-number"
+    ])) as { capabilities: string[] };
+    expect(summary.capabilities).toContain("detail");
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "serial-number", "detail"
+    ])) as {
+      resource: string;
+      action: string;
+      selectors: Record<string, Record<string, unknown>>;
+    };
+    expect(action).toMatchObject({ resource: "serial-number", action: "detail" });
+    expect(action.selectors).toEqual({
+      id: { required: true, valuePlaceholder: "id", description: "给号配置 ID" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "serial-number", "--env", "target", "--select", "id=serial-a"
+    ])) as { item: Record<string, unknown>; selectors: Record<string, string> };
+    expect(output).toMatchObject({
+      selectors: { id: "serial-a" },
+      item: { id: "serial-a", entityClassName: "com.example.A", tenantCode: "global" }
+    });
+    const request = fixture.server("target").requests.find((item) =>
+      item.path.endsWith("/serialNumberConfig/getDetail")
+    );
+    expect(request).toMatchObject({ method: "GET" });
+    expect(request?.query.get("id")).toBe("serial-a");
+    expect(request?.body).toBeUndefined();
+
+    const missing = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "serial-number", "--env", "target", "--select", "id=MISSING"
+    ])) as { item: unknown };
+    expect(missing.item).toBeNull();
+  });
+
+  it("detail 在非 global 租户下请求前失败", async () => {
+    const fixture = await createFixture({
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "dev-token" }]
+    });
+
+    const error = await runExpectError(fixture.program(), [
+      "resource", "detail", "serial-number", "--env", "dev", "--select", "id=serial-a"
+    ]);
+    expect(error).toContain("必须使用 global 租户");
+    expect(fixture.server("dev").requests).toHaveLength(0);
+  });
+
   it("正式写入按 entityClassName+tenantCode 绑定目标租户，请求体不含源 ID", async () => {
     const fixture = await createFixture();
     const state = serialState();

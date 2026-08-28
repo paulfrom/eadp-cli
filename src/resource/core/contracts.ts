@@ -2,7 +2,7 @@ import { CliError } from "../../errors.js";
 import { EADP_PAGE_SIZE } from "../../http/pagination.js";
 
 /** Supported operations exposed by the generic resource command. */
-export type ResourceCapability = "query" | "write" | "compare" | "sync";
+export type ResourceCapability = "query" | "detail" | "write" | "compare" | "sync";
 
 export type ResourceReadStrategy = "paged" | "findAll" | "tree" | "handler";
 
@@ -10,6 +10,27 @@ export interface ResourceEndpointContract {
   /** Relative path below `/api-gateway/<service>/`. */
   path: string;
   method: "GET" | "POST" | "PUT" | "PATCH";
+}
+
+export interface ResourceDetailSelectorContract {
+  /** Stable name accepted by `--select <name>=<value>`. */
+  name: string;
+  /** Remote request field or path placeholder populated from the selector. */
+  field: string;
+  /** Request location used by the declared detail endpoint. */
+  placement: "path" | "query" | "body";
+  /** Value placeholder shown by inspect/help, for example `id`. */
+  valuePlaceholder: string;
+  /** Human-readable selector meaning. */
+  description: string;
+}
+
+export interface ResourceDetailContract {
+  /** Relative path below `/api-gateway/<service>/`; path fields use `{field}`. */
+  path: string;
+  method: "GET" | "POST";
+  /** All selectors are required so the endpoint can identify exactly one record. */
+  selectors: ResourceDetailSelectorContract[];
 }
 
 export interface ResourcePaginationContract {
@@ -120,6 +141,8 @@ export interface ResourceContract {
   description: string;
   service: string;
   query: ResourceEndpointContract;
+  /** Optional endpoint for reading exactly one record without scanning a collection. */
+  detail?: ResourceDetailContract;
   save?: ResourceEndpointContract;
   read: ResourceReadStrategy;
   pagination?: ResourcePaginationContract;
@@ -271,6 +294,12 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
   if (candidate.adapter) validatePathSegment(candidate.id, "适配器", candidate.adapter);
   if (candidate.handler) validatePathSegment(candidate.id, "处理器", candidate.handler);
   validateEndpoint(candidate.id, "查询", candidate.query);
+  const detail = candidate.detail === undefined
+    ? undefined
+    : normalizeDetail(candidate.id, candidate.detail, candidate.sensitiveFields ?? []);
+  if (candidate.capabilities.includes("detail") !== (detail !== undefined)) {
+    throw new CliError(`资源契约 ${candidate.id} 的 detail 能力与明细接口声明不一致`);
+  }
   if (candidate.save) {
     validateEndpoint(candidate.id, "保存", candidate.save);
     if (candidate.save.method === "GET") {
@@ -299,8 +328,8 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
     }
   }
   if ((candidate.sensitiveFields?.length ?? 0) > 0 &&
-      candidate.capabilities.some((capability) => capability !== "query")) {
-    throw new CliError(`资源契约 ${candidate.id} 包含敏感字段时只能声明 query 能力`);
+      candidate.capabilities.some((capability) => capability !== "query" && capability !== "detail")) {
+    throw new CliError(`资源契约 ${candidate.id} 包含敏感字段时只能声明 query/detail 能力`);
   }
   for (const field of Object.keys(candidate.defaults?.create ?? {})) {
     if (!candidate.writableFields.includes(field)) {
@@ -363,9 +392,62 @@ function normalizeContract(candidate: ResourceContract): ResourceContract {
       ? {}
       : { sensitiveFields: [...candidate.sensitiveFields] }),
     capabilities: [...new Set(candidate.capabilities)],
+    ...(detail === undefined ? {} : { detail }),
     ...(candidate.dependencies === undefined ? {} : { dependencies: [...candidate.dependencies] }),
     ...(selectors === undefined ? {} : { selectors })
   };
+}
+
+function normalizeDetail(
+  resourceId: string,
+  detail: ResourceDetailContract,
+  sensitiveFields: readonly string[]
+): ResourceDetailContract {
+  if (!detail || !["GET", "POST"].includes(detail.method) ||
+      !Array.isArray(detail.selectors) || detail.selectors.length === 0) {
+    throw new CliError(`资源契约 ${resourceId} 的明细接口声明无效`);
+  }
+  const names = new Set<string>();
+  const fields = new Set<string>();
+  const selectors = detail.selectors.map((selector) => {
+    if (!selector || typeof selector !== "object") {
+      throw new CliError(`资源契约 ${resourceId} 的明细选择器声明无效`);
+    }
+    const name = selector.name?.trim();
+    const field = selector.field?.trim();
+    const valuePlaceholder = selector.valuePlaceholder?.trim();
+    const description = selector.description?.trim();
+    if (!name || !/^[a-z][a-z0-9-]*$/.test(name) || names.has(name) ||
+        !field || !/^[A-Za-z][A-Za-z0-9_-]{0,127}$/.test(field) || fields.has(field) ||
+        !["path", "query", "body"].includes(selector.placement) ||
+        !valuePlaceholder || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(valuePlaceholder) ||
+        !description) {
+      throw new CliError(`资源契约 ${resourceId} 的明细选择器声明无效`);
+    }
+    if (detail.method === "GET" && selector.placement === "body") {
+      throw new CliError(`资源契约 ${resourceId} 的 GET 明细接口不能使用 body 选择器`);
+    }
+    names.add(name);
+    fields.add(field);
+    return { name, field, placement: selector.placement, valuePlaceholder, description };
+  });
+  const path = detail.path.trim();
+  if (selectors.some((selector) => sensitiveFields.includes(selector.field))) {
+    throw new CliError(`资源契约 ${resourceId} 的敏感字段不能作为明细选择器`);
+  }
+  const pathFields = selectors
+    .filter((selector) => selector.placement === "path")
+    .map((selector) => selector.field);
+  const tokens = [...path.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]!);
+  const pathWithoutTokens = path.replace(/\{[^{}]+\}/g, "value");
+  if (!path || path.startsWith("/") || path.includes("..") || /[?#]/.test(path) ||
+      !isSafeRelativePath(pathWithoutTokens) ||
+      tokens.length !== pathFields.length ||
+      new Set(tokens).size !== tokens.length ||
+      tokens.some((token) => !pathFields.includes(token))) {
+    throw new CliError(`资源契约 ${resourceId} 明细路径无效`);
+  }
+  return { path, method: detail.method, selectors };
 }
 
 function normalizeAliases(resourceId: string, aliases: string[] | undefined): string[] | undefined {

@@ -6,6 +6,17 @@ export const featureContract: ResourceContract =   {
     description: "查询、创建或更新功能项；业务唯一键为 code。",
     service: "sei-basic",
     query: { path: "feature/findByPage", method: "POST" },
+    detail: {
+      path: "feature/findByCode",
+      method: "GET",
+      selectors: [{
+        name: "code",
+        field: "code",
+        placement: "query",
+        valuePlaceholder: "code",
+        description: "功能项 code"
+      }]
+    },
     save: { path: "feature/save", method: "POST" },
     read: "paged",
     pagination: {
@@ -27,7 +38,7 @@ export const featureContract: ResourceContract =   {
       "featureGroupId", "tenantCanUse", "mobileUse"
     ],
     tenant: { policy: "global" },
-    capabilities: ["query", "write", "compare", "sync"],
+    capabilities: ["query", "detail", "write", "compare", "sync"],
     help: "功能项通过 appModuleCode/featureGroupCode 解析目标依赖；仅允许 global 租户。",
     defaults: {
       create: { tenantCanUse: true },

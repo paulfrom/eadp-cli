@@ -42,8 +42,10 @@ try {
   const environments = run(["env", "list"]);
   const rootHelp = run(["--help"]);
   const resourceHelp = run(["resource", "--help"]);
-  const resourceList = run(["resource", "inspect"]);
-  const resourceDescribe = run(["resource", "inspect", "feature"]);
+  const resourceDetailHelp = run(["resource", "detail", "--help"]);
+  const resourceCatalog = run(["resource", "inspect"]);
+  const resourceContract = run(["resource", "inspect", "feature"]);
+  const resourceDetailContract = run(["resource", "inspect", "feature", "detail"]);
   const resourceValidate = run([
     "resource",
     "validate",
@@ -79,13 +81,18 @@ try {
   if (
     !resourceHelp.includes("声明式资源契约") ||
     !resourceHelp.includes("resource compare") ||
-    !resourceList.includes('"kind": "eadp.resource.catalog.v2"') ||
-    !resourceList.includes('"name": "feature"') ||
-    !resourceList.includes('"name": "serial-number"') ||
-    !resourceDescribe.includes('"kind": "eadp.resource.contract.v1"') ||
-    !resourceDescribe.includes('"id": "feature"') ||
-    !resourceDescribe.includes('"identityFields"') ||
-    !resourceDescribe.includes('"capabilities"') ||
+    !resourceDetailHelp.includes("查询一个资源明细") ||
+    !resourceDetailHelp.includes("--select <name=value>") ||
+    !resourceCatalog.includes('"kind": "eadp.resource.catalog.v2"') ||
+    !resourceCatalog.includes('"name": "feature"') ||
+    !resourceCatalog.includes('"name": "serial-number"') ||
+    !resourceContract.includes('"kind": "eadp.resource.contract.v1"') ||
+    !resourceContract.includes('"id": "feature"') ||
+    !resourceContract.includes('"identityFields"') ||
+    !resourceContract.includes('"capabilities"') ||
+    !resourceDetailContract.includes('"action": "detail"') ||
+    !resourceDetailContract.includes('"code": {') ||
+    !resourceDetailContract.includes('"required": true') ||
     !resourceValidate.includes('"kind": "eadp.resource-contract-validation.v1"') ||
     !resourceValidate.includes('"id": "db-info"')
   ) {
@@ -144,8 +151,8 @@ try {
         environment: "dev",
         defaultEnvironment: "dev",
         environmentRemovable: true,
-        resourceList: "feature,serial-number",
-        resourceDescribe: "feature",
+        resourceCatalog: "feature,serial-number",
+        resourceContract: "feature",
         bpmDiscoverable: true,
         permissionDiscoverable: true,
         skillInstallable: true,

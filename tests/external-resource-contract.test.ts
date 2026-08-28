@@ -106,6 +106,101 @@ describe("declarative external resource contracts", () => {
     });
   });
 
+  it("discovers and reads one external resource detail through declared selectors", async () => {
+    const fixture = await createFixture({
+      defaultAuthorityPolicy: "NormalUser",
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "dev-token" }]
+    });
+    await mkdir(fixture.store.contractsDirectory, { recursive: true });
+    await writeFile(
+      join(fixture.store.contractsDirectory, "external-detail.resource.yaml"),
+      validQueryContract("external-detail", { detail: true }),
+      "utf8"
+    );
+    fixture.server("dev").onEndsWith("/external/findOne", (context) => {
+      expect(context.query.get("id")).toBe("db-1");
+      context.json({ id: "db-1", name: "reporting", secret: "must-not-leak" });
+    });
+
+    const action = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "inspect", "external-detail", "detail"
+    ])) as { requiredOptions: string[]; selectors: Record<string, unknown> };
+    expect(action.requiredOptions).toContain("--select <name=value>");
+    expect(action.selectors).toEqual({
+      id: { required: true, valuePlaceholder: "id", description: "资源 ID" }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "external-detail", "--env", "dev", "--select", "id=db-1"
+    ])) as { kind: string; selectors: Record<string, string>; item: Record<string, unknown> };
+    expect(output).toMatchObject({
+      kind: "eadp.resource.detail.v1",
+      selectors: { id: "db-1" },
+      item: { id: "db-1", name: "reporting", secret: "[REDACTED]" }
+    });
+  });
+
+  it("detail 缺失、未知或重复 selector 时在远端请求前失败", async () => {
+    const fixture = await createFixture({
+      defaultAuthorityPolicy: "NormalUser",
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "dev-token" }]
+    });
+    await mkdir(fixture.store.contractsDirectory, { recursive: true });
+    await writeFile(
+      join(fixture.store.contractsDirectory, "external-detail.resource.yaml"),
+      validQueryContract("external-detail", { detail: true }),
+      "utf8"
+    );
+
+    const cases = [
+      {
+        args: ["resource", "detail", "external-detail", "--env", "dev"],
+        code: "REQUIRED_SELECTOR_MISSING"
+      },
+      {
+        args: ["resource", "detail", "external-detail", "--env", "dev", "--select", "unknown=db-1"],
+        code: "UNKNOWN_SELECTOR"
+      },
+      {
+        args: [
+          "resource", "detail", "external-detail", "--env", "dev",
+          "--select", "id=db-1", "--select", "id=db-2"
+        ],
+        code: "INVALID_ARGUMENT"
+      }
+    ] as const;
+    for (const testCase of cases) {
+      await expect(fixture.program().parseAsync([...testCase.args], { from: "user" }))
+        .rejects.toMatchObject<Partial<CliError>>({ code: testCase.code });
+      expect(fixture.server("dev").requests).toHaveLength(0);
+    }
+  });
+
+  it("按契约组合映射 POST 明细的 path、query 与 body 选择器", async () => {
+    const fixture = await createFixture({
+      defaultAuthorityPolicy: "NormalUser",
+      environments: [{ name: "dev", tenantCode: "tenant-a", token: "dev-token" }]
+    });
+    await mkdir(fixture.store.contractsDirectory, { recursive: true });
+    await writeFile(
+      join(fixture.store.contractsDirectory, "composite-detail.resource.yaml"),
+      validQueryContract("composite-detail", { detail: true, compositeDetail: true }),
+      "utf8"
+    );
+    fixture.server("dev").onEndsWith("/external/db-1/findOne", (context) => {
+      expect(context.method).toBe("POST");
+      expect(context.query.get("scope")).toBe("tenant-a");
+      expect(context.body).toEqual({ locale: "zh-CN" });
+      context.json({ id: "db-1", name: "reporting" });
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "detail", "composite-detail", "--env", "dev",
+      "--select", "id=db-1", "--select", "scope=tenant-a", "--select", "locale=zh-CN"
+    ])) as { item: Record<string, unknown> };
+    expect(output.item).toMatchObject({ id: "db-1", name: "reporting" });
+  });
+
   it("registers every usable contract and reports all file failures after the directory scan", async () => {
     const fixture = await createFixture();
     await mkdir(fixture.store.contractsDirectory, { recursive: true });
@@ -229,9 +324,14 @@ async function mountExampleContract(contractsDirectory: string): Promise<void> {
 
 function validQueryContract(
   id: string,
-  options: { aliases?: string[]; dependencies?: string[] } = {}
+  options: {
+    aliases?: string[];
+    dependencies?: string[];
+    detail?: boolean;
+    compositeDetail?: boolean;
+  } = {}
 ): string {
-  return `schemaVersion: eadp.resource-contract.v1
+  return `schemaVersion: eadp.resource-contract.v2
 id: ${id}
 ${options.aliases ? `aliases:\n${options.aliases.map((alias) => `  - ${alias}`).join("\n")}\n` : ""}${options.dependencies ? `dependencies:\n${options.dependencies.map((dependency) => `  - ${dependency}`).join("\n")}\n` : ""}title: external test
 description: strict data-only resource contract
@@ -239,14 +339,42 @@ service: sei-basic
 query:
   path: external/findAll
   method: GET
-read: findAll
+${options.detail ? (options.compositeDetail ? `detail:
+  path: external/{id}/findOne
+  method: POST
+  selectors:
+    - name: id
+      field: id
+      placement: path
+      valuePlaceholder: id
+      description: 资源 ID
+    - name: scope
+      field: scope
+      placement: query
+      valuePlaceholder: tenant-code
+      description: 租户范围
+    - name: locale
+      field: locale
+      placement: body
+      valuePlaceholder: locale
+      description: 语言
+` : `detail:
+  path: external/findOne
+  method: GET
+  selectors:
+    - name: id
+      field: id
+      placement: query
+      valuePlaceholder: id
+      description: 资源 ID
+`) : ""}read: findAll
 identityFields: []
 compareFields: []
 writableFields: []
-tenant:
+${options.detail ? "sensitiveFields:\n  - secret\n" : ""}tenant:
   policy: any
 capabilities:
   - query
-help: query only
+${options.detail ? "  - detail\n" : ""}help: query only
 `;
 }
