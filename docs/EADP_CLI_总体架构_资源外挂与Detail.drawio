@@ -1,0 +1,211 @@
+<mxfile host="65bd71144e" compressed="false">
+    <diagram id="eadp-cli-current" name="EADP CLI 总体架构">
+        <mxGraphModel dx="1232" dy="624" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" background="#06142F" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="cli-control-plane" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:14px;font-weight:700;&quot;&gt;EADP CLI CONTROL PLANE  ·  一个命令面、一个资源目录、一个安全边界&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#071B3B;fillOpacity=82;strokeColor=#57F3FF;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#57F3FF;fontSize=14;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="35" y="225" width="1850" height="825" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime-dispatch" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:11px;font-weight:700;&quot;&gt;RESOURCE CATALOG DISPATCH  ·  inspect / query / detail / write / compare / sync&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#111F46;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=11;fontFamily=Microsoft YaHei;shadow=0;" parent="cli-control-plane" vertex="1">
+                    <mxGeometry x="45" y="443" width="1760" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="command-surface" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;01  COMMAND &amp;amp; DISCOVERY&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#57F3FF;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#57F3FF;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="260" width="1810" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="resource-composition" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;02  RESOURCE SOURCES &amp;amp; CATALOG COMPOSITION&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#9E8CFF;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#9E8CFF;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="403" width="1810" height="247" as="geometry"/>
+                </mxCell>
+                <mxCell id="read-plane" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;03A  READ PLANE  ·  不产生 ChangeSet&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#57F3FF;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#57F3FF;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="713" width="690" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="change-plane" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;03B  CHANGE PLANE  ·  ResourceEngine + Adapter / Phase Hooks&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#54F4A8;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#54F4A8;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="775" y="713" width="760" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="domain-workflows" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;03C  DOMAIN WORKFLOWS&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#4DB8FF;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#4DB8FF;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1565" y="720" width="300" height="205" as="geometry"/>
+                </mxCell>
+                <mxCell id="shared-foundation" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;04  SHARED SAFETY &amp;amp; I/O FOUNDATION&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A2148;fillOpacity=82;strokeColor=#54F4A8;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#54F4A8;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="924" width="1810" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="eadp-platform" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;EADP CONFIGURATION ENVIRONMENTS  ·  环境名称由用户配置&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;container=1;collapsible=0;fillColor=#0A315A;fillOpacity=82;strokeColor=#54F4A8;strokeWidth=1.4;verticalAlign=top;align=left;spacingTop=9;spacingLeft=15;fontColor=#54F4A8;fontSize=13;fontStyle=1;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="1080" width="1810" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="developer-to-agent" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="developer-entry" target="agent-access" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="ops-to-agent" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;exitX=0.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=1.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="ops-entry" target="agent-access" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="agent-to-cli" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#54F4A8;strokeWidth=2;endArrow=block;endFill=1;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.5000;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="agent-access" target="cli-control-plane" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="contract-tools-to-external" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FFC857;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.4110;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="contract-tools" target="external-contracts" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="external-to-loader" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FFC857;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.2297;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="external-contracts" target="catalog-loader" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="builtin-to-loader" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9E8CFF;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.7703;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="builtin-modules" target="catalog-loader" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="loader-to-catalog" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="catalog-loader" target="resource-catalog" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="catalog-to-dispatch" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9E8CFF;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=0.6370;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.8494;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="resource-catalog" target="runtime-dispatch" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="dispatch-to-read" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=0.1818;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.5000;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="runtime-dispatch" target="read-plane" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="713"/>
+                            <mxPoint x="400" y="713"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="dispatch-to-change" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#54F4A8;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=0.6108;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.5000;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="runtime-dispatch" target="change-plane" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="dispatch-to-domain" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4DB8FF;strokeWidth=2;endArrow=block;endFill=1;dashed=1;dashPattern=7 5;exitX=0.9290;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.5000;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="runtime-dispatch" target="domain-workflows" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="actual-to-changeset" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="read-actual" target="change-set" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="changeset-to-gate" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9E8CFF;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="change-set" target="preview-gate" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gate-to-apply" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#54F4A8;strokeWidth=2;endArrow=block;endFill=1;exitX=1.0000;exitY=0.5000;exitDx=0;exitDy=0;entryX=0.0000;entryY=0.5000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="preview-gate" target="apply-verify" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="read-to-foundation" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#57F3FF;strokeWidth=2;endArrow=block;endFill=1;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.1906;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="read-plane" target="shared-foundation" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="change-to-foundation" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#54F4A8;strokeWidth=2;endArrow=block;endFill=1;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.6077;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="change-plane" target="shared-foundation" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="domain-to-foundation" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4DB8FF;strokeWidth=2;endArrow=block;endFill=1;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.9171;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="domain-workflows" target="shared-foundation" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gateway-to-eadp" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#54F4A8;strokeWidth=2;endArrow=block;endFill=1;exitX=0.5000;exitY=1.0000;exitDx=0;exitDy=0;entryX=0.8481;entryY=0.0000;entryDx=0;entryDy=0;fontFamily=Microsoft YaHei;fontSize=11;labelBackgroundColor=#06142F;" parent="1" source="http-gateway" target="eadp-platform" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="developer-entry" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:18px;font-weight:700;&quot;&gt;开发者 + 实施代码&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;项目代码 · API / DTO 证据 · 配置目标&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#0C2D5D;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=18;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="120" width="265" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="agent-access" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:20px;font-weight:700;&quot;&gt;Agent 工具接入层&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:12px;&quot;&gt;Claude · ChatGPT · WorkBuddy · QoderWork · Pi · 其他 Agent 工具&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#0C2D5D;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=20;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="355" y="120" width="1210" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="ops-entry" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:18px;font-weight:700;&quot;&gt;运维 / 业务人员&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;环境目标 · 业务规则 · 执行指令&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#0C2D5D;strokeColor=#54F4A8;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=18;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="120" width="265" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="contract-tools" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;契约工具&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;contract-path · validate（离线）&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#FFC857;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="300" width="300" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="discovery" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;能力发现&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;--help · resource inspect [name] [action]&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="410" y="300" width="330" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="read-commands" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;只读资源命令&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;query · detail&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="770" y="300" width="300" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="change-commands" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;变更资源命令&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;write · compare · sync&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#54F4A8;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1100" y="300" width="310" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="domain-commands" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;领域与交付命令&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;menu · BPM · permission · env · rollback&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#4DB8FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1440" y="300" width="400" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="builtin-modules" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;包内 ResourceModule&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;src/domains/index.ts&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;Contract 必选 · Adapter / Handler 按需&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;复杂映射 · 树 · 聚合&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#0B2550;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="549" width="365" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="external-contracts" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;外部声明式资源&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;ConfigStore.contractsDirectory&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;直属 *.resource.yaml · eadp.resource-contract.v2&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:9px;&quot;&gt;普通 API · 纯数据 · Skill 生成&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#2B263B;strokeColor=#FFC857;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="449" width="365" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="catalog-loader" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:18px;font-weight:700;&quot;&gt;loadResourceCatalog · 加载 / 校验 / 隔离&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;外部：scan → YAML → 契约 v2 Schema（Zod 校验）→ ResourceContract&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;隔离：名称 / 别名冲突 · 缺失依赖 · 循环依赖&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;内置：Contract ↔ Adapter / Handler 配对&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;运行时最大可用 + contractIssues · validate 严格失败&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#2A1D36;strokeColor=#FF6B7A;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=18;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="490" y="449" width="580" height="185" as="geometry"/>
+                </mxCell>
+                <mxCell id="resource-catalog" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:19px;font-weight:700;&quot;&gt;统一 Resource Catalog&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;createResourceModuleCatalog&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;ResourceRegistry · AdapterRegistry&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;HandlerRegistry · PhaseHooksRegistry&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;inspect 与执行读取同一个已验证 Catalog&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#0A2E57;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=19;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1110" y="449" width="730" height="185" as="geometry"/>
+                </mxCell>
+                <mxCell id="query-path" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:17px;font-weight:700;&quot;&gt;QUERY · 列表读取&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;ResourceEngine.query / Handler.query&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;paged · findAll · tree&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;count / summary / fields / limit&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=17;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="763" width="300" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="detail-path" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:17px;font-weight:700;&quot;&gt;DETAIL · 单记录读取&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;ResourceClient.detailContract&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;全部 --select 必填 → path / query / body&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:11px;&quot;&gt;GET / POST → object | null → sensitiveFields 脱敏&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#2A2638;strokeColor=#FFC857;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=17;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="405" y="763" width="315" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="read-actual" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;读取现状&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;source / target&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;租户与选择器校验&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="768" width="155" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="change-set" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;ChangeSet&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;create · update · delete&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;unchanged · blocked&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="975" y="768" width="175" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="preview-gate" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;预览闸门&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;默认 preview&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;显式 --apply&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#FFC857;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1170" y="768" width="165" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="apply-verify" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:16px;font-weight:700;&quot;&gt;执行与回查&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;apply → re-read&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;verified / operationId&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#54F4A8;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=16;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1355" y="775" width="155" height="95" as="geometry"/>
+                </mxCell>
+                <mxCell id="domain-services" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:17px;font-weight:700;&quot;&gt;领域服务模块&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;Menu · 树与创建语义&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;BPM · 发现 / 配置 / 迁移&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;Permission · 关系与数据权限&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#4DB8FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=17;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1590" y="770" width="250" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="environment-gate" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:15px;font-weight:700;&quot;&gt;环境绑定与租户闸门&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;env → URL + Token · source / target preflight&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=15;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="968" width="390" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="structured-output" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:15px;font-weight:700;&quot;&gt;结构化输出与错误信封&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;kind · success / code / candidates / issues&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=15;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="968" width="390" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="operation-evidence" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:15px;font-weight:700;&quot;&gt;操作证据与恢复&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;operationId · JSONL · explicit rollback&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#FFC857;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=15;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="968" width="390" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="http-gateway" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:15px;font-weight:700;&quot;&gt;Clients / HTTP Gateway&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;Resource · BPM · Permission → /api-gateway/{service}&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#54F4A8;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=15;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="1340" y="967" width="500" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="dev-env" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;DEV&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=13;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="80" y="1122" width="170" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="test-env" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;TEST&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#9E8CFF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=13;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="275" y="1122" width="170" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="prod-env" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:13px;font-weight:700;&quot;&gt;PROD&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#54F4A8;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=13;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="470" y="1122" width="170" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="eadp-apis" value="&lt;div style=&quot;font-family:Microsoft YaHei UI,Microsoft YaHei,Segoe UI,sans-serif;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;color:#F6FAFF;font-size:14px;font-weight:700;&quot;&gt;EADP APIs&lt;/div&gt;&lt;div style=&quot;margin-top:4px;color:#90CFE6;font-size:10px;&quot;&gt;基础资源 · 菜单 / 权限 · BPM · 给号配置&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#081B3B;strokeColor=#57F3FF;strokeWidth=1.5;verticalAlign=middle;align=center;spacing=8;fontColor=#F6FAFF;fontSize=14;fontFamily=Microsoft YaHei;shadow=0;" parent="1" vertex="1">
+                    <mxGeometry x="690" y="1115" width="1150" height="46" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

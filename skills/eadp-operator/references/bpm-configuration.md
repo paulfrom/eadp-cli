@@ -57,7 +57,6 @@ eadp resource sync bpm --source dev --target test --select flow=示例流程 --a
 ## Discover implemented flow skeletons and optional callbacks
 
 - Discover BPM definitions from Controller, Entity, API path, workflow callbacks, service calls, and frontend routes.
-- Never require or infer from `BPM流程配置登记册.md`.
 - Use the Entity fully qualified class name as the default flow model code.
 - Treat a concrete `BaseFlowController`, its Entity, and a resolvable API path as an implemented flow skeleton.
 - Workflow callbacks and `startDefaultFlow` are optional and must not be used as flow-discovery prerequisites.
