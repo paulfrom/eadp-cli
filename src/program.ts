@@ -7,6 +7,7 @@ import { registerRollbackCommand } from "./commands/rollback.js";
 import { registerSkillCommands } from "./commands/skill.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerMenuCommands } from "./commands/menu.js";
+import { registerTransCommands } from "./commands/trans.js";
 import {
   registerPermissionVerbCommands
 } from "./commands/verbs.js";
@@ -32,6 +33,7 @@ export function createProgram(store = new ConfigStore()): Command {
   registerEnvironmentCommands(program, store);
   registerResourceCommands(store, program);
   registerMenuCommands(program, store);
+  registerTransCommands(program, store);
   registerBpmCommands(store, program);
   registerPermissionCommands(permissionCommands, store, program);
   registerRollbackCommand(program, store);

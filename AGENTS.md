@@ -20,6 +20,3 @@
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
 - 查询接口只有在资源契约或领域命令明确要求 global 时才允许使用 `tenantCode === "global"` 的环境；未明确要求 global（包括 `tenant.policy: "any"`）时默认按 non-global 查询校验，`query`、`compare`、`sync` 必须在任何远端请求前拒绝 global 环境。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
-- 给号配置涉及的枚举必须在 CLI 帮助、注册资源契约（可由 `eadp resource inspect serial-number` 查看）和 `eadp-operator` Skill 中完整列出合法值及业务含义，供 AI 选择；不得只展示示例值或依靠猜测。
-- 实现或维护回滚能力时，权限接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller`，给号接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\serial\controller\SerialNumberConfigController.java`，BPM 接口固定参考 `D:\project\ead\sei-bpm\sei-bpm-service\src\main\java\com\changhong\sei\bpm\controller`；这些路径已由用户确认，无需再次询问。
-- 菜单接口固定参考 `D:\project\ead\sei-basic\sei-basic-service\src\main\java\com\changhong\sei\basic\controller\MenuController.java`；菜单查询使用 `getMenuTree`，跨环境同步以 `code` 为业务唯一键，按父先子后处理，并依据 `parentCode`、`featureCode` 在目标环境重新映射 ID，禁止复制源 `parentId`、`featureId`。

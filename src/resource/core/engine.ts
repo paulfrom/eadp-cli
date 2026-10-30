@@ -107,7 +107,8 @@ export interface ResourcePhaseHooks {
   /**
    * Aggregate planning: load both sides and plan in one phase. Used by
    * multi-resource resources whose source/target read is not a single record
-   * list. Mutually exclusive with `plan` for a given resource.
+   * list. It takes precedence over `plan` for compare/sync; `plan` may still
+   * handle direct writes to the same resource.
    */
   aggregatePlan?(context: ResourceAggregatePlanContext): Promise<ResourceAggregatePlan>;
   /** Override the apply phase (default: saveChanges). Only invoked when apply is true. */

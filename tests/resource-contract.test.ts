@@ -165,7 +165,7 @@ describe("声明式资源契约：注册校验", () => {
       { value: "REPEAT", meaning: "同一关联对象优先复用已有条码" },
       { value: "PATCH", meaning: "补号策略" }
     ]);
-    expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu"]);
+    expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu", "trans"]);
   });
 
   it("给号配置只暴露 serial-number CLI 资源名，后端路径仍由契约承载", () => {

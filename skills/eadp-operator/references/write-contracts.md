@@ -20,6 +20,8 @@
 | `dataRole/save` | `code`、`name` 必填，各最多 50；`ignoreParent` 必填，CLI 默认 `false` | `tenantCode` 最多 10，但始终绑定已配置环境；禁止手填、推断或覆盖。`dataRoleGroupId` 必填、最多 36；只读解析目标组，不能复制源 ID。 |
 | `serialNumberConfig/save` | `entityClassName` 必填、最多 128；显式提供的 `configType` 必须使用合法枚举；`name` 必填、最多 32；`expressionConfig` 可选、最多 32；`minNumber` 必填；`activated` 必填 | 新增记录源 `configType` 缺失、为 `null` 或空白时使用资源注册默认 `CODE_TYPE`；其余枚举、默认值和复合唯一键规则继续由 `serial-number-sync.md` 管理。查询/比较时 `configType` 仍仅是显式筛选条件，不参与业务唯一键。源记录不符合本契约时停止该写入，不篡改后继续。 |
 | BPM `conFlowType/save` | `name` 必填、最多 50；`code` 必填 | `businessEntityId` 必填；通过项目 Entity/远端只读结果解析，不复制源环境 ID。BPM 工作流生成的流程配置短名称仍受最多 15 个字的更严格业务规则约束；其他 BPM DTO 未声明明确长度，不写默认 255。 |
+| `transGroup/save` | `code` 必填且非空 | 按 `code` 判重；通道引用时由 CLI 映射目标 `groupId`，不复制源 ID。 |
+| `trans/save` | `code`、`transGraph.graph` 必填；`logLastDay` 最大 180；图必须是含 `nodes`、`edges` 数组的 JSON 对象 | 新增默认 `logLastDay=60`、`customResult=false`、`antiRetry=false`、`sync=true`；更新保留目标 `status/graphVersion`。按 `groupCode`、`sourceSystemCode` 映射目标 ID；内嵌密码、认证请求头、未解析 ID 和 `dbMeta` 进入 `blocked`，详见 `trans-sync.md`。 |
 
 ## 失败处理
 

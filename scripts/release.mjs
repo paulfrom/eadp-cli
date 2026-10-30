@@ -13,6 +13,7 @@ const releaseVersion = releaseArguments[0] ?? "patch";
 const npm = npmInvocation();
 
 if (!dryRun) {
+  runNpm(["whoami"]);
   runNpm(["version", releaseVersion, "--no-git-tag-version"]);
 }
 
@@ -22,7 +23,7 @@ process.stdout.write(`准备发布 ${packageJson.name}@${packageJson.version}\n`
 runNpm(["run", "check"]);
 runNpm(["pack", "--ignore-scripts"]);
 runNpm(["run", "test:package"]);
-runNpm(["publish", "--ignore-scripts", "--dry-run"]);
+runNpm(["publish", "--ignore-scripts", ...(dryRun ? ["--dry-run"] : [])]);
 
 process.stdout.write(
   dryRun

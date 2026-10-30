@@ -19,6 +19,8 @@ export interface SpecialResourceHandler {
     quick?: string;
   }): Promise<ResourceQueryResult>;
   hooks?: ResourcePhaseHooks;
+  /** Remove domain secrets from any command result before it is printed. */
+  sanitizeOutput?(value: unknown): unknown;
 }
 
 export type SpecialResourceHandlerEntry = readonly [string, SpecialResourceHandler];

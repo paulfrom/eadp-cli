@@ -239,7 +239,7 @@ export function registerResourceCommands(
           : "none";
 
       if (countMode !== "none") {
-        if (special?.query) {
+        if (special?.query && contract.read !== "paged") {
           const result = await special.query({
             environment,
             runtime,
@@ -323,7 +323,9 @@ export function registerResourceCommands(
           resource: contract.id,
           environment: environment.name,
           selectors,
-          item: item === null ? null : redactSensitiveFields([item], contract)[0],
+          item: item === null ? null : redactSensitiveFields([
+            sanitizeResourceOutput(loaded.catalog, contract, item) as ResourceRecord
+          ], contract)[0],
           ...contractIssueFields(loaded)
         },
         runtime.compact
@@ -366,11 +368,11 @@ export function registerResourceCommands(
           }
         );
       });
-      printValue({
+      printValue(sanitizeResourceOutput(loaded.catalog, contract, {
         ...result,
         environment: environment.name,
         ...contractIssueFields(loaded)
-      }, runtime.compact);
+      }), runtime.compact);
     });
 
   addResourceMigrationOptions(resource
@@ -402,7 +404,10 @@ export function registerResourceCommands(
           selectors
         }
       );
-      printValue({ ...result, ...contractIssueFields(loaded) }, runtime.compact);
+      printValue(sanitizeResourceOutput(loaded.catalog, contract, {
+        ...result,
+        ...contractIssueFields(loaded)
+      }), runtime.compact);
     });
 
   addResourceMigrationOptions(resource
@@ -445,7 +450,10 @@ export function registerResourceCommands(
           }
         );
       });
-      printValue({ ...result, ...contractIssueFields(loaded) }, runtime.compact);
+      printValue(sanitizeResourceOutput(loaded.catalog, contract, {
+        ...result,
+        ...contractIssueFields(loaded)
+      }), runtime.compact);
     });
 }
 
@@ -916,6 +924,16 @@ function getSpecialHandler(
     throw new CliError(`资源 ${contract.id} 的 ${capability} 处理器未注册`);
   }
   return handler;
+}
+
+function sanitizeResourceOutput(
+  catalog: ResourceModuleCatalog,
+  contract: ResourceContract,
+  value: unknown
+): unknown {
+  if (!contract.handler) return value;
+  const handler = catalog.handlerRegistry.get(contract.handler);
+  return handler.sanitizeOutput ? handler.sanitizeOutput(value) : value;
 }
 
 /** One operation lifecycle for ordinary resources and behavior extensions. */

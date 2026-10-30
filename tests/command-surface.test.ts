@@ -79,7 +79,7 @@ describe("统一命令面", () => {
   it("暴露 resource-first 资源命令和领域命令及全局运行参数", () => {
     const program = createProgram();
     const help = program.helpInformation();
-    for (const command of ["permission", "bpm", "menu", "resource", "rollback", "env", "skill", "update"]) {
+    for (const command of ["permission", "bpm", "menu", "trans", "resource", "rollback", "env", "skill", "update"]) {
       expect(help).toContain(command);
     }
     expect(program.commands.map((command) => command.name())).not.toEqual(

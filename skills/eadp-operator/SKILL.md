@@ -20,7 +20,7 @@ commands:
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
-  `bpm configure`, `rollback <operation-id...>` handle intents that are not
+  `bpm configure`, `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
 - For every query, compare, or sync, use a global environment only when the
@@ -91,13 +91,14 @@ back from an unavailable detail capability to a list query or a guessed
 
 Current resource names (the live `eadp resource inspect` output is
 authoritative): `app-module`、`feature`、`feature-group`、`serial-number`、
-`employee`（别名 `user`）、`menu`、`bpm`. Future ordinary resources remain
-usable through live discovery without any Skill change.
+`employee`（别名 `user`）、`menu`、`bpm`、`trans-group`、`trans`. Future
+ordinary resources remain usable through live discovery without any Skill change.
 
 The built-in detail selectors currently exposed by live contracts are:
 `app-module.code`, `feature.code`, `employee.code`, `feature-group.id`,
-`serial-number.id`, and `menu.id`. `bpm` is an aggregate workflow resource and
-does not declare `detail`; do not emulate it with a list query.
+`serial-number.id`, `menu.id`, `trans-group.id`, and `trans.id`. `bpm` is an
+aggregate workflow resource and does not declare `detail`; do not emulate it
+with a list query.
 
 ## Special domain commands
 
@@ -113,6 +114,8 @@ Route only these domain intents away from ordinary resource actions:
 - BPM project discovery or configuration: `eadp bpm inspect ...` or
   `eadp bpm configure ...`; BPM environment migration stays
   `eadp resource compare|sync bpm --select flow=<code-or-name>`.
+- EAI channel publication or freezing: `eadp trans publish|freeze`; channel
+  query, configuration writes, comparison, and migration stay in `resource`.
 - Explicit recovery: `eadp rollback <operation-id...>`.
 
 `env`, `skill`, and `update` are tool-management commands, not resources. Do
@@ -159,6 +162,7 @@ selected workflow; do not load every reference by default:
 - Permission inspection, add-only copying, grant, or revoke: [permission-management.md](references/permission-management.md)
 - BPM discovery or configuration: [bpm-configuration.md](references/bpm-configuration.md)
 - Serial-number migration: [serial-number-sync.md](references/serial-number-sync.md)
+- EAI channel configuration, migration, publication, or freezing: [trans-sync.md](references/trans-sync.md)
 - Explicit rollback: [rollback.md](references/rollback.md)
 
 References add domain constraints only. They do not register resources, decide

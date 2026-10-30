@@ -72,6 +72,8 @@ eadp resource sync <name> --source <env> --target <env>
 | `serial-number` | 普通契约 + adapter | query、detail、write、compare、sync | global | 按 `id` 读取明细；复合业务键为 `entityClassName + tenantCode` |
 | `menu` | 行为扩展资源 | query、detail、compare、sync | global | 按 `id` 读取明细；单菜单新增走 `menu create` |
 | `bpm` | 行为扩展资源 | compare、sync | non-global | 跨环境操作走 `resource`；项目发现/配置走 `bpm inspect/configure` |
+| `trans-group` | 普通契约 | query、detail、write、compare、sync | non-global | EAI 通道分组，按 `code` 识别并映射目标分组 ID |
+| `trans` | 行为扩展资源 | query、detail、write、compare、sync | non-global | EAI 通道及图配置；按 `code` 单通道同步，不自动发布或删除 |
 
 普通资源与行为扩展资源都从同一个注册表发现，并由同一个 `resource` 命令入口执行其已声明能力。
 `serial-number` 是给号配置唯一的 CLI 资源名；后端 controller/path 名不能作为 `resource` 命令参数。
@@ -88,6 +90,7 @@ eadp resource sync <name> --source <env> --target <env>
 | `eadp menu create ...` | 按父菜单代码和功能项代码安全新增菜单 | 菜单查询/比较/同步仍使用 `resource ... menu` |
 | `eadp bpm inspect ...` | 从真实项目代码只读发现 BPM 流程骨架 | 不访问远端，不等同于 BPM 资源同步 |
 | `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移仍使用 `resource compare/sync bpm` |
+| `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 通道配置保存、比较和迁移仍使用 `resource ... trans`，同步不改变生命周期 |
 | `eadp rollback <operation-id...>` | 撤销操作日志记录的新增或分配 | 只接受已登记回滚契约，不提供通用删除 |
 
 `env` 管理环境，`skill` 管理 AI Skill，`update` 升级 CLI 与 Skill；它们属于工具管理命令，
@@ -463,6 +466,33 @@ eadp menu create \
 ```
 
 省略 `--code` 时由服务端给号；CLI 会从保存结果读取实际代码并回查验证。
+
+EAI 通道使用 `trans`，通道分组使用 `trans-group`，两者都只能使用 non-global 环境。通道列表按
+`code` 查询；完整图明细使用列表返回的当前环境 ID 读取，图内密码和认证请求头会在输出中脱敏：
+
+```bash
+eadp resource query trans --env dev --filter code:EQ:ORDER_SYNC
+eadp resource detail trans --env dev --select id=<当前环境通道ID>
+```
+
+通道比较和迁移每次必须选择一个 `code`。同步会读取完整图，按分组 `code`、来源系统 `code`
+重新映射目标 ID，结构化比较图 JSON，并在保存后回查；默认预览，重复执行应返回 `unchanged`：
+
+```bash
+eadp resource compare trans --source A --target B --select code=ORDER_SYNC
+eadp resource sync trans --source A --target B --select code=ORDER_SYNC
+eadp resource sync trans --source A --target B --select code=ORDER_SYNC --apply
+```
+
+`trans` 不支持时间筛选，也不会自动删除目标独有通道。未解析的来源系统 ID、内嵌密码、认证
+请求头或数据库 `dbMeta` 会使记录进入 `blocked`，不会原样复制到目标环境。配置保存和同步保留
+目标 `status/graphVersion`，不会自动发布。发布和冻结必须显式执行独立命令并回查：
+
+```bash
+eadp trans publish --env B --select code=ORDER_SYNC
+eadp trans publish --env B --select code=ORDER_SYNC --apply
+eadp trans freeze --env B --select code=ORDER_SYNC --apply
+```
 
 查询 A 环境在 2026 年 7 月创建的功能项：
 

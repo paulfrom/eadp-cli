@@ -11,6 +11,9 @@ import { serialNumberAdapter } from "./serial-number/adapter.js";
 import { employeeAdapter } from "./employee/adapter.js";
 import { bpmResourceHandler } from "./bpm/handler.js";
 import { menuResourceHandler } from "./menu/handler.js";
+import { transContract } from "./trans/contract.js";
+import { transGroupContract } from "./trans-group/contract.js";
+import { transResourceHandler } from "./trans/handler.js";
 import type { ResourceModule } from "../resource/modules/contracts.js";
 
 /** The only built-in composition list that must change when a domain is added. */
@@ -21,5 +24,7 @@ export const resourceModules: readonly ResourceModule[] = [
   { contract: serialNumberContract, adapter: serialNumberAdapter },
   { contract: employeeContract, adapter: employeeAdapter },
   { contract: menuContract, handler: menuResourceHandler },
-  { contract: bpmContract, handler: bpmResourceHandler }
+  { contract: bpmContract, handler: bpmResourceHandler },
+  { contract: transGroupContract },
+  { contract: transContract, handler: transResourceHandler }
 ];
