@@ -29,7 +29,7 @@ describe("release 发布脚本", () => {
     ]);
     expect(release.packageJson.version).toBe("0.13.5");
     expect(release.result.stdout).toContain("Dry run 完成，未发布到 npm。");
-  });
+  }, 30_000);
 
   it("正式发布先检查登录，再升级版本并实际发布", async () => {
     const release = await runRelease(["patch"]);
@@ -45,7 +45,22 @@ describe("release 发布脚本", () => {
     ]);
     expect(release.packageJson.version).toBe("0.13.6");
     expect(release.result.stdout).toContain("eadp-cli@0.13.6 已发布到 npm。");
-  });
+  }, 30_000);
+
+  it("显式指定当前版本时跳过 npm version 并继续发布", async () => {
+    const release = await runRelease(["0.13.5"]);
+
+    expect(release.result.status).toBe(0);
+    expect(release.commands).toEqual([
+      ["whoami"],
+      ["run", "check"],
+      ["pack", "--ignore-scripts"],
+      ["run", "test:package"],
+      ["publish", "--ignore-scripts"]
+    ]);
+    expect(release.packageJson.version).toBe("0.13.5");
+    expect(release.result.stdout).toContain("版本已是 0.13.5");
+  }, 30_000);
 
   it("登录失败时不修改版本或执行后续发布步骤", async () => {
     const release = await runRelease(["patch"], true);

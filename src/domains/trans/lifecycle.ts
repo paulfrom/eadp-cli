@@ -22,7 +22,7 @@ export async function executeTransLifecycle(options: {
     filters: [{ fieldName: "code", operator: "EQ", value: code }]
   });
   const matches = rows.filter((row) =>
-    typeof row.code === "string" && row.code.trim().toLocaleLowerCase() === code.toLocaleLowerCase()
+    typeof row.code === "string" && row.code.trim() === code
   );
   if (matches.length !== 1) {
     throw new CliError(
@@ -75,7 +75,7 @@ export async function executeTransLifecycle(options: {
     filters: [{ fieldName: "code", operator: "EQ", value: code }]
   });
   const actual = afterRows.find((row) =>
-    typeof row.code === "string" && row.code.trim().toLocaleLowerCase() === code.toLocaleLowerCase()
+    typeof row.code === "string" && row.code.trim() === code
   );
   if (!actual) throw new CliError(`通道 ${code} 生命周期操作后回查失败`);
   const actualLogical = logicalTransRecord(actual);

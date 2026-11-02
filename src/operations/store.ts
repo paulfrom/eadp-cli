@@ -202,7 +202,10 @@ export class OperationLogStore {
         handle = await open(lockPath, "wx", 0o600);
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const code = (error as NodeJS.ErrnoException).code;
+        // Windows may report EPERM/EBUSY while another writer creates or
+        // removes the lock file; both are transient and must be retried.
+        if (code !== "EEXIST" && code !== "EPERM" && code !== "EBUSY") throw error;
         await delay(25);
       }
     }

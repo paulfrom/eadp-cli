@@ -230,12 +230,12 @@ describe("employee resource", () => {
     expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 0, blocked: 1 });
     expect(output.changes).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        key: "safe",
+        key: "SAFE",
         action: "create",
         desired: expect.objectContaining({ code: "SAFE", userName: "安全员工", organizationId: "target-org" })
       }),
       expect.objectContaining({
-        key: "blocked",
+        key: "BLOCKED",
         action: "blocked",
         missingDependencies: [{ resource: "organization", identityField: "code", value: "ORG-MISSING", reason: "missing" }]
       })

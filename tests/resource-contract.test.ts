@@ -165,7 +165,11 @@ describe("声明式资源契约：注册校验", () => {
       { value: "REPEAT", meaning: "同一关联对象优先复用已有条码" },
       { value: "PATCH", meaning: "补号策略" }
     ]);
-    expect(specialResourceHandlerRegistry.list()).toEqual(["bpm", "menu", "trans"]);
+    expect(getResourceContract("bpm-migration").dependencies).toEqual(["bpm", "bpm-flow-graph"]);
+    expect(getResourceContract("bpm-migration").selectors?.map((selector) => selector.name)).toEqual(["flow"]);
+    expect(specialResourceHandlerRegistry.list()).toEqual([
+      "bpm", "bpm-flow-graph", "bpm-migration", "menu", "trans"
+    ]);
   });
 
   it("给号配置只暴露 serial-number CLI 资源名，后端路径仍由契约承载", () => {
@@ -196,6 +200,19 @@ describe("声明式资源契约：注册校验", () => {
       targetOnly: true,
       blockingIssues: [{ reason: "undeclared-delete" }]
     });
+  });
+
+  it("code 唯一键按大小写敏感判重", async () => {
+    const contract = base();
+    const targetClient = {
+      queryContract: async () => [{ code: "ORDER", name: "大写通道" }]
+    } as unknown as ResourceClient;
+    const plan = await new ResourceEngine().planWrite(
+      contract,
+      targetClient,
+      { code: "order", name: "小写通道" }
+    );
+    expect(plan.changes[0]).toMatchObject({ key: "order", action: "create" });
   });
 });
 

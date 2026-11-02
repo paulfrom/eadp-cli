@@ -1,5 +1,7 @@
 import { appModuleContract } from "./app-module/contract.js";
 import { bpmContract } from "./bpm/contract.js";
+import { bpmMigrationContract } from "./bpm-migration/contract.js";
+import { bpmFlowGraphContract } from "./bpm-flow-graph/contract.js";
 import { featureContract } from "./feature/contract.js";
 import { featureGroupContract } from "./feature-group/contract.js";
 import { menuContract } from "./menu/contract.js";
@@ -10,6 +12,8 @@ import { featureGroupAdapter } from "./feature-group/adapter.js";
 import { serialNumberAdapter } from "./serial-number/adapter.js";
 import { employeeAdapter } from "./employee/adapter.js";
 import { bpmResourceHandler } from "./bpm/handler.js";
+import { bpmMigrationResourceHandler } from "./bpm-migration/handler.js";
+import { bpmFlowGraphResourceHandler } from "./bpm-flow-graph/handler.js";
 import { menuResourceHandler } from "./menu/handler.js";
 import { transContract } from "./trans/contract.js";
 import { transGroupContract } from "./trans-group/contract.js";
@@ -25,6 +29,8 @@ export const resourceModules: readonly ResourceModule[] = [
   { contract: employeeContract, adapter: employeeAdapter },
   { contract: menuContract, handler: menuResourceHandler },
   { contract: bpmContract, handler: bpmResourceHandler },
+  { contract: bpmFlowGraphContract, handler: bpmFlowGraphResourceHandler },
+  { contract: bpmMigrationContract, handler: bpmMigrationResourceHandler },
   { contract: transGroupContract },
   { contract: transContract, handler: transResourceHandler }
 ];

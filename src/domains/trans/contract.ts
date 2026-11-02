@@ -39,7 +39,7 @@ export const transContract: ResourceContract = {
   ],
   tenant: { policy: "non-global" },
   capabilities: ["query", "detail", "write", "compare", "sync"],
-  help: "同步必须使用 --select code=<code>；按业务代码映射分组和来源系统，不复制源 ID，不自动发布或删除通道。",
+  help: "同步必须使用 --select code=<code>；code 按大小写敏感匹配，按业务代码映射分组和来源系统，不复制源 ID，不自动发布或删除通道。",
   defaults: {
     create: { logLastDay: 60, customResult: false, antiRetry: false, sync: true },
     preserveTargetFieldsWhenMissing: [

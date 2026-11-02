@@ -40,19 +40,40 @@ export class ResourceClient {
 
   constructor(
     private readonly options: ResourceClientOptions,
-    private readonly findAllOverlays: ReadonlyMap<string, ResourceRecord[]> = new Map()
+    private readonly findAllOverlays: ReadonlyMap<string, ResourceRecord[]> = new Map(),
+    private readonly plannedRows: ReadonlyMap<string, ResourceRecord[]> = new Map()
   ) {}
 
   /** Reuse the same environment credentials for another declared service. */
   forService(service: string): ResourceClient {
-    return new ResourceClient({ ...this.options, service }, this.findAllOverlays);
+    return new ResourceClient({ ...this.options, service }, this.findAllOverlays, this.plannedRows);
   }
 
   /** Add an in-memory dependency snapshot for one planning pass only. */
   withFindAllOverlay(resource: string, rows: ResourceRecord[]): ResourceClient {
     const overlays = new Map(this.findAllOverlays);
     overlays.set(resource, rows.map((row) => ({ ...row })));
-    return new ResourceClient(this.options, overlays);
+    return new ResourceClient(this.options, overlays, this.plannedRows);
+  }
+
+  /**
+   * Add records a dependency plan is about to create, so a later planning
+   * phase in the same compare run can resolve references to them. Unlike
+   * `withFindAllOverlay`, these rows are additive: `findByPage` keeps the
+   * real target rows and appends the planned ones.
+   */
+  withPlannedRows(resource: string, rows: ResourceRecord[]): ResourceClient {
+    if (rows.length === 0) return this;
+    const planned = new Map(this.plannedRows);
+    const merged = new Map<string, ResourceRecord>();
+    for (const row of [...(planned.get(resource) ?? []), ...rows]) {
+      const id = typeof row.id === "string" && row.id !== ""
+        ? row.id
+        : `planned:${resource}:${JSON.stringify(row)}`;
+      merged.set(id, { ...row });
+    }
+    planned.set(resource, [...merged.values()]);
+    return new ResourceClient(this.options, this.findAllOverlays, planned);
   }
 
   async findByPage(
@@ -66,6 +87,16 @@ export class ResourceClient {
     const rows: ResourceRecord[] = [];
     for await (const page of this.iterateByPage(resource, options)) {
       rows.push(...page);
+    }
+    const planned = this.plannedRows.get(resource);
+    if (planned && planned.length > 0 &&
+        (options.filters ?? []).length === 0 &&
+        options.quickSearchValue === undefined) {
+      const seen = new Set(rows.map((row) => row.id));
+      for (const row of planned) {
+        if (row.id !== undefined && seen.has(row.id)) continue;
+        rows.push({ ...row });
+      }
     }
     return { rows, total: rows.length };
   }
@@ -309,6 +340,49 @@ export class ResourceClient {
     const records = data.filter(isRecord);
     this.findAllCache.set(resource, records);
     return records;
+  }
+
+  /** Execute an arbitrary declared endpoint on this resource service. */
+  async invoke(
+    path: string,
+    method: "GET" | "POST",
+    body?: unknown,
+    query?: Record<string, string[]>
+  ): Promise<unknown> {
+    const relativePath = path.replace(/^\/+/, "");
+    if (!relativePath || relativePath.includes("..") || /[?#]/.test(relativePath)) {
+      throw new CliError(`资源接口路径无效：${path}`);
+    }
+    const result = await sendRequest({
+      baseUrl: this.options.baseUrl,
+      token: this.options.token,
+      authorization: this.options.authorization,
+      method,
+      path: `/api-gateway/${this.options.service}/${relativePath}`,
+      ...(body === undefined ? {} : { body }),
+      ...(query === undefined ? {} : { query }),
+      ...(this.options.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: this.options.timeoutMs })
+    });
+    const envelope = result.data;
+    if (!isRecord(envelope)) {
+      throw new CliError(`资源接口返回格式无效：${relativePath}`);
+    }
+    if (envelope.success !== true) {
+      const message = typeof envelope.message === "string" && envelope.message.trim() !== ""
+        ? envelope.message
+        : "服务端未返回错误信息";
+      throw new CliError(
+        `资源接口调用失败：${relativePath}：${message}`,
+        1,
+        { code: "EADP_REQUEST_FAILED" }
+      );
+    }
+    if (!("data" in envelope)) {
+      throw new CliError(`资源接口返回格式无效：${relativePath} 缺少 data`);
+    }
+    return envelope.data;
   }
 
   /** Read one Basic resource by its backend-supported business code. */

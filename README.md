@@ -89,8 +89,10 @@ eadp resource sync <name> --source <env> --target <env>
 | `eadp permission inspect/apply/assign/revoke/verify ...` | 权限查询、角色配置、关系分配/移除和验证 | 权限关系不是普通资源 CRUD，使用独立领域命令 |
 | `eadp menu create ...` | 按父菜单代码和功能项代码安全新增菜单 | 菜单查询/比较/同步仍使用 `resource ... menu` |
 | `eadp bpm inspect ...` | 从真实项目代码只读发现 BPM 流程骨架 | 不访问远端，不等同于 BPM 资源同步 |
-| `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移仍使用 `resource compare/sync bpm` |
-| `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 通道配置保存、比较和迁移仍使用 `resource ... trans`，同步不改变生命周期 |
+| `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移使用 `resource compare/sync bpm-migration`（或原子入口 `bpm`、`bpm-flow-graph`） |
+| `eadp bpm graph export/validate/import ...` | 流程图画布文件的可移植导出、校验与导入 | 只写草稿；节点阻断规则与 `bpm-flow-graph` 一致 |
+| `eadp trans inspect ...` | 只读发现当前环境的 EAI 节点及图配置契约 | 通道配置保存、比较和迁移仍使用 `resource ... trans` |
+| `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 同步不改变生命周期 |
 | `eadp rollback <operation-id...>` | 撤销操作日志记录的新增或分配 | 只接受已登记回滚契约，不提供通用删除 |
 
 `env` 管理环境，`skill` 管理 AI Skill，`update` 升级 CLI 与 Skill；它们属于工具管理命令，
@@ -254,6 +256,28 @@ eadp bpm configure \
 只以 `pcUrl` 和 `url` 作为唯一定位、查重及关联边界。明确选择的 Entity 即使不在常规
 流程候选清单中也可以建立基础定义；缺少可解析 API PATH 时，服务名默认采用 Entity 简单
 类名的 lowerCamel 形式。
+
+需要把骨架和流程图一起迁移时，使用组合入口（顺序固定为骨架 → 图）：
+
+```bash
+eadp resource sync bpm-migration \
+  --source dev --target ead --select flow=TBS_PROJECT
+```
+
+预览会同时列出骨架与图的变更，并把本次将要创建的页面/接口/流程类型算作图依赖；`--apply`
+先写骨架、再写图草稿，最后分别回查。只想迁移骨架或只想搬图时，仍可分别使用
+`resource sync bpm` 与 `resource sync bpm-flow-graph`。
+
+源环境没有设计稿时，不要在 CLI 里猜画布 JSON；用文件通道把一张已画好的图搬到其他环境：
+
+```bash
+eadp bpm graph export   --env dev --flow TBS_PROJECT --out tbs.json
+eadp bpm graph validate --env ead --file tbs.json
+eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --apply
+```
+
+导出文件是规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），`import` 只写草稿并回查，
+重复执行幂等；`CallActivity`、`ProjectPosition`、智能审核等仍按 `bpm-flow-graph` 的规则阻断。
 
 ## 检查功能权限和数据权限
 
@@ -474,6 +498,19 @@ EAI 通道使用 `trans`，通道分组使用 `trans-group`，两者都只能使
 eadp resource query trans --env dev --filter code:EQ:ORDER_SYNC
 eadp resource detail trans --env dev --select id=<当前环境通道ID>
 ```
+
+从零配置通道不需要读取历史通道。先通过节点目录获取节点参数、公共图字段和连线契约，再生成图 JSON；
+`sourceSystemId` 在 CLI 输入中使用 `sourceSystemCode`，由 CLI 映射当前环境 ID：
+
+```bash
+eadp trans inspect --env dev
+eadp trans inspect httpNode --env dev
+eadp resource write trans --env dev --data '<通道JSON>'
+eadp resource write trans --env dev --data '<通道JSON>' --apply
+```
+
+通道及依赖的业务 `code` 均按大小写敏感匹配。直接写入只按本次 `code` 查询目标现状，不读取无关通道图；
+有 `findByPage` 时必须分页查询，失败即停止，不得改用 `findAll`。
 
 通道比较和迁移每次必须选择一个 `code`。同步会读取完整图，按分组 `code`、来源系统 `code`
 重新映射目标 ID，结构化比较图 JSON，并在保存后回查；默认预览，重复执行应返回 `unchanged`：

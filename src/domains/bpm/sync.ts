@@ -12,6 +12,7 @@ import type {
   ResourceVerifyContext
 } from "../../resource/core/engine.js";
 import { assertBpmNameLength, bpmNameLengthError } from "./naming.js";
+import { selectFlow } from "./selection.js";
 
 type RecordValue = Record<string, unknown>;
 type SyncAction = "create" | "update" | "unchanged" | "blocked";
@@ -305,7 +306,19 @@ async function planBpmAggregate(context: ResourceAggregatePlanContext): Promise<
   return {
     changes: changes.map(toResourceChange),
     extraSummary: { relationsAdded },
-    details: { flow: { code: flowCode, name: flowName, entityCode }, relationsAdded },
+    details: {
+      flow: { code: flowCode, name: flowName, entityCode },
+      relationsAdded,
+      pages: pages.map((page) => ({ pcUrl: page.key, action: page.action })),
+      interfaces: interfaces.map((item) => ({ url: item.key, action: item.action })),
+      flowType: { code: flowCode, name: flowName, action: flowPlan.action },
+      nextActions: [{
+        action: "SYNC_FLOW_GRAPH",
+        resource: "bpm-flow-graph",
+        selectors: { flow: flowCode },
+        message: "骨架完成后运行 resource sync bpm-flow-graph（或直接使用 bpm-migration）；图需要源环境已有设计稿"
+      }]
+    },
     appliedExtra: relationsAdded > 0
   };
 }
@@ -556,22 +569,6 @@ function childMatch(
     };
   }
   return matches[0] ? { record: matches[0] } : {};
-}
-
-function selectFlow(
-  flows: RecordValue[],
-  entities: RecordValue[],
-  selector: string
-): RecordValue {
-  const normalized = selector.trim().toLocaleLowerCase();
-  const matches = flows.filter((flow) => {
-    if (sameText(flow.code, normalized) || sameText(flow.name, normalized)) return true;
-    const entity = entities.find((item) => item.id === flow.businessEntityId);
-    return entity !== undefined && (sameText(entity.code, normalized) || sameText(entity.name, normalized));
-  });
-  if (matches.length === 0) throw new CliError(`源环境未找到 BPM 流程：${selector}`);
-  if (matches.length > 1) throw new CliError(`源环境 BPM 流程不唯一：${selector}（匹配 ${matches.length} 条）`);
-  return matches[0]!;
 }
 
 function uniqueById(records: RecordValue[], id: string, label: string): RecordValue {

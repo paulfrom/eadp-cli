@@ -11,10 +11,15 @@ if (releaseArguments.length > 1) {
 
 const releaseVersion = releaseArguments[0] ?? "patch";
 const npm = npmInvocation();
+const initialPackageJson = await readPackageJson();
 
 if (!dryRun) {
   runNpm(["whoami"]);
-  runNpm(["version", releaseVersion, "--no-git-tag-version"]);
+  if (isCurrentVersion(initialPackageJson.version, releaseVersion)) {
+    process.stdout.write(`版本已是 ${releaseVersion}，跳过 npm version。\n`);
+  } else {
+    runNpm(["version", releaseVersion, "--no-git-tag-version"]);
+  }
 }
 
 const packageJson = await readPackageJson();
@@ -33,6 +38,16 @@ process.stdout.write(
 
 async function readPackageJson() {
   return JSON.parse(await readFile(resolve("package.json"), "utf8"));
+}
+
+/**
+ * `npm version <same-version>` fails with "Version not changed". Releasing an
+ * explicit version that is already in package.json is valid (for example when
+ * a previous release aborted after the version bump), so skip that step.
+ */
+function isCurrentVersion(current, requested) {
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(requested)) return false;
+  return current === requested;
 }
 
 function npmInvocation() {

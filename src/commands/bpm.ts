@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { resolve } from "node:path";
 import { BpmClient } from "../domains/bpm/client.js";
 import { configureBpmProject } from "../domains/bpm/configure.js";
 import {
@@ -6,13 +7,26 @@ import {
   resolveBpmEntityCode,
   selectBpmFlow
 } from "../domains/bpm/discovery.js";
+import {
+  applyGraphImport,
+  exportGraphDrafts,
+  planGraphImport,
+  readGraphDraftFile,
+  sanitizeImportOutput,
+  summarizeImport,
+  validateGraphDrafts,
+  verifyGraphImport,
+  writeGraphDraftFile
+} from "../domains/bpm-flow-graph/draft.js";
+import { createResourceClient } from "../resource/core/client.js";
 import { assertTenantScope } from "../tenant.js";
 import type { ConfigStore } from "../config/store.js";
-import { resolveEnvironment } from "../config/resolve.js";
+import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
 import { printValue } from "../io.js";
 import { OperationRecorder } from "../operations/recorder.js";
 import { OperationLogStore } from "../operations/store.js";
 import { getRuntimeOptions } from "../runtime-options.js";
+import { CliError } from "../errors.js";
 
 interface InspectOptions {
   project: string;
@@ -109,4 +123,146 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
       const operationId = await recorder?.complete();
       printValue(operationId ? { ...result, operationId } : result, runtime.compact);
     });
+
+  const graph = bpm
+    .command("graph")
+    .description("流程图文件通道：导出、校验、导入（只写草稿，不发布）")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp bpm graph export --env dev --flow TBS_PROJECT --out tbs.json
+  eadp bpm graph validate --env ead --file tbs.json
+  eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json
+  eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json --apply
+
+导出的文件是规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），
+可以直接在另一个环境导入；导入前先跑 validate 检查节点结构与目标依赖。`
+    );
+
+  graph
+    .command("export")
+    .description("把一个流程类型下的最新设计稿导出为可移植 JSON 文件")
+    .requiredOption("--env <name>", "源环境名称")
+    .requiredOption("--flow <code-or-name>", "流程类型 code、名称或 Entity code")
+    .requiredOption("--out <path>", "输出文件路径")
+    .action(async (options: GraphExportOptions) => {
+      const resolved = await requireBpmEnvironment(store, options.env);
+      const runtime = getRuntimeOptions(root);
+      const client = createGraphClient(resolved, runtime.timeoutMs);
+      const file = await exportGraphDrafts(client, options.flow);
+      const out = resolve(options.out);
+      await writeGraphDraftFile(out, file);
+      printValue({
+        kind: "eadp.bpm.graph.export.v1",
+        environment: resolved.name,
+        flow: file.flow,
+        graphs: file.graphs.map((draft) => draft.name),
+        out
+      }, runtime.compact);
+    });
+
+  graph
+    .command("validate")
+    .description("校验流程图文件的节点结构、目标依赖；不写入")
+    .requiredOption("--env <name>", "目标环境名称")
+    .requiredOption("--file <path>", "流程图文件路径")
+    .action(async (options: GraphValidateOptions) => {
+      const resolved = await requireBpmEnvironment(store, options.env);
+      const runtime = getRuntimeOptions(root);
+      const file = await readGraphDraftFile(options.file);
+      const client = createGraphClient(resolved, runtime.timeoutMs);
+      const result = await validateGraphDrafts(client, file);
+      printValue({
+        kind: "eadp.bpm.graph.validation.v1",
+        environment: resolved.name,
+        ...result
+      }, runtime.compact);
+    });
+
+  graph
+    .command("import")
+    .description("把流程图文件导入目标环境草稿；默认预览，--apply 写入并回查")
+    .requiredOption("--env <name>", "目标环境名称")
+    .requiredOption("--flow <code-or-name>", "目标流程类型 code、名称或 Entity code")
+    .requiredOption("--file <path>", "流程图文件路径")
+    .option("--apply", "写入草稿；不提供时仅输出变更计划")
+    .action(async (options: GraphImportOptions) => {
+      const resolved = await requireBpmEnvironment(store, options.env);
+      const runtime = getRuntimeOptions(root);
+      const file = await readGraphDraftFile(options.file);
+      const client = createGraphClient(resolved, runtime.timeoutMs);
+      const plan = await planGraphImport(client, options.flow, file);
+      const apply = options.apply === true;
+      const result = {
+        kind: "eadp.bpm.graph.import.v1",
+        environment: resolved.name,
+        flow: plan.flow,
+        applied: false,
+        verified: apply ? false : undefined,
+        changes: plan.changes,
+        summary: summarizeImport(plan)
+      };
+      if (!apply) {
+        printValue(sanitizeImportOutput(result), runtime.compact);
+        return;
+      }
+      const recorder = new OperationRecorder(
+        new OperationLogStore(store.directory),
+        "eadp bpm graph import",
+        resolved.name
+      );
+      try {
+        await applyGraphImport(client, plan, recorder);
+        const verified = await verifyGraphImport(client, plan);
+        if (!verified) throw new CliError("流程图导入后回查失败");
+        const operationId = await recorder.complete();
+        printValue(sanitizeImportOutput({
+          ...result,
+          applied: plan.changes.some((change) => change.action === "create" || change.action === "update"),
+          verified,
+          ...(operationId === undefined ? {} : { operationId })
+        }), runtime.compact);
+      } catch (error) {
+        await recorder.fail(error);
+        throw error;
+      }
+    });
+}
+
+interface GraphExportOptions {
+  env: string;
+  flow: string;
+  out: string;
+}
+
+interface GraphValidateOptions {
+  env: string;
+  file: string;
+}
+
+interface GraphImportOptions {
+  env: string;
+  flow: string;
+  file: string;
+  apply?: boolean;
+}
+
+async function requireBpmEnvironment(
+  store: ConfigStore,
+  name: string
+): Promise<ResolvedEnvironment> {
+  const resolved = resolveEnvironment(await store.load(), name);
+  assertTenantScope(resolved.config.tenantCode, "non-global", resolved.name);
+  return resolved;
+}
+
+function createGraphClient(environment: ResolvedEnvironment, timeoutMs: number) {
+  return createResourceClient({
+    baseUrl: environment.config.baseUrl,
+    token: environment.token,
+    authorization: environment.authorization,
+    service: "sei-bpm",
+    timeoutMs
+  });
 }

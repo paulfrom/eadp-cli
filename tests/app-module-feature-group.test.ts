@@ -177,7 +177,7 @@ describe("app-module", () => {
     ])) as { summary: Record<string, number>; changes: Array<Record<string, unknown>> };
     expect(preview.summary).toEqual({ create: 0, update: 0, delete: 1, unchanged: 0, blocked: 0 });
     expect(preview.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "old", action: "delete", targetOnly: true })
+      expect.objectContaining({ key: "OLD", action: "delete", targetOnly: true })
     ]));
     expect(fixture.server("target").count("DELETE", /\/appModule\/delete\//)).toBe(0);
 
@@ -359,9 +359,9 @@ describe("feature-group", () => {
     };
     expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 1, blocked: 1 });
     expect(output.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "safe", action: "create" }),
+      expect.objectContaining({ key: "SAFE", action: "create" }),
       expect.objectContaining({
-        key: "invalid",
+        key: "INVALID",
         action: "blocked",
         blockingIssues: [expect.objectContaining({ field: "appModuleCode", reason: "invalid" })]
       })

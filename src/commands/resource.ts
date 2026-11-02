@@ -583,6 +583,8 @@ function contractSummary(contract: ResourceContract): Record<string, unknown> {
     filtering: contract.filtering ?? { time: false },
     enums: contract.enums ?? {},
     selectors: contract.selectors ?? [],
+    dependencies: contract.dependencies ?? [],
+    handler: contract.handler ?? null,
     detailSelectors: selectorDigest(contract, "detail"),
     defaults: contract.defaults ?? {},
     rollback: contract.rollback ?? null,

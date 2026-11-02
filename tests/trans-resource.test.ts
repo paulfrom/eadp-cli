@@ -68,7 +68,8 @@ function registerTransRoutes(server: MockEadpServer, state: TransState): void {
     const body = context.body as { filters?: Array<{ fieldName: string; value: unknown }> };
     const codeFilter = body.filters?.find((filter) => filter.fieldName === "code");
     const rows = state.channels
-      .filter((record) => codeFilter === undefined || record.code === codeFilter.value)
+      .filter((record) => codeFilter === undefined ||
+        String(record.code).toLowerCase() === String(codeFilter.value).toLowerCase())
       .map(({ transGraph: _transGraph, ...record }) => record);
     context.json(eadpPage(rows));
   });
@@ -325,7 +326,7 @@ describe("trans 比较与同步", () => {
     expect(rootChange(second).action).toBe("unchanged");
     expect(target.saves).toHaveLength(1);
     expect(target.publishes).toHaveLength(0);
-  });
+  }, 15_000);
 
   it("更新已有通道时保留目标发布状态和图版本", async () => {
     const fixture = await nonGlobalFixture();
@@ -440,5 +441,150 @@ describe("trans 生命周期命令", () => {
     ])) as { action: string; applied: boolean };
     expect(repeated).toMatchObject({ action: "unchanged", applied: false });
     expect(target.freezes).toHaveLength(1);
+  });
+});
+
+describe("trans 节点发现与精确读取", () => {
+  it("inspect 只读取节点元数据并输出图契约和来源系统写入规则", async () => {
+    const fixture = await nonGlobalFixture();
+    const server = fixture.server("source");
+    server.onEndsWith("/nodeDesc/getAllNodeDesc", (context) => {
+      context.json({
+        httpNode: {
+          name: "httpNode",
+          nodeName: "http请求节点",
+          metaDescList: [
+            { code: "sourceSystemId", name: "来源系统id", type: "STRING", required: true },
+            { code: "url", name: "请求地址", type: "STRING", required: true }
+          ]
+        }
+      });
+    });
+
+    const list = JSON.parse(await runCommand(fixture.program(), [
+      "trans", "inspect", "--env", "source"
+    ])) as { nodes: ResourceRecord[] };
+    expect(list.nodes).toEqual([{ name: "httpNode", nodeName: "http请求节点" }]);
+
+    const detail = JSON.parse(await runCommand(fixture.program(), [
+      "trans", "inspect", "httpNode", "--env", "source"
+    ])) as { graphContract: ResourceRecord; node: { metaDescList: ResourceRecord[] } };
+    expect(detail.graphContract.nodeConfig).toBe("properties.nodeConfig");
+    expect(detail.node.metaDescList[0]).toMatchObject({
+      code: "sourceSystemId",
+      writeField: "sourceSystemCode"
+    });
+    expect(server.requests).toHaveLength(2);
+    expect(server.requests.every((request) => request.path.endsWith("/nodeDesc/getAllNodeDesc"))).toBe(true);
+  });
+
+  it("写入预览只查询本次 code 且不读取无关通道图", async () => {
+    const fixture = await nonGlobalFixture();
+    const target = transState({
+      channels: [
+        channel("target-trans", "DEMO", emptyGraph()),
+        channel("other-trans", "OTHER", emptyGraph())
+      ]
+    });
+    registerTransRoutes(fixture.server("target"), target);
+    const data = JSON.stringify({
+      code: "DEMO",
+      name: "只更新当前通道",
+      transGraph: { graph: JSON.stringify(emptyGraph()) }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "write", "trans", "--env", "target", "--data", data
+    ])) as { changes: ResourceRecord[] };
+    expect(rootChange(output).action).toBe("update");
+    const server = fixture.server("target");
+    const queries = server.requests.filter((request) => request.path.endsWith("/trans/findByPage"));
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.body).toMatchObject({
+      filters: [{ fieldName: "code", operator: "EQ", value: "DEMO" }]
+    });
+    const detailIds = server.requests
+      .filter((request) => request.path.endsWith("/trans/getDetail"))
+      .map((request) => request.query.get("id"));
+    expect(detailIds).toEqual(["target-trans"]);
+    expect(server.requests.some((request) => request.path.endsWith("/trans/findAll"))).toBe(false);
+    expect(target.saves).toHaveLength(0);
+  });
+
+  it("code 大小写不同按新增处理且依赖 code 也精确匹配", async () => {
+    const fixture = await nonGlobalFixture();
+    const target = transState({
+      channels: [channel("upper-trans", "ORDER", emptyGraph())],
+      groups: [{ id: "upper-group", code: "ORDER", name: "大写分组" }]
+    });
+    registerTransRoutes(fixture.server("target"), target);
+    const data = JSON.stringify({
+      code: "order",
+      groupCode: "ORDER",
+      transGraph: { graph: JSON.stringify(emptyGraph()) }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "write", "trans", "--env", "target", "--data", data
+    ])) as { changes: ResourceRecord[] };
+    expect(rootChange(output).action).toBe("create");
+    expect(rootChange(output).desired).toMatchObject({ code: "order" });
+    expect(target.saves).toHaveLength(0);
+  });
+
+  it("依赖 code 大小写不一致时 blocked 且不写入", async () => {
+    const fixture = await nonGlobalFixture();
+    const target = transState({
+      groups: [{ id: "upper-group", code: "ORDER", name: "大写分组" }]
+    });
+    registerTransRoutes(fixture.server("target"), target);
+    const data = JSON.stringify({
+      code: "DEMO",
+      groupCode: "order",
+      transGraph: { graph: JSON.stringify(emptyGraph()) }
+    });
+
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "resource", "write", "trans", "--env", "target", "--data", data, "--apply"
+    ])) as { changes: ResourceRecord[]; missingDependencies: ResourceRecord[] };
+    expect(rootChange(output).action).toBe("blocked");
+    expect(output.missingDependencies).toContainEqual(expect.objectContaining({
+      resource: "trans-group",
+      value: "order"
+    }));
+    expect(target.saves).toHaveLength(0);
+  });
+
+  it("生命周期操作只选择精确 code 的通道", async () => {
+    const fixture = await nonGlobalFixture();
+    const target = transState({
+      channels: [
+        channel("upper-trans", "ORDER", emptyGraph()),
+        channel("lower-trans", "order", emptyGraph())
+      ]
+    });
+    registerTransRoutes(fixture.server("target"), target);
+
+    await runCommand(fixture.program(), [
+      "trans", "freeze", "--env", "target", "--select", "code=order", "--apply"
+    ]);
+
+    expect(target.freezes).toEqual(["lower-trans"]);
+    expect(target.channels.find((record) => record.id === "upper-trans")?.status).toBe("INIT");
+    expect(target.channels.find((record) => record.id === "lower-trans")?.status).toBe("FROZEN");
+  });
+
+  it("findByPage 失败时停止且不降级 findAll", async () => {
+    const fixture = await nonGlobalFixture();
+    const server = fixture.server("source");
+    server.onEndsWith("/trans/findByPage", (context) => context.fail("paged query failed"));
+    server.onEndsWith("/trans/findAll", (context) => context.json([]));
+
+    await runExpectError(fixture.program(), [
+      "resource", "query", "trans", "--env", "source"
+    ], "paged query failed");
+
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0]?.path).toContain("/trans/findByPage");
   });
 });

@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { ConfigStore } from "../config/store.js";
 import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
 import { executeTransLifecycle } from "../domains/trans/lifecycle.js";
+import { inspectTransNodes } from "../domains/trans/nodes.js";
 import { transContract } from "../domains/trans/contract.js";
 import { CliError } from "../errors.js";
 import { printValue } from "../io.js";
@@ -15,8 +16,28 @@ interface TransLifecycleOptions {
   apply?: boolean;
 }
 
+interface TransInspectOptions {
+  env: string;
+}
+
 export function registerTransCommands(root: Command, store: ConfigStore): void {
-  const trans = root.command("trans").description("执行 EAI 通道发布与冻结；配置读写和迁移使用 resource trans");
+  const trans = root.command("trans").description("发现 EAI 节点并执行通道发布与冻结；配置读写和迁移使用 resource trans");
+  trans
+    .command("inspect")
+    .description("发现当前环境支持的 EAI 节点；指定节点名时输出完整参数和图配置契约")
+    .argument("[node]", "节点名称，例如 httpNode")
+    .requiredOption("--env <env>", "目标环境名称")
+    .action(async (node: string | undefined, options: TransInspectOptions) => {
+      const environment = resolveEnvironment(await store.load(), options.env);
+      assertResourceTenant(transContract, environment.config.tenantCode, environment.name, "query");
+      const runtime = getRuntimeOptions(root);
+      const result = await inspectTransNodes({
+        environment,
+        nodeName: node,
+        timeoutMs: runtime.timeoutMs
+      });
+      printValue(result, runtime.compact);
+    });
   registerLifecycleCommand(trans, "publish", store, root);
   registerLifecycleCommand(trans, "freeze", store, root);
 }

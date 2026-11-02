@@ -197,7 +197,7 @@ describe("resource write：六大场景", () => {
     expect(state.saves[0]).not.toHaveProperty("id");
     // 回查：服务端状态包含写入后的记录。
     expect(state.rows).toEqual([expect.objectContaining({ code: "A", appModuleId: "module-1" })]);
-    expect(result.changes[0]).toMatchObject({ key: "a", action: "create" });
+    expect(result.changes[0]).toMatchObject({ key: "A", action: "create" });
   });
 
   it("场景4 再次执行：返回 unchanged 且不重复写入", async () => {
@@ -360,9 +360,9 @@ describe("resource compare / sync：五动作与幂等", () => {
     };
     expect(output.summary).toEqual({ create: 1, update: 0, delete: 0, unchanged: 1, blocked: 1 });
     expect(output.changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "safe", action: "create" }),
+      expect.objectContaining({ key: "SAFE", action: "create" }),
       expect.objectContaining({
-        key: "invalid",
+        key: "INVALID",
         action: "blocked",
         blockingIssues: [expect.objectContaining({ field: "appModuleCode", reason: "invalid" })]
       })

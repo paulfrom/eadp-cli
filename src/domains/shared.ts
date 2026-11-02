@@ -47,11 +47,11 @@ export function selectDependencyByCode(
   code: string,
   resource: string
 ): ResourceRecord {
-  const normalized = code.trim().toLocaleLowerCase();
+  const normalized = code.trim();
   const matches = records.filter(
     (record) =>
       typeof record.code === "string" &&
-      record.code.trim().toLocaleLowerCase() === normalized
+      record.code.trim() === normalized
   );
   if (matches.length === 0) {
     throw new DependencyResolutionError([{

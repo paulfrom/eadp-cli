@@ -102,6 +102,8 @@ export interface ResourceAggregatePlan {
 export interface ResourcePhaseHooks {
   /** Override source/target read (default: client.queryContract). */
   load?(client: ResourceClient, contract: ResourceContract, options: ContractQueryOptions): Promise<ResourceRecord[]>;
+  /** Load only the target records needed to plan these direct writes. */
+  loadWriteTargets?(client: ResourceClient, contract: ResourceContract, records: ResourceRecord[]): Promise<ResourceRecord[]>;
   /** Override planning (default: buildChanges). Must still emit the five actions. */
   plan?(source: ResourceRecord[], target: ResourceRecord[], context: ResourcePlanContext): Promise<ResourcePlanChange[]>;
   /**
@@ -215,8 +217,11 @@ export class ResourceEngine {
       bindTargetTenant(record, contract, options.targetTenantCode)
     );
     assertUniqueIdentities(records, contract, "写入数据");
-    const targetRows = await this.loadRows(client, contract, options.targetQuery);
-    if (!this.hooksFor(contract)?.plan) {
+    const hooks = this.hooksFor(contract);
+    const targetRows = hooks?.loadWriteTargets
+      ? await hooks.loadWriteTargets(client, contract, records)
+      : await this.loadRows(client, contract, options.targetQuery);
+    if (!hooks?.plan) {
       assertUniqueIdentities(targetRows, contract, "目标环境");
     }
     const changes = await this.planChanges(
@@ -345,7 +350,7 @@ export class ResourceEngine {
         environments,
         options,
         item.id === contract.id ? options.sourceQuery : undefined,
-        item.id === contract.id ? options.selectors : undefined
+        this.selectorsFor(item, contract, options.selectors)
       );
       forward.set(item.id, plan);
       const phase = filterPlanChanges(plan, (change) =>
@@ -370,7 +375,7 @@ export class ResourceEngine {
         environments,
         options,
         item.id === contract.id ? options.sourceQuery : undefined,
-        item.id === contract.id ? options.selectors : undefined
+        this.selectorsFor(item, contract, options.selectors)
       );
       const phase = filterPlanChanges(plan, (change) =>
         change.action === "delete" || change.action === "blocked" || change.action === "unchanged"
@@ -424,18 +429,62 @@ export class ResourceEngine {
   ): Promise<ResourcePlan[]> {
     const root = order[order.length - 1]!;
     const plans: ResourcePlan[] = [];
+    let planningClient = targetClient;
     for (const item of order) {
-      plans.push(await this.compareSingleForResource(
+      const plan = await this.compareSingleForResource(
         item,
         sourceClient,
-        targetClient,
+        planningClient,
         environments,
         options,
         item.id === root.id ? options.sourceQuery : undefined,
-        item.id === root.id ? options.selectors : undefined
-      ));
+        this.selectorsFor(item, root, options.selectors)
+      );
+      plans.push(plan);
+      // Expose records a dependency is about to create to the next planning
+      // phase, so one preview can show "will be created by this same run"
+      // instead of reporting a missing page/interface/flow type.
+      planningClient = this.withPlannedCreates(planningClient, plan);
     }
     return plans;
+  }
+
+  /**
+   * Dependencies only receive selectors they declare. A dependency without a
+   * compatible selector keeps its existing "plan everything" behaviour.
+   */
+  private selectorsFor(
+    item: ResourceContract,
+    root: ResourceContract,
+    selectors: Readonly<Record<string, string>> | undefined
+  ): Readonly<Record<string, string>> | undefined {
+    if (item.id === root.id) return selectors;
+    if (!selectors) return undefined;
+    const declared = new Set((item.selectors ?? []).map((selector) => selector.name));
+    const compatible = Object.fromEntries(
+      Object.entries(selectors).filter(([name]) => declared.has(name))
+    );
+    return Object.keys(compatible).length > 0 ? compatible : undefined;
+  }
+
+  /** Turn a dependency plan's creates into reference rows for later phases. */
+  private withPlannedCreates(client: ResourceClient, plan: ResourcePlan): ResourceClient {
+    let next = client;
+    const grouped = new Map<string, ResourceRecord[]>();
+    for (const change of plan.changes) {
+      if (change.action !== "create" || !change.desired) continue;
+      const resource = change.resource ?? plan.resource;
+      if (!resource) continue;
+      const id = typeof change.id === "string" && change.id !== ""
+        ? change.id
+        : `<planned:${resource}:${change.key}>`;
+      const row = { ...change.desired, id };
+      const rows = grouped.get(resource) ?? [];
+      rows.push(row);
+      grouped.set(resource, rows);
+    }
+    for (const [resource, rows] of grouped) next = next.withPlannedRows(resource, rows);
+    return next;
   }
 
   private async compareSingleForResource(
@@ -467,9 +516,18 @@ export class ResourceEngine {
     environments: { source: string; target: string }
   ): ResourcePlan {
     const changes = plans.flatMap((plan) => plan.changes.map((change) =>
-      plan.resource === root.id ? change : { ...change, resource: plan.resource }
+      plan.resource === root.id
+        ? change
+        : { ...change, resource: change.resource ?? plan.resource }
     ));
-    return makePlan(root.id, changes, environments);
+    const details: Record<string, unknown> = {};
+    for (const plan of plans) {
+      if (plan.details) details[plan.resource] = plan.details;
+    }
+    return makePlan(root.id, changes, environments, {
+      ...(Object.keys(details).length > 0 ? { details } : {}),
+      ...(plans.some((plan) => plan.appliedExtra) ? { appliedExtra: true } : {})
+    });
   }
 
   private executionFromPlan(plan: ResourcePlan, apply: boolean): ResourceExecutionResult {
@@ -878,7 +936,8 @@ function identityValue(
     if (typeof value !== "string" || value.trim() === "") {
       throw new CliError(`资源 ${contract.id} 缺少有效业务唯一键字段 ${field}`);
     }
-    return value.trim().toLocaleLowerCase();
+    const normalized = value.trim();
+    return field === "code" ? normalized : normalized.toLocaleLowerCase();
   });
   return values.length === 1
     ? values[0]!

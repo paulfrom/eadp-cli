@@ -2,19 +2,39 @@
 
 Use `trans` for an EAI channel and `trans-group` for its group. Both require a
 non-global environment. Channel configuration operations stay in the generic
-resource engine; only explicit publication and freezing use `eadp trans`.
+resource engine; node discovery and explicit lifecycle operations use `eadp trans`.
 
-## Query and write
+## Discover nodes and write without history
 
-Resolve a channel by its business `code`. Use the ID returned by the current
-environment's list query when requesting the full graph detail; never reuse an
-ID from another environment or a previous conversation.
+A new channel does not require querying an existing channel or its graph. Read
+the current environment's node catalog, then build the graph from the returned
+node fields and graph contract:
+
+```text
+eadp trans inspect --env dev
+eadp trans inspect httpNode --env dev
+eadp resource write trans --env dev --data '{"code":"ORDER_SYNC","name":"订单同步","transGraph":{"graph":"{\"nodes\":[],\"edges\":[]}"}}'
+```
+
+Node parameters belong in `properties.nodeConfig`; edges use `sourceNodeId`
+and `targetNodeId`. When node metadata declares `sourceSystemId`, write
+`sourceSystemCode` instead so the CLI can resolve the current environment ID.
+Do not write inline secrets.
+
+Resolve an existing channel by its business `code` only when updating, comparing,
+publishing, or freezing it. Use the ID returned by the current environment's
+list query when requesting full graph detail; never reuse an ID from another
+environment or a previous conversation.
 
 ```text
 eadp resource query trans --env dev --filter code:EQ:ORDER_SYNC
 eadp resource detail trans --env dev --select id=<current-environment-trans-id>
-eadp resource write trans --env dev --data '{"code":"ORDER_SYNC","name":"订单同步","transGraph":{"graph":"{\"nodes\":[],\"edges\":[]}"}}'
 ```
+
+Business `code` matching is case-sensitive for channels and their dependencies.
+Avoid broad data pulls: direct writes read only the submitted codes, and any
+resource with `findByPage` must use it. Never replace a missing or failed paged
+request with `findAll`; stop and report the failure.
 
 `write` requires `code` and `transGraph.graph`; `logLastDay` must not exceed
 180. Saving an existing channel preserves its target `status` and

@@ -6,7 +6,9 @@
 - BPM 流程配置名称必须依据代码注释概括实际业务含义，使用“XXX流程结束后”“XXX选人”“XXX流程提交前”等短名称，且不超过 15 个字；禁止直接照搬方法名或生成无业务语义的名称。
 - BPM 集成接口必须根据代码契约区分接口类型：返回 `Executor` 人员结果的回调登记为 `CUSTOM_PERSON`，流程事件登记为 `EVENT`；
 - 用户请求中明确出现 BPM 或流程配置时，必须优先路由到 BPM 工作流；流程名称（如“示例流程”）不得解析为功能项。缺少专用 BPM 环境迁移命令时必须如实停止，禁止改用 `eadp resource sync feature` 或原始接口绕过。
-- BPM 与给号配置跨环境迁移必须使用 `eadp resource sync bpm`、`eadp resource sync serial-number`；默认预览、按业务唯一键查重、重新映射目标 ID、正式写入后回查，并保证重复执行幂等。
+- BPM 与给号配置跨环境迁移必须使用 `eadp resource sync bpm`、`eadp resource sync bpm-migration`、`eadp resource sync serial-number`；默认预览、按业务唯一键查重、重新映射目标 ID、正式写入后回查，并保证重复执行幂等。
+- BPM 迁移包含 `bpm` 骨架与 `bpm-flow-graph` 流程图两个原子入口，顺序固定（先骨架后图）；`eadp resource sync bpm-migration` 是按该顺序执行的组合入口，不得把两者合并实现，也不得跳过骨架直接写图。
+- 流程图没有源环境设计稿时，禁止凭表结构或猜测字段生成画布；必须使用 `eadp bpm graph export`/`validate`/`import` 文件通道，或先在 BPM 设计器落稿。导入只写草稿，并复用 `bpm-flow-graph` 的 blocked 规则（CallActivity、ProjectPosition、智能审核等仍拒绝）。
 - BPM 跨环境同步不得迁移或解析源业务实体的 `auditTypeId`、`auditTypeName`；目标业务实体这两个字段始终明确置空，且不得因源环境存在审计对象关联而终止。
 - Skill 描述同步能力时必须提供可直接执行的时间筛选与差异同步示例，并明确 `create`、`update`、`unchanged` 语义及不支持时间参数的资源边界。
 - EADP Skill 安装与升级必须支持 Codex、WorkBuddy、Claude 和 Qoder；Claude 与 Qoder 分别使用其用户级 `skills` 目录，不得混用平台根目录。
@@ -14,7 +16,7 @@
 - EADP CLI 或 EADP 请求返回失败后必须立即停止当前工作流并如实反馈；不得自动重试、修改参数重试、切换接口或环境重试，也不得绕过资源契约或领域命令。只有用户查看失败信息并明确要求新动作后才能继续。
 - 当用户提供的 EADP 需求参数缺失、模糊、无效或无法唯一确定时，Skill 必须先使用 EADP CLI 的只读查询能力尝试解析候选；只有查询不到或存在多个候选时，才能要求用户补充或选择，禁止猜测参数或提前执行写操作。
 - 需求参数完整时 Skill 必须直接执行目标命令（如 `eadp resource query feature --env dev --count`），不得先做发现；只有资源名、环境或选择器缺失/歧义时才使用 `eadp resource inspect`（无参数列资源及能力、`inspect <name>` 契约摘要、`inspect <name> <action>` 该动作的结构化参数）。"有多少"类问题使用 `--count`/`--summary`，禁止读取并输出全部记录。
-- 资源选择器统一使用 `--select <name>=<value>`（如 `--select code=EXAMPLE_FEATURE`、`--select flow=示例流程`），由 CLI 按当前资源契约校验选择器名称与必填项；禁止为各资源维护专属选项（如 `--code`、`--flow`）。`bpm inspect`/`bpm configure` 等领域命令的 `--flow` 不受此限。
+- 资源选择器统一使用 `--select <name>=<value>`（如 `--select code=EXAMPLE_FEATURE`、`--select flow=示例流程`），由 CLI 按当前资源契约校验选择器名称与必填项；禁止为各资源维护专属选项（如 `--code`、`--flow`）。`bpm inspect`/`bpm configure`/`bpm graph` 等领域命令的 `--flow` 不受此限。
 - CLI 错误统一输出结构化 JSON 信封（`success`/`code`/`message`/`candidates`/`requiredInput`），供模型确定性处理；`code` 使用稳定枚举（如 `ENVIRONMENT_UNKNOWN`、`UNKNOWN_RESOURCE`、`CAPABILITY_MISSING`、`UNKNOWN_SELECTOR`），不得让模型各自解读自然语言错误。
 - 当资源契约的服务、查询/保存接口、请求参数或返回结构不清楚时，必须先向用户索取明确的项目参考（如 API 接口定义、Controller、Api 或 Swagger/OpenAPI 文档），不得凭经验猜测并注册资源或实现领域命令。
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。

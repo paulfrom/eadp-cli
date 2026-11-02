@@ -20,9 +20,14 @@ commands:
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
-  `bpm configure`, `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
+  `bpm configure`, `bpm graph export|validate|import`, `trans inspect`,
+  `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
+- Avoid broad data pulls unless they are necessary for the requested action.
+  Prefer exact selectors, filters, counts, and paged reads. Business `code`
+  matching is case-sensitive. Use `findAll` only when no `findByPage` exists;
+  never use it as a fallback after a paged request fails.
 - For every query, compare, or sync, use a global environment only when the
   live resource contract or domain command explicitly requires `global`.
   `tenant.policy: "any"` defaults to non-global for reads; do not execute it
@@ -91,7 +96,8 @@ back from an unavailable detail capability to a list query or a guessed
 
 Current resource names (the live `eadp resource inspect` output is
 authoritative): `app-module`、`feature`、`feature-group`、`serial-number`、
-`employee`（别名 `user`）、`menu`、`bpm`、`trans-group`、`trans`. Future
+`employee`（别名 `user`）、`menu`、`bpm`、`bpm-flow-graph`、`bpm-migration`、
+`trans-group`、`trans`. Future
 ordinary resources remain usable through live discovery without any Skill change.
 
 The built-in detail selectors currently exposed by live contracts are:
@@ -112,10 +118,14 @@ Route only these domain intents away from ordinary resource actions:
 - Creating one menu: `eadp menu create ...`. Menu query/compare/migration stay
   `eadp resource query|compare|sync menu`.
 - BPM project discovery or configuration: `eadp bpm inspect ...` or
-  `eadp bpm configure ...`; BPM environment migration stays
-  `eadp resource compare|sync bpm --select flow=<code-or-name>`.
-- EAI channel publication or freezing: `eadp trans publish|freeze`; channel
-  query, configuration writes, comparison, and migration stay in `resource`.
+  `eadp bpm configure ...`; BPM environment migration uses
+  `eadp resource compare|sync bpm-migration --select flow=<code-or-name>` for the
+  skeleton plus graph in one plan, or the atomic `bpm` / `bpm-flow-graph` entries.
+  Canvas files use `eadp bpm graph export|validate|import`; never synthesize a
+  canvas from prose when no source draft exists.
+- EAI node discovery: `eadp trans inspect [node]`; channel publication or
+  freezing: `eadp trans publish|freeze`. Channel query, configuration writes,
+  comparison, and migration stay in `resource`.
 - Explicit recovery: `eadp rollback <operation-id...>`.
 
 `env`, `skill`, and `update` are tool-management commands, not resources. Do

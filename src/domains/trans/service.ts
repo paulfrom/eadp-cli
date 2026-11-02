@@ -115,6 +115,15 @@ export const transPhaseHooks: ResourcePhaseHooks = {
     return loadTransRecords(client, options);
   },
 
+  async loadWriteTargets(client, _contract, records) {
+    const references = await loadReferences(client);
+    const target: ResourceRecord[] = [];
+    for (const record of records) {
+      target.push(...await loadTransRecords(client, codeQuery(requiredCode(record)), references));
+    }
+    return target;
+  },
+
   async aggregatePlan(context) {
     const code = context.selectors.code;
     if (!code) throw new CliError("通道比较或迁移必须提供 --select code=<code>");
@@ -592,7 +601,7 @@ function requiredId(record: ResourceRecord, label: string): string {
 }
 
 function normalizeCode(code: string): string {
-  return code.trim().toLocaleLowerCase();
+  return code.trim();
 }
 
 function sameCode(left: unknown, right: string): boolean {
