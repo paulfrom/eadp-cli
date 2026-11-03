@@ -31,6 +31,7 @@ interface GraphFileState {
   interfaces: RecordValue[];
   orgs: RecordValue[];
   employees: RecordValue[];
+  positionCategories: RecordValue[];
   saveCalls: RecordValue[];
   sequence: number;
 }
@@ -45,6 +46,7 @@ function createState(): GraphFileState {
     interfaces: [],
     orgs: [],
     employees: [],
+    positionCategories: [],
     saveCalls: [],
     sequence: 1
   };
@@ -144,7 +146,7 @@ function registerRoutes(server: MockEadpServer, state: GraphFileState): void {
     context.json(state.orgs);
   });
   server.onEndsWith("/conBasicInterface/getListPositionCategory", (context) => {
-    context.json([]);
+    context.json(state.positionCategories);
   });
   server.onEndsWith("/conBasicInterface/getAllOrgDimension", (context) => {
     context.json([]);
@@ -211,6 +213,41 @@ async function setup(): Promise<{
 }
 
 describe("bpm graph 文件通道", () => {
+  it("graph nodes 输出内置节点能力表，不访问环境", async () => {
+    const { fixture } = await setup();
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "nodes", "--kind", "Approve"
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      kind: "eadp.bpm.graph.nodes.v1",
+      catalogVersion: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    });
+    const nodes = output.nodes as RecordValue[];
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({
+      kind: "Approve",
+      engineType: "UserTask",
+      discriminator: "nodeType",
+      edges: { minOut: 2, maxOut: 2, agreeEdge: true }
+    });
+    expect(JSON.stringify(output)).not.toContain("sei-bpm-web");
+  });
+
+  it("validate --strict 把设计器无法保存的图判为失败", async () => {
+    const { fixture, file } = await setup();
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    const relaxed = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "validate", "--env", "target", "--file", file
+    ])) as RecordValue;
+    expect(relaxed).toMatchObject({ valid: true, designValid: false });
+    const strict = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "validate", "--env", "target", "--file", file, "--strict"
+    ])) as RecordValue;
+    expect(strict).toMatchObject({ valid: false, designValid: false });
+  });
+
   it("export 输出可移植图，validate 通过，import 预览零写入", async () => {
     const { fixture, source, target, file } = await setup();
     const exported = JSON.parse(await runCommand(fixture.program(), [
@@ -231,7 +268,14 @@ describe("bpm graph 文件通道", () => {
     const validated = JSON.parse(await runCommand(fixture.program(), [
       "bpm", "graph", "validate", "--env", "target", "--file", file
     ])) as RecordValue;
-    expect(validated).toMatchObject({ flowTypeFound: true, valid: true });
+    expect(validated).toMatchObject({ flowTypeFound: true, valid: true, designValid: false });
+    const entries = validated.graphs as RecordValue[];
+    expect((entries[0]!.designIssues as RecordValue[]).map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["NODE_EXIT_COUNT", "NODE_AGREE_EDGE"])
+    );
+    expect((entries[0]!.warnings as RecordValue[]).map((issue) => issue.code)).toContain(
+      "NODE_REVERSE_NOT_SET"
+    );
 
     const preview = JSON.parse(await runCommand(fixture.program(), [
       "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT", "--file", file
@@ -269,6 +313,69 @@ describe("bpm graph 文件通道", () => {
     ])) as RecordValue;
     expect(second).toMatchObject({ applied: false, verified: true, summary: { unchanged: 1 } });
     expect(target.saveCalls).toHaveLength(1);
+  });
+
+  it("执行人组合保留 type，并按目标环境重映射分片", async () => {
+    const { fixture, source, target, file } = await setup();
+    source.positionCategories.push({ id: "source-pc", code: "PM", name: "项目经理类别" });
+    source.orgs.push({
+      id: "source-org-2", code: "2002", name: "分部",
+      codePath: "1001/2002", namePath: "总部/分部", children: []
+    });
+    target.positionCategories.push({ id: "target-pc", code: "PM", name: "项目经理类别" });
+    target.orgs.push({
+      id: "target-org-2", code: "2002", name: "分部",
+      codePath: "1001/2002", namePath: "总部/分部", children: []
+    });
+    const version = source.versions.get("source-def");
+    const graph = JSON.parse(String(version!.defJson)) as RecordValue;
+    const task = (((graph.process as RecordValue).nodes as RecordValue).UserTask_2 as RecordValue);
+    (task.nodeConfig as RecordValue).executor = [
+      { type: "PositionTypeAndOrg", userType: "PositionType", ids: "source-pc" },
+      { type: "PositionTypeAndOrg", userType: "Org", ids: "source-org-2" }
+    ];
+    version!.defJson = JSON.stringify(graph);
+
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    const applied = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+      "--file", file, "--apply"
+    ])) as RecordValue;
+    expect(applied).toMatchObject({ verified: true, summary: { create: 1, blocked: 0 } });
+    const saved = JSON.parse(String(target.saveCalls[0]!.defJson)) as RecordValue;
+    const savedTask = (((saved.process as RecordValue).nodes as RecordValue).UserTask_2 as RecordValue);
+    expect((savedTask.nodeConfig as RecordValue).executor).toEqual([
+      expect.objectContaining({
+        type: "PositionTypeAndOrg",
+        userType: "PositionType",
+        ids: "target-pc"
+      }),
+      expect.objectContaining({
+        type: "PositionTypeAndOrg",
+        userType: "Org",
+        ids: "target-org-2"
+      })
+    ]);
+    expect(target.saveCalls).toHaveLength(1);
+  });
+
+  it("import --strict 拒绝设计器无法保存的图，零写入", async () => {
+    const { fixture, target, file } = await setup();
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    const preview = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+      "--file", file, "--strict"
+    ])) as RecordValue;
+    expect(preview).toMatchObject({ summary: { blocked: 1, create: 0 } });
+    const changes = preview.changes as RecordValue[];
+    expect((changes[0]!.designIssues as RecordValue[]).map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["NODE_EXIT_COUNT", "NODE_AGREE_EDGE"])
+    );
+    expect(target.saveCalls).toHaveLength(0);
   });
 
   it("目标缺页面时 validate 报 missingDependencies 且不写入", async () => {

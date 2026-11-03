@@ -81,6 +81,80 @@ describe("sendRequest：统一 HTTP 客户端", () => {
     }
   });
 
+  it("AggregateError 传输失败时保留全部稳定诊断码", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: new AggregateError([
+          Object.assign(new Error("connect to https://secret.example"), { code: "ECONNREFUSED" }),
+          Object.assign(new Error("connect to https://secret.example"), { code: "ECONNREFUSED" })
+        ])
+      })
+    );
+    try {
+      const error = await sendRequest({
+        baseUrl: "https://secret.example",
+        path: "/private/path",
+        method: "GET"
+      }).then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+      expect(error).toMatchObject({
+        code: "EADP_REQUEST_FAILED",
+        message: "请求失败（ECONNREFUSED）"
+      });
+      expect(String(error)).not.toContain("secret.example");
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("无系统错误码的传输失败回退到错误类型名", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+      new TypeError("fetch failed")
+    );
+    try {
+      const error = await sendRequest({
+        baseUrl: "https://secret.example",
+        path: "/private/path",
+        method: "GET"
+      }).then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+      expect(error).toMatchObject({
+        code: "EADP_REQUEST_FAILED",
+        message: "请求失败（TypeError）"
+      });
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("请求体无法序列化时按内部错误报出，且不发起请求", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const body: Record<string, unknown> = {};
+    body.self = body;
+    try {
+      const error = await sendRequest({
+        baseUrl: "https://secret.example",
+        path: "/private/path",
+        method: "POST",
+        body
+      }).then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+      expect(error).toMatchObject({
+        code: "INTERNAL_ERROR",
+        message: "请求体无法序列化为 JSON，请求未发送"
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("非 2xx 响应抛出 HTTP 状态与摘要", async () => {
     const server = createMockServer();
     trackServer(server);

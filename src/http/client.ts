@@ -50,31 +50,23 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseResu
     headers.set("content-type", "application/json");
   }
 
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const requestInit: RequestInit = {
+    method: options.method.toUpperCase(),
+    headers,
+    signal: AbortSignal.timeout(timeoutMs)
+  };
+  if (options.body !== undefined) {
+    // A body that cannot be serialized is a caller bug, not a transport
+    // failure; build it outside the fetch try so it keeps its own message.
+    requestInit.body = serializeRequestBody(options.body);
+  }
+
   let response: Response;
   try {
-    const requestInit: RequestInit = {
-      method: options.method.toUpperCase(),
-      headers,
-      signal: AbortSignal.timeout(options.timeoutMs ?? 30_000)
-    };
-    if (options.body !== undefined) {
-      requestInit.body = JSON.stringify(options.body);
-    }
     response = await fetch(url, requestInit);
   } catch (error) {
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      throw new CliError(`请求超时：${options.timeoutMs ?? 30_000}ms`, 1, {
-        code: "EADP_REQUEST_FAILED"
-      });
-    }
-    const cause = error instanceof Error
-      ? (error as Error & { cause?: unknown }).cause
-      : undefined;
-    const causeCode = typeof cause === "object" && cause !== null
-      ? (cause as Record<string, unknown>).code
-      : undefined;
-    const diagnostic = typeof causeCode === "string" ? `（${causeCode}）` : "";
-    throw new CliError(`请求失败${diagnostic}`, 1, { code: "EADP_REQUEST_FAILED" });
+    throw transportFailure(error, timeoutMs);
   }
 
   const text = await response.text();
@@ -107,6 +99,72 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseResu
     });
   }
   return result;
+}
+
+function serializeRequestBody(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch {
+    throw new CliError("请求体无法序列化为 JSON，请求未发送", 1, { code: "INTERNAL_ERROR" });
+  }
+}
+
+/**
+ * Build the failure for a rejected `fetch`. The message must stay actionable
+ * without leaking the environment URL or the request path, so only stable
+ * system codes (`ECONNREFUSED`, `UND_ERR_SOCKET`…) and error class names are
+ * used. undici wraps some failures in an AggregateError without a `code`, and
+ * a rejected request may carry no cause at all, so the whole chain is scanned
+ * before falling back to the error name.
+ */
+function transportFailure(error: unknown, timeoutMs: number): CliError {
+  if (abortName(error)) {
+    return new CliError(`请求超时：${timeoutMs}ms`, 1, { code: "EADP_REQUEST_FAILED" });
+  }
+  return new CliError(`请求失败${diagnosticSuffix(error)}`, 1, {
+    code: "EADP_REQUEST_FAILED"
+  });
+}
+
+function abortName(error: unknown): boolean {
+  const name = readText(error, "name");
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+/** `（ENOTFOUND）`-style suffix; never contains a host, URL or path. */
+function diagnosticSuffix(error: unknown): string {
+  const codes = new Set<string>();
+  const names = new Set<string>();
+  collectDiagnostics(error, codes, names, 0);
+  if (codes.size > 0) return `（${[...codes].sort().join("/")}）`;
+  const name = readText(error, "name");
+  if (name) return `（${name}）`;
+  if (names.size > 0) return `（${[...names].sort().join("/")}）`;
+  return "";
+}
+
+function collectDiagnostics(
+  value: unknown,
+  codes: Set<string>,
+  names: Set<string>,
+  depth: number
+): void {
+  if (depth > 4 || typeof value !== "object" || value === null) return;
+  const record = value as Record<string, unknown>;
+  const code = readText(record, "code");
+  if (code) codes.add(code);
+  const name = readText(record, "name");
+  if (name) names.add(name);
+  if (Array.isArray(record.errors)) {
+    for (const item of record.errors) collectDiagnostics(item, codes, names, depth + 1);
+  }
+  collectDiagnostics(record.cause, codes, names, depth + 1);
+}
+
+function readText(value: unknown, field: string): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const text = (value as Record<string, unknown>)[field];
+  return typeof text === "string" && text.trim() !== "" ? text.trim() : undefined;
 }
 
 function isEadpFailure(value: unknown): value is { success: false; message?: string } {

@@ -15,6 +15,14 @@ export interface BlockingIssue {
   /** Optional identity details supplied by aggregate behavior extensions. */
   identityField?: string;
   value?: string | null;
+  /** Stable machine-readable discriminator, e.g. NODE_EXIT_COUNT. */
+  code?: string;
+  severity?: "error" | "warning";
+  scope?: "graph" | "node" | "edge" | "executor";
+  nodeId?: string;
+  nodeName?: string;
+  /** Actionable repair hint for humans and agents. */
+  fix?: string;
 }
 
 export class DependencyResolutionError extends CliError {

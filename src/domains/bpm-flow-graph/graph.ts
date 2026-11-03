@@ -7,29 +7,12 @@ import {
   type MissingDependency
 } from "../../resource/core/errors.js";
 import type { BpmGraphReferences } from "./references.js";
+import { resolveNodeKind, type NodeIssue } from "./node-catalog.js";
+import { inspectCanonicalGraph } from "./analysis.js";
 
 type RecordValue = Record<string, unknown>;
 
 const GRAPH_RESOURCE = "bpm-flow-graph";
-
-/** Node types the sei-bpm design reader understands. CallActivity is blocked. */
-const SUPPORTED_NODE_TYPES = new Set([
-  "StartEvent",
-  "EndEvent",
-  "TerminateEndEvent",
-  "UserTask",
-  "MailTask",
-  "ManualTask",
-  "ScriptTask",
-  "ServiceTask",
-  "ReceiveTask",
-  "AgentTask",
-  "PoolTask",
-  "ExclusiveGateway",
-  "InclusiveGateway",
-  "ParallelGateway",
-  "EventGateway"
-]);
 
 const NOTIFY_TYPES = [
   "notifyExecutor",
@@ -156,17 +139,17 @@ export async function toCanonical(
     } else if (id !== key) {
       pushIssue(issues, GRAPH_RESOURCE, "id", id, `节点 ${key} 的 id 与键不一致`);
     }
-    const type = text(node.type);
-    if (!type) {
-      pushIssue(issues, GRAPH_RESOURCE, "type", key, `节点 ${key} 缺少 type`);
-    } else if (type === "CallActivity") {
-      pushIssue(issues, GRAPH_RESOURCE, "type", key,
-        `节点 ${key} 包含子流程（CallActivity），v1 不支持跨环境迁移`);
-    } else if (!SUPPORTED_NODE_TYPES.has(type)) {
-      pushIssue(issues, GRAPH_RESOURCE, "type", type, `节点 ${key} 的 type 不受支持：${type}`);
+    const resolution = resolveNodeKind(node);
+    const rule = resolution.rule;
+    for (const nodeIssue of resolution.issues) {
+      pushIssue(issues, GRAPH_RESOURCE, nodeIssue.field ?? "type", key, nodeIssue.message);
     }
-    if (type === "StartEvent") startCount += 1;
-    if (type === "EndEvent" || type === "TerminateEndEvent") endCount += 1;
+    if (rule?.migration.policy === "blocked") {
+      pushIssue(issues, GRAPH_RESOURCE, "type", key,
+        rule.migration.reason ?? `节点 ${key} 的 ${rule.kind} 不支持跨环境迁移`);
+    }
+    if (rule?.kind === "StartEvent") startCount += 1;
+    if (rule?.kind === "EndEvent" || rule?.kind === "TerminateEndEvent") endCount += 1;
     if (!text(node.name)) {
       pushIssue(issues, GRAPH_RESOURCE, "name", key, `节点 ${key} 缺少 name`);
     }
@@ -215,15 +198,12 @@ export async function toCanonical(
 
     config.notify = await canonicalNotify(config.notify, pagesById, interfacesById, refs, issues, key);
 
-    if (type === "UserTask") {
-      if (!text(node.nodeType)) {
-        pushIssue(issues, GRAPH_RESOURCE, "nodeType", key, `用户任务 ${key} 缺少 nodeType`);
-      }
+    if (rule?.executor?.required) {
       const executors = config.executor;
       if (!Array.isArray(executors) || executors.length === 0) {
         pushIssue(issues, GRAPH_RESOURCE, "executor", key, `用户任务 ${key} 缺少执行人`);
       }
-      if (!isRecord(config.normal) || !text(config.normal.pageUrl)) {
+      if (!isRecord(config.normal) || !(text(config.normal.id) ?? text(config.normal.pageUrl))) {
         pushIssue(issues, GRAPH_RESOURCE, "nodeConfig.normal.id", key,
           `用户任务 ${key} 缺少 normal.id 页面`);
       }
@@ -318,6 +298,18 @@ export async function hydrate(
 
   for (const [key, value] of Object.entries(nodes)) {
     if (!isRecord(value)) throw new CliError(`节点 ${key} 的配置无效`);
+    const resolution = resolveNodeKind(value);
+    if (!resolution.rule || resolution.rule.migration.policy === "blocked") {
+      const issues = resolution.issues.length > 0
+        ? resolution.issues.map((item) => nodeIssueToBlocking(item, key))
+        : [{
+          resource: GRAPH_RESOURCE,
+          field: "type",
+          reason: "invalid" as const,
+          message: `节点 ${key} 的类型不受支持，无法写入目标环境`
+        }];
+      throw new RecordMappingError(issues);
+    }
     const config = nodeConfigOf(value, key, []);
     if (isRecord(config.normal)) {
       hydrateServiceReference(config.normal, "serviceTaskId", "serviceTaskUrl", interfacesByUrl, missing);
@@ -357,82 +349,7 @@ export async function hydrate(
  * before any write, so a hand-edited file fails locally instead of at save.
  */
 export function validateCanonicalGraph(canonical: string): BlockingIssue[] {
-  const issues: BlockingIssue[] = [];
-  const graph = parseGraph(canonical, "流程图文件");
-  const process = isRecord(graph.process) ? graph.process : undefined;
-  if (!process) {
-    pushIssue(issues, GRAPH_RESOURCE, "process", null, "流程图缺少 process 对象");
-    return issues;
-  }
-  const nodes = isRecord(process.nodes) ? process.nodes : undefined;
-  if (!nodes) {
-    pushIssue(issues, GRAPH_RESOURCE, "process.nodes", null, "流程图缺少 process.nodes 对象");
-    return issues;
-  }
-  const keys = new Set(Object.keys(nodes));
-  let startCount = 0;
-  let endCount = 0;
-  for (const [key, value] of Object.entries(nodes)) {
-    if (!isRecord(value)) {
-      pushIssue(issues, GRAPH_RESOURCE, "process.nodes", key, `节点 ${key} 不是对象`);
-      continue;
-    }
-    const id = text(value.id);
-    if (!id) {
-      pushIssue(issues, GRAPH_RESOURCE, "id", key, `节点 ${key} 缺少 id`);
-    } else if (id !== key) {
-      pushIssue(issues, GRAPH_RESOURCE, "id", id, `节点 ${key} 的 id 与键不一致`);
-    }
-    const type = text(value.type);
-    if (!type) {
-      pushIssue(issues, GRAPH_RESOURCE, "type", key, `节点 ${key} 缺少 type`);
-    } else if (!SUPPORTED_NODE_TYPES.has(type)) {
-      pushIssue(issues, GRAPH_RESOURCE, "type", type, `节点 ${key} 的 type 不受支持：${type}`);
-    }
-    if (type === "StartEvent") startCount += 1;
-    if (type === "EndEvent" || type === "TerminateEndEvent") endCount += 1;
-    if (!text(value.name)) {
-      pushIssue(issues, GRAPH_RESOURCE, "name", key, `节点 ${key} 缺少 name`);
-    }
-    const targets = value.target;
-    if (!Array.isArray(targets)) {
-      pushIssue(issues, GRAPH_RESOURCE, "target", key, `节点 ${key} 缺少 target 数组`);
-    } else {
-      for (const target of targets) {
-        if (!isRecord(target)) {
-          pushIssue(issues, GRAPH_RESOURCE, "target", key, `节点 ${key} 的连线不是对象`);
-          continue;
-        }
-        const targetId = text(target.targetId);
-        if (!targetId) {
-          pushIssue(issues, GRAPH_RESOURCE, "target.targetId", key, `节点 ${key} 的连线缺少 targetId`);
-        } else if (!keys.has(targetId)) {
-          pushIssue(issues, GRAPH_RESOURCE, "target.targetId", targetId,
-            `节点 ${key} 的连线目标不存在：${targetId}`);
-        }
-      }
-    }
-    if (type === "UserTask") {
-      if (!text(value.nodeType)) {
-        pushIssue(issues, GRAPH_RESOURCE, "nodeType", key, `用户任务 ${key} 缺少 nodeType`);
-      }
-      const config = isRecord(value.nodeConfig) ? value.nodeConfig : {};
-      if (!Array.isArray(config.executor) || config.executor.length === 0) {
-        pushIssue(issues, GRAPH_RESOURCE, "executor", key, `用户任务 ${key} 缺少执行人`);
-      }
-      if (!isRecord(config.normal) || !text(config.normal.pageUrl)) {
-        pushIssue(issues, GRAPH_RESOURCE, "nodeConfig.normal", key, `用户任务 ${key} 缺少页面`);
-      }
-    }
-  }
-  if (startCount !== 1) {
-    pushIssue(issues, GRAPH_RESOURCE, "StartEvent", null,
-      `流程图必须且只能有 1 个 StartEvent（实际 ${startCount} 个）`);
-  }
-  if (endCount < 1) {
-    pushIssue(issues, GRAPH_RESOURCE, "EndEvent", null, "流程图至少需要 1 个 EndEvent");
-  }
-  return issues;
+  return inspectCanonicalGraph(canonical).blockingIssues;
 }
 
 /** Key-sorted JSON string used for graph comparison and as the record value. */
@@ -472,6 +389,12 @@ async function canonicalExecutors(
       pushIssue(issues, GRAPH_RESOURCE, "executor.userType", nodeKey, `节点 ${nodeKey} 的执行人缺少 userType`);
       continue;
     }
+    const type = text(entry.type) ?? userType;
+    if (type === "ProjectPosition" || userType === "ProjectPosition") {
+      pushIssue(issues, GRAPH_RESOURCE, "executor.userType", nodeKey,
+        `节点 ${nodeKey} 使用了项目岗位（ProjectPosition），v1 不支持跨环境迁移`);
+      continue;
+    }
     switch (userType) {
       case "Person": {
         const codes = await canonicalCodeList(
@@ -482,7 +405,7 @@ async function canonicalExecutors(
           nodeKey,
           (ids) => refs.employeesByIds(ids)
         );
-        result.push({ userType, employeeCodes: codes });
+        result.push({ type, userType, employeeCodes: codes });
         break;
       }
       case "Position": {
@@ -494,25 +417,25 @@ async function canonicalExecutors(
           nodeKey,
           (ids) => refs.positionsByIds(ids)
         );
-        result.push({ userType, positionCodes: codes });
+        result.push({ type, userType, positionCodes: codes });
         break;
       }
       case "PositionType": {
         const categories = await refs.positionCategories();
         const codes = await canonicalCodesFromAll(entry, categories, issues, nodeKey, "positionCategory");
-        result.push({ userType, positionCategoryCodes: codes });
+        result.push({ type, userType, positionCategoryCodes: codes });
         break;
       }
       case "Org": {
         const organizations = await refs.organizations();
         const codes = await canonicalCodesFromAll(entry, organizations, issues, nodeKey, "organization");
-        result.push({ userType, orgCodes: codes });
+        result.push({ type, userType, orgCodes: codes });
         break;
       }
       case "OrganizationDimension": {
         const dimensions = await refs.dimensions();
         const codes = await canonicalCodesFromAll(entry, dimensions, issues, nodeKey, "organizationDimension");
-        result.push({ userType, dimensionCodes: codes });
+        result.push({ type, userType, dimensionCodes: codes });
         break;
       }
       case "SelfDefinition": {
@@ -520,7 +443,7 @@ async function canonicalExecutors(
         if (!selfDefId) {
           pushIssue(issues, GRAPH_RESOURCE, "executor.selfDefId", nodeKey,
             `节点 ${nodeKey} 的自定义执行人缺少 selfDefId`);
-          result.push({ userType });
+          result.push({ type, userType });
           break;
         }
         const matches = interfacesById.get(selfDefId) ?? [];
@@ -528,9 +451,9 @@ async function canonicalExecutors(
         if (!url) {
           pushIssue(issues, GRAPH_RESOURCE, "executor.selfDefId", selfDefId,
             `节点 ${nodeKey} 的自定义执行人接口无法解析：${selfDefId}`);
-          result.push({ userType });
+          result.push({ type, userType });
         } else {
-          result.push({ userType, selfDefServiceUrl: url });
+          result.push({ type, userType, selfDefServiceUrl: url });
         }
         break;
       }
@@ -542,6 +465,8 @@ async function canonicalExecutors(
         const dimensionCodes = await canonicalDimensionCodes(copy.rowdata, refs, issues, nodeKey);
         delete copy.rowdata;
         if (dimensionCodes.length > 0) copy.dimensionCodes = dimensionCodes;
+        copy.type = type;
+        copy.userType = userType;
         result.push(copy);
         break;
       }
@@ -551,13 +476,11 @@ async function canonicalExecutors(
         delete copy.rowdata;
         delete copy.selfDefId;
         delete copy.selfDefOfOrgAndSelId;
+        copy.type = type;
+        copy.userType = userType;
         result.push(copy);
         break;
       }
-      case "ProjectPosition":
-        pushIssue(issues, GRAPH_RESOURCE, "executor.userType", nodeKey,
-          `节点 ${nodeKey} 使用了项目岗位（ProjectPosition），v1 不支持跨环境迁移`);
-        break;
       default:
         pushIssue(issues, GRAPH_RESOURCE, "executor.userType", userType,
           `节点 ${nodeKey} 的执行人类型不受支持：${userType}`);
@@ -901,6 +824,7 @@ async function hydrateExecutors(
     if (!isRecord(entry)) throw new CliError("规范化流程图的执行人项无效");
     const userType = text(entry.userType);
     if (!userType) throw new CliError("规范化流程图的执行人缺少 userType");
+    const type = text(entry.type) ?? userType;
     switch (userType) {
       case "Person":
         result.push(await hydrateCodeExecutor(entry, "employeeCodes", "employee", refs, missing));
@@ -919,13 +843,19 @@ async function hydrateExecutors(
         break;
       case "SelfDefinition": {
         const url = text(entry.selfDefServiceUrl);
-        const output: RecordValue = { userType };
-        if (url) hydrateUrlReference(output, "selfDefId", url, interfacesByUrl, "conInterface", missing);
+        const output: RecordValue = { type, userType };
+        if (url) {
+          const target = hydrateUrlReference(output, "selfDefId", url, interfacesByUrl, "conInterface", missing);
+          const name = target ? text(target.name) : undefined;
+          if (name) output.name = name;
+        }
         result.push(output);
         break;
       }
       case "AnyOne": {
         const output = deepClone(entry);
+        output.type = type;
+        output.userType = userType;
         const dimensionCodes = textArray(entry.dimensionCodes);
         delete output.dimensionCodes;
         if (dimensionCodes.length > 0) {
@@ -952,6 +882,8 @@ async function hydrateExecutors(
       }
       case "StartUser": {
         const copy = deepClone(entry);
+        copy.type = type;
+        copy.userType = userType;
         delete copy.ids;
         delete copy.rowdata;
         delete copy.selfDefId;
@@ -975,6 +907,7 @@ async function hydrateCodeExecutor(
 ): Promise<ResourceRecord> {
   const userType = text(entry.userType);
   if (!userType) throw new CliError("规范化流程图的执行人缺少 userType");
+  const type = text(entry.type) ?? userType;
   const codes = textArray(entry[codeField]);
   if (codes.length === 0) throw new CliError(`执行人 ${codeField} 不能为空`);
   const rows = resource === "employee"
@@ -995,7 +928,7 @@ async function hydrateCodeExecutor(
     }
     selected.push(matches[0]!);
   }
-  const output: RecordValue = { userType };
+  const output: RecordValue = { type, userType };
   if (selected.length === codes.length) {
     output.ids = selected.map((row) => text(row.id) ?? "").join(",");
     output.name = selected.map((row) => displayName(row, resource)).join(",");
@@ -1068,14 +1001,15 @@ function hydrateUrlReference(
   recordsByUrl: Map<string, ResourceRecord[]>,
   resource: string,
   missing: MissingDependency[]
-): void {
+): ResourceRecord | undefined {
   delete container[idField];
   const matches = recordsByUrl.get(url) ?? [];
   if (matches.length !== 1) {
     missing.push(dependency(resource, url, matches.length));
-    return;
+    return undefined;
   }
   container[idField] = text(matches[0]!.id) ?? null;
+  return matches[0];
 }
 
 async function hydrateNotify(
@@ -1268,6 +1202,19 @@ function requireRecord(
 function requireHydrateRecord(value: unknown, message: string): RecordValue {
   if (isRecord(value)) return value;
   throw new CliError(message);
+}
+
+function nodeIssueToBlocking(issue: NodeIssue, nodeKey: string): BlockingIssue {
+  return {
+    resource: GRAPH_RESOURCE,
+    field: issue.field ?? "type",
+    reason: "invalid",
+    message: `节点 ${nodeKey}：${issue.message}`,
+    code: issue.code,
+    severity: issue.severity,
+    scope: "node",
+    nodeId: nodeKey
+  };
 }
 
 function pushIssue(

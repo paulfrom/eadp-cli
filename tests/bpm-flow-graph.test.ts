@@ -626,7 +626,7 @@ describe("bpm-flow-graph：目标草稿迁移", () => {
     target.pages.push({ id: "target-notify-page", name: "通知页面", pcUrl: "/tbs/notify" });
     target.interfaces.push({
       id: "target-selfdef",
-      name: "自定义人员",
+      name: "目标自定义人员",
       url: "/tbs/selfDef",
       interfaceType: "CUSTOM_PERSON"
     });
@@ -641,10 +641,16 @@ describe("bpm-flow-graph：目标草稿迁移", () => {
       .UserTask_2 as RecordValue).nodeConfig as RecordValue;
     expect(savedConfig.executor).toEqual([
       expect.objectContaining({
+        type: "AnyOne",
         userType: "AnyOne",
         rowdata: [{ id: "target-dim", code: "DIM1", name: "维度一" }]
       }),
-      expect.objectContaining({ userType: "SelfDefinition", selfDefId: "target-selfdef" })
+      expect.objectContaining({
+        type: "SelfDefinition",
+        userType: "SelfDefinition",
+        selfDefId: "target-selfdef",
+        name: "目标自定义人员"
+      })
     ]);
     expect((savedConfig.notify as RecordValue).before).toMatchObject({
       notifySelfDefinition: {

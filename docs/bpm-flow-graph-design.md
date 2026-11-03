@@ -3,7 +3,7 @@
 > 一句话目标：**把源环境某条流程的流程图设计稿，一条命令复制到目标环境，生成草稿，绝不发布。**
 >
 > 参考实现：`src/domains/trans`（EAI 通道配置）  
-> 上游依据：`D:\project\ead\sei-bpm` 的 `DefFlowChartService`、`DefFlowVersionService`、`DefImportAndExportService`
+> 上游依据：`sei-bpm` 服务端的 `DefFlowChartService`、`DefFlowVersionService`、`DefImportAndExportService`（仅实现时参考，CLI 运行时不依赖）
 
 ---
 
@@ -386,8 +386,11 @@ eadp bpm graph import   --env ead --flow X --file x.json [--apply]
   **规范化图**（页面/接口按 URL、人员按 code，不含环境内 ID），因此可跨环境复用。
 - `export` 对源流程类型下的每个 `DefFlowDefinition` 读最新设计稿并规范化；源侧 0 个定义时
   以 `GRAPH_SOURCE_EMPTY` 停止，提示去设计器落稿。
-- `validate` 只读：结构校验（节点类型、Start/End、连线目标、UserTask 必填项）加 `hydrate`
+- `validate` 只读：结构校验（节点类型、Start/End、连线目标、节点必填项）加 `hydrate`
   目标依赖校验，输出每个定义的 `blockingIssues`/`missingDependencies`。
+  2026-11-02 增补：同时输出 `designValid`/`designIssues`/`warnings`，`--strict` 才把
+  设计器无法保存的问题计为失败；节点能力以 `eadp bpm graph nodes` 为准，详见
+  [bpm-node-capability-design.md](bpm-node-capability-design.md)。
 - `import` 默认预览，`--apply` 只写草稿并回查；`unchanged` 不调用 `saveOrDeploy`，重复执行幂等；
   `CallActivity`/`ProjectPosition`/智能审核仍按原规则 blocked。
 
@@ -396,7 +399,8 @@ eadp bpm graph import   --env ead --flow X --file x.json [--apply]
 - `bpm-flow-graph` 的 plan `details` 增加 `graphReadiness`（源/目标定义数与状态）和
   `nextActions`（补依赖、移除子流程/项目岗位、去设计器发布）。
 - `bpm` 的 plan `details` 增加页面/接口/流程类型摘要与 `SYNC_FLOW_GRAPH` 下一步提示。
-- `resource inspect bpm-flow-graph` 的 `help` 直接列出支持的节点类型、blocked 类型和 UserTask 必填项。
+- `resource inspect bpm-flow-graph` 的 `help` 指向 `eadp bpm graph nodes`，后者直接列出
+  支持的节点类型、blocked 类型、出入口规则与 UserTask 必填项。
 
 ### 12.5 代码与测试
 

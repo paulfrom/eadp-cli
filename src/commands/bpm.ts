@@ -18,6 +18,11 @@ import {
   verifyGraphImport,
   writeGraphDraftFile
 } from "../domains/bpm-flow-graph/draft.js";
+import {
+  CATALOG_VERSION,
+  describeNodeRule,
+  listNodeRules
+} from "../domains/bpm-flow-graph/node-catalog.js";
 import { createResourceClient } from "../resource/core/client.js";
 import { assertTenantScope } from "../tenant.js";
 import type { ConfigStore } from "../config/store.js";
@@ -126,19 +131,65 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
 
   const graph = bpm
     .command("graph")
-    .description("流程图文件通道：导出、校验、导入（只写草稿，不发布）")
+    .description("流程图文件通道：节点能力、导出、校验、导入（只写草稿，不发布）")
     .addHelpText(
       "after",
       `
 示例：
+  eadp bpm graph nodes
   eadp bpm graph export --env dev --flow TBS_PROJECT --out tbs.json
   eadp bpm graph validate --env ead --file tbs.json
+  eadp bpm graph validate --env ead --file tbs.json --strict
   eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json
   eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json --apply
 
+节点约束以 eadp bpm graph nodes 为准（能力表随 CLI 发布，不依赖外部源码）。
 导出的文件是规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），
-可以直接在另一个环境导入；导入前先跑 validate 检查节点结构与目标依赖。`
+可以直接在另一个环境导入；validate 同时给出 valid（能否搬运）与
+designValid（设计器能否保存），--strict 时 designIssues 也视为失败。`
     );
+
+  graph
+    .command("nodes")
+    .description("列出 CLI 内置的 BPM 节点能力表（不访问远端、不读取外部源码）")
+    .option("--group <group>", "仅显示 task、event 或 gateway")
+    .option("--kind <kind>", "仅显示指定节点，如 Approve、ManualExclusiveGateway")
+    .option("--include-legacy", "同时显示 MailTask 等历史节点")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp bpm graph nodes
+  eadp bpm graph nodes --group task
+  eadp bpm graph nodes --kind Approve
+
+节点能力表随 CLI 一起发布，包含引擎 type、nodeType/busType 存放位置、
+必填配置、出入口规则、执行人要求与跨环境策略，不需要外部源码。`
+    )
+    .action((options: GraphNodesOptions) => {
+      if (options.group && !["task", "event", "gateway"].includes(options.group)) {
+        throw new CliError(`未知节点分组：${options.group}`, 1, {
+          code: "INVALID_ARGUMENT",
+          candidates: ["task", "event", "gateway"]
+        });
+      }
+      const nodes = listNodeRules({
+        ...(options.group ? { group: options.group } : {}),
+        ...(options.kind ? { kind: options.kind } : {}),
+        includeLegacy: options.includeLegacy === true
+      });
+      if (options.kind && nodes.length === 0) {
+        throw new CliError(`未知节点类型：${options.kind}`, 1, {
+          code: "INVALID_ARGUMENT",
+          requiredInput: "kind"
+        });
+      }
+      printValue({
+        kind: "eadp.bpm.graph.nodes.v1",
+        catalogVersion: CATALOG_VERSION,
+        nodes: nodes.map(describeNodeRule)
+      }, getRuntimeOptions(root).compact);
+    });
 
   graph
     .command("export")
@@ -164,15 +215,16 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
 
   graph
     .command("validate")
-    .description("校验流程图文件的节点结构、目标依赖；不写入")
+    .description("校验流程图文件的节点结构、设计器规则与目标依赖；不写入")
     .requiredOption("--env <name>", "目标环境名称")
     .requiredOption("--file <path>", "流程图文件路径")
+    .option("--strict", "把设计器无法保存的图（designIssues）也视为校验失败")
     .action(async (options: GraphValidateOptions) => {
       const resolved = await requireBpmEnvironment(store, options.env);
       const runtime = getRuntimeOptions(root);
       const file = await readGraphDraftFile(options.file);
       const client = createGraphClient(resolved, runtime.timeoutMs);
-      const result = await validateGraphDrafts(client, file);
+      const result = await validateGraphDrafts(client, file, { strict: options.strict === true });
       printValue({
         kind: "eadp.bpm.graph.validation.v1",
         environment: resolved.name,
@@ -187,12 +239,15 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
     .requiredOption("--flow <code-or-name>", "目标流程类型 code、名称或 Entity code")
     .requiredOption("--file <path>", "流程图文件路径")
     .option("--apply", "写入草稿；不提供时仅输出变更计划")
+    .option("--strict", "设计器无法保存的图（designIssues）也拒绝导入")
     .action(async (options: GraphImportOptions) => {
       const resolved = await requireBpmEnvironment(store, options.env);
       const runtime = getRuntimeOptions(root);
       const file = await readGraphDraftFile(options.file);
       const client = createGraphClient(resolved, runtime.timeoutMs);
-      const plan = await planGraphImport(client, options.flow, file);
+      const plan = await planGraphImport(client, options.flow, file, {
+        strict: options.strict === true
+      });
       const apply = options.apply === true;
       const result = {
         kind: "eadp.bpm.graph.import.v1",
@@ -236,9 +291,16 @@ interface GraphExportOptions {
   out: string;
 }
 
+interface GraphNodesOptions {
+  group?: string;
+  kind?: string;
+  includeLegacy?: boolean;
+}
+
 interface GraphValidateOptions {
   env: string;
   file: string;
+  strict?: boolean;
 }
 
 interface GraphImportOptions {
@@ -246,6 +308,7 @@ interface GraphImportOptions {
   flow: string;
   file: string;
   apply?: boolean;
+  strict?: boolean;
 }
 
 async function requireBpmEnvironment(

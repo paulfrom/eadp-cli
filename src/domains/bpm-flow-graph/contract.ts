@@ -14,10 +14,11 @@ export const bpmFlowGraphContract: ResourceContract = {
   capabilities: ["compare", "sync"],
   help: [
     "使用 --select flow=<流程类型 code/名称/Entity code>；同步源环境最新设计稿到目标草稿，不发布。",
-    "需要目标环境已存在流程类型；建议先运行 resource sync bpm 或直接使用 resource sync bpm-migration。",
-    "支持节点 type：StartEvent、EndEvent、TerminateEndEvent、UserTask、MailTask、ManualTask、ScriptTask、ServiceTask、ReceiveTask、AgentTask、PoolTask、ExclusiveGateway、InclusiveGateway、ParallelGateway、EventGateway。",
+    "节点能力以 eadp bpm graph nodes 为准（能力表随 CLI 发布，不读取外部源码）。",
+    "支持任务：Normal、SingleSign、Approve、CounterSign、ParallelTask、SerialTask（type=UserTask + nodeType）、ServiceTask、ManualTask、ReceiveTask、AgentTask、PoolTask；网关：ExclusiveGateway、ManualExclusiveGateway（type=ExclusiveGateway + busType）、ParallelGateway、InclusiveGateway；事件：StartEvent、EndEvent、TerminateEndEvent。",
     "CallActivity（子流程）、ProjectPosition（项目岗位）、非空 smartAudit/ruleConfig 一律 blocked。",
-    "UserTask 必须带 nodeType、非空 executor、nodeConfig.normal 页面；连线 target 必须指向存在的节点。",
+    "人工任务必须带 nodeType、非空 executor、nodeConfig.normal 页面；审批/会签恰好 2 条出口且 1 条 uel.agree；系统排他/包容恰好 1 条 uel.isDefault；单 StartEvent、至少 1 个 EndEvent。",
+    "bpm graph validate 同时输出 valid（能否搬运）与 designValid（设计器能否保存）；--strict 把 designIssues 视为失败。",
     "源流程类型下没有任何设计稿时无法从零建图，请先在 BPM 设计器落稿（或使用 bpm graph import）。"
   ].join("\n"),
   filtering: { time: false },

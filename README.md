@@ -90,7 +90,8 @@ eadp resource sync <name> --source <env> --target <env>
 | `eadp menu create ...` | 按父菜单代码和功能项代码安全新增菜单 | 菜单查询/比较/同步仍使用 `resource ... menu` |
 | `eadp bpm inspect ...` | 从真实项目代码只读发现 BPM 流程骨架 | 不访问远端，不等同于 BPM 资源同步 |
 | `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移使用 `resource compare/sync bpm-migration`（或原子入口 `bpm`、`bpm-flow-graph`） |
-| `eadp bpm graph export/validate/import ...` | 流程图画布文件的可移植导出、校验与导入 | 只写草稿；节点阻断规则与 `bpm-flow-graph` 一致 |
+| `eadp bpm graph nodes` | 列出 CLI 内置的 BPM 节点能力与约束（不访问远端） | 能力表随 CLI 发布，不依赖外部源码 |
+| `eadp bpm graph export/validate/import ...` | 流程图画布文件的可移植导出、校验与导入 | 只写草稿；`validate` 同时输出 `valid` 与 `designValid` |
 | `eadp trans inspect ...` | 只读发现当前环境的 EAI 节点及图配置契约 | 通道配置保存、比较和迁移仍使用 `resource ... trans` |
 | `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 同步不改变生命周期 |
 | `eadp rollback <operation-id...>` | 撤销操作日志记录的新增或分配 | 只接受已登记回滚契约，不提供通用删除 |
@@ -271,13 +272,19 @@ eadp resource sync bpm-migration \
 源环境没有设计稿时，不要在 CLI 里猜画布 JSON；用文件通道把一张已画好的图搬到其他环境：
 
 ```bash
+eadp bpm graph nodes
 eadp bpm graph export   --env dev --flow TBS_PROJECT --out tbs.json
 eadp bpm graph validate --env ead --file tbs.json
+eadp bpm graph validate --env ead --file tbs.json --strict
 eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --apply
 ```
 
-导出文件是规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），`import` 只写草稿并回查，
-重复执行幂等；`CallActivity`、`ProjectPosition`、智能审核等仍按 `bpm-flow-graph` 的规则阻断。
+`eadp bpm graph nodes` 输出 CLI 内置的节点能力表（引擎 type、`nodeType`/`busType`、
+必填项、出入口规则、执行人与跨环境策略），不读取任何外部源码。导出文件是规范化图
+（页面/接口按 URL、人员按 code，不含环境内 ID），`import` 只写草稿并回查，重复执行幂等。
+`validate` 同时给出 `valid`（能否搬运）与 `designValid`（设计器能否保存）；
+`--strict` 时 `designIssues` 也计入失败。`CallActivity`、`ProjectPosition`、智能审核等
+仍按 `bpm-flow-graph` 的规则阻断。
 
 ## 检查功能权限和数据权限
 

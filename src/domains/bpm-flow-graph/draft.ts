@@ -9,7 +9,8 @@ import {
   type MissingDependency
 } from "../../resource/core/errors.js";
 import { selectFlow } from "../bpm/selection.js";
-import { hydrate, stableStringify, toCanonical, validateCanonicalGraph } from "./graph.js";
+import { inspectCanonicalGraph } from "./analysis.js";
+import { hydrate, stableStringify, toCanonical } from "./graph.js";
 import { graphReferences } from "./references.js";
 import { readFlowDesign } from "./service.js";
 
@@ -33,6 +34,8 @@ export interface GraphImportChange {
   action: GraphImportAction;
   changedFields: string[];
   blockingIssues?: BlockingIssue[];
+  designIssues?: BlockingIssue[];
+  warnings?: BlockingIssue[];
   missingDependencies?: MissingDependency[];
   /** Canonical string used for comparison and verification. */
   canonical: string;
@@ -51,7 +54,10 @@ export interface GraphValidationEntry {
   name: string;
   nodes: number;
   valid: boolean;
+  designValid: boolean;
   blockingIssues: BlockingIssue[];
+  designIssues: BlockingIssue[];
+  warnings: BlockingIssue[];
   missingDependencies: MissingDependency[];
 }
 
@@ -59,6 +65,7 @@ export interface GraphValidationResult {
   flow: string;
   flowTypeFound: boolean;
   valid: boolean;
+  designValid: boolean;
   graphs: GraphValidationEntry[];
 }
 
@@ -154,10 +161,16 @@ export async function exportGraphDrafts(
   return { kind: GRAPH_DRAFT_KIND, flow: code, graphs };
 }
 
+export interface GraphValidationOptions {
+  /** Treat designer-invalid graphs as validation failures. */
+  strict?: boolean;
+}
+
 /** Resolve a portable file against one environment without writing anything. */
 export async function validateGraphDrafts(
   client: ResourceClient,
-  file: GraphDraftFile
+  file: GraphDraftFile,
+  options: GraphValidationOptions = {}
 ): Promise<GraphValidationResult> {
   const refs = graphReferences(client);
   const flow = await findFlowType(refs, file.flow);
@@ -165,7 +178,10 @@ export async function validateGraphDrafts(
   const entries: GraphValidationEntry[] = [];
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
-    const blockingIssues = validateCanonicalGraph(canonical);
+    const verdict = inspectCanonicalGraph(canonical);
+    const blockingIssues = [...verdict.blockingIssues];
+    const designIssues = [...verdict.designIssues];
+    const warnings = [...verdict.warnings];
     const missingDependencies: MissingDependency[] = [];
     if (flowTypeId && blockingIssues.length === 0) {
       try {
@@ -174,11 +190,17 @@ export async function validateGraphDrafts(
         collectIssues(error, blockingIssues, missingDependencies);
       }
     }
+    const designValid = designIssues.length === 0;
     entries.push({
       name: draft.name,
       nodes: nodeCount(canonical),
-      valid: blockingIssues.length === 0 && missingDependencies.length === 0,
+      valid: blockingIssues.length === 0 &&
+        missingDependencies.length === 0 &&
+        (!options.strict || designValid),
+      designValid,
       blockingIssues,
+      designIssues,
+      warnings,
       missingDependencies
     });
   }
@@ -186,6 +208,7 @@ export async function validateGraphDrafts(
     flow: file.flow,
     flowTypeFound: flow !== undefined,
     valid: flow !== undefined && entries.every((entry) => entry.valid),
+    designValid: flow !== undefined && entries.every((entry) => entry.designValid),
     graphs: entries
   };
 }
@@ -198,7 +221,8 @@ export async function validateGraphDrafts(
 export async function planGraphImport(
   client: ResourceClient,
   flowSelector: string,
-  file: GraphDraftFile
+  file: GraphDraftFile,
+  options: GraphValidationOptions = {}
 ): Promise<GraphImportPlan> {
   const refs = graphReferences(client);
   const [flows, entities] = await Promise.all([refs.flowTypes(), refs.businessEntities()]);
@@ -221,9 +245,25 @@ export async function planGraphImport(
   const changes: GraphImportChange[] = [];
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
-    const blockingIssues = validateCanonicalGraph(canonical);
+    const verdict = inspectCanonicalGraph(canonical);
+    const designIssues = verdict.designIssues;
+    const warnings = verdict.warnings;
+    const blockingIssues = options.strict
+      ? [...verdict.blockingIssues, ...designIssues]
+      : [...verdict.blockingIssues];
+    const extra = {
+      ...(designIssues.length === 0 ? {} : { designIssues }),
+      ...(warnings.length === 0 ? {} : { warnings })
+    };
     if (blockingIssues.length > 0) {
-      changes.push({ name: draft.name, action: "blocked", changedFields: [], blockingIssues, canonical });
+      changes.push({
+        name: draft.name,
+        action: "blocked",
+        changedFields: [],
+        blockingIssues,
+        canonical,
+        ...extra
+      });
       continue;
     }
     const matches = definitions.filter((definition) => sameText(definition.name, draft.name));
@@ -239,7 +279,8 @@ export async function planGraphImport(
           reason: "ambiguous",
           value: draft.name,
           message: `目标流程类型 ${code} 下存在同名流程定义：${draft.name}`
-        }]
+        }],
+        ...extra
       });
       continue;
     }
@@ -256,7 +297,8 @@ export async function planGraphImport(
             action: "unchanged",
             changedFields: [],
             canonical,
-            definitionId
+            definitionId,
+            ...extra
           });
           continue;
         }
@@ -279,7 +321,8 @@ export async function planGraphImport(
         changedFields: [],
         canonical,
         blockingIssues,
-        missingDependencies
+        missingDependencies,
+        ...extra
       });
       continue;
     }
@@ -289,7 +332,8 @@ export async function planGraphImport(
       changedFields: ["graph"],
       canonical,
       hydrated,
-      ...(existing ? { definitionId: requiredText(existing.id, "目标流程定义缺少 ID") } : {})
+      ...(existing ? { definitionId: requiredText(existing.id, "目标流程定义缺少 ID") } : {}),
+      ...extra
     });
   }
   return { flow: code, changes };
@@ -439,6 +483,15 @@ function collectIssues(
   }
   if (error instanceof RecordMappingError) {
     blockingIssues.push(...error.blockingIssues);
+    return;
+  }
+  if (error instanceof CliError) {
+    blockingIssues.push({
+      resource: "bpm-flow-graph",
+      field: "graph",
+      reason: "invalid",
+      message: error.message
+    });
     return;
   }
   throw error;

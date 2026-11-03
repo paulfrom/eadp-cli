@@ -22,3 +22,4 @@
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
 - 查询接口只有在资源契约或领域命令明确要求 global 时才允许使用 `tenantCode === "global"` 的环境；未明确要求 global（包括 `tenant.policy: "any"`）时默认按 non-global 查询校验，`query`、`compare`、`sync` 必须在任何远端请求前拒绝 global 环境。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
+- BPM 节点约束必须由 CLI 内置能力表提供（`eadp bpm graph nodes`），不得在运行时读取、导入或依赖任何外部项目源码；外部设计稿只作为实现时的行为参考。`bpm graph validate` 必须同时输出 `valid`（能否搬运）与 `designValid`（设计器能否保存），`--strict` 时才把 `designIssues` 视为失败。

@@ -20,7 +20,7 @@ commands:
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
-  `bpm configure`, `bpm graph export|validate|import`, `trans inspect`,
+  `bpm configure`, `bpm graph nodes|export|validate|import`, `trans inspect`,
   `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
@@ -121,8 +121,9 @@ Route only these domain intents away from ordinary resource actions:
   `eadp bpm configure ...`; BPM environment migration uses
   `eadp resource compare|sync bpm-migration --select flow=<code-or-name>` for the
   skeleton plus graph in one plan, or the atomic `bpm` / `bpm-flow-graph` entries.
-  Canvas files use `eadp bpm graph export|validate|import`; never synthesize a
-  canvas from prose when no source draft exists.
+  Canvas files use `eadp bpm graph export|validate|import`; read node constraints
+  from `eadp bpm graph nodes` (CLI-local, no external source) and never synthesize
+  a canvas from prose when no source draft exists.
 - EAI node discovery: `eadp trans inspect [node]`; channel publication or
   freezing: `eadp trans publish|freeze`. Channel query, configuration writes,
   comparison, and migration stay in `resource`.

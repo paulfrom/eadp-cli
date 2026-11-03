@@ -15,6 +15,7 @@ import type {
   ResourceVerifyContext
 } from "../../resource/core/engine.js";
 import { selectFlow } from "../bpm/selection.js";
+import { inspectCanonicalGraph } from "./analysis.js";
 import { hydrate, toCanonical } from "./graph.js";
 import { graphReferences, type BpmGraphReferences } from "./references.js";
 
@@ -91,6 +92,7 @@ async function planFlowGraphs(
   }
 
   const changes: ResourcePlanChange[] = [];
+  const graphWarnings: BlockingIssue[] = [];
   for (const sourceDefinition of sourceDefinitions) {
     const name = textValue(sourceDefinition.name);
     const key = name ? `${flowCode}/${name}` : `${flowCode}/<缺少名称>`;
@@ -141,6 +143,7 @@ async function planFlowGraphs(
       const sourceDesign = await readFlowDesign(context.sourceClient, sourceDefinitionId);
       const sourceJson = designJson(sourceDesign, `源流程定义 ${name} 没有设计稿`);
       const graph = await toCanonical(sourceJson, sourceRefs);
+      graphWarnings.push(...inspectCanonicalGraph(graph).warnings);
       const beforeGraph = before && typeof before.graph === "string" ? before.graph : null;
 
       if (beforeGraph !== null && graph === beforeGraph) {
@@ -195,12 +198,15 @@ async function planFlowGraphs(
 
   return {
     changes,
-    details: buildGraphDetails({
-      flowCode,
-      sourceDefinitions,
-      targetDefinitions,
-      changes
-    })
+    details: {
+      ...buildGraphDetails({
+        flowCode,
+        sourceDefinitions,
+        targetDefinitions,
+        changes
+      }),
+      ...(graphWarnings.length === 0 ? {} : { graphWarnings: dedupeIssues(graphWarnings) })
+    }
   };
 }
 
@@ -525,4 +531,16 @@ function textValue(value: unknown): string | undefined {
 
 function sameText(value: unknown, expected: string): boolean {
   return typeof value === "string" && value.trim() === expected.trim();
+}
+
+function dedupeIssues(issues: BlockingIssue[]): BlockingIssue[] {
+  const seen = new Set<string>();
+  const result: BlockingIssue[] = [];
+  for (const item of issues) {
+    const key = `${item.code ?? ""}:${item.nodeId ?? ""}:${item.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }

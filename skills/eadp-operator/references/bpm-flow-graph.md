@@ -28,20 +28,29 @@ available, so a graph is not reported `blocked` for a dependency that is being c
 Use the file channel when the source environment has no design draft yet:
 
 ```text
+eadp bpm graph nodes
 eadp bpm graph export   --env dev --flow TBS_PROJECT --out tbs.json
 eadp bpm graph validate --env ead --file tbs.json
+eadp bpm graph validate --env ead --file tbs.json --strict
 eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json
 eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --apply
 ```
 
+- `eadp bpm graph nodes` is the authoritative, CLI-local node catalog: engine `type`,
+  `nodeType`/`busType`, required config, edge rules, executor rules and migration policy.
+  It never reads an external repository or source file.
 - Format `eadp.bpm.graph.v1`: `{ kind, flow, graphs: [{ name, graph }] }`; `graph` is the
   canonical form (pages/interfaces by URL, people by code, no environment IDs).
 - `export` fails with `GRAPH_SOURCE_EMPTY` when the flow type has no definition; draw one
   draft in the BPM designer (or import a file produced elsewhere) and retry.
-- `validate` is read-only and reports node-structure issues plus target
-  `missingDependencies`. Run it before `import --apply`.
+- `validate` is read-only. It reports `blockingIssues` (can it move?), `designIssues`
+  (would the designer save it?) and `warnings`; `valid` keeps the migration meaning and
+  `designValid` is the designer meaning. `--strict` makes `designIssues` fail `valid`.
 - `import` compares the canonical graph with the target draft: `create`, `update`,
-  `unchanged`, or `blocked`. Repeated `--apply` is idempotent.
+  `unchanged`, or `blocked`. Repeated `--apply` is idempotent. `--strict` refuses graphs
+  the designer could not save.
+- Executors keep their composite `type` and `userType` fragments; `PositionTypeAndOrg`
+  must have both fragment and `SelfDefinition.name` is rebuilt from the target interface.
 
 ## Results
 
@@ -57,7 +66,11 @@ The plan `details` also expose `graphReadiness` (source/target definition counts
 
 - Never synthesize a canvas from tables or guessed field names. Use an exported file, a
   designer draft, or stop and report the missing source.
+- Read node constraints from `eadp bpm graph nodes`, not from assumptions or external
+  project files; the catalog ships inside the CLI.
 - `CallActivity`, `ProjectPosition`, and non-empty `smartAudit`/`ruleConfig` remain blocked.
+- Approve/CounterSign need exactly two exits with one `uel.agree`; system exclusive and
+  inclusive gateways need exactly one `uel.isDefault`; manual exclusive gateways do not.
 - A target missing page, interface, employee, position, position category, organization,
   or dimension is reported as `missingDependencies`; fix it, then preview again.
 - Do not retry a failed HTTP call or a server `success: false` response, do not switch
