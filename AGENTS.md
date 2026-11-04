@@ -8,7 +8,8 @@
 - 用户请求中明确出现 BPM 或流程配置时，必须优先路由到 BPM 工作流；流程名称（如“示例流程”）不得解析为功能项。缺少专用 BPM 环境迁移命令时必须如实停止，禁止改用 `eadp resource sync feature` 或原始接口绕过。
 - BPM 与给号配置跨环境迁移必须使用 `eadp resource sync bpm`、`eadp resource sync bpm-migration`、`eadp resource sync serial-number`；默认预览、按业务唯一键查重、重新映射目标 ID、正式写入后回查，并保证重复执行幂等。
 - BPM 迁移包含 `bpm` 骨架与 `bpm-flow-graph` 流程图两个原子入口，顺序固定（先骨架后图）；`eadp resource sync bpm-migration` 是按该顺序执行的组合入口，不得把两者合并实现，也不得跳过骨架直接写图。
-- 流程图没有源环境设计稿时，禁止凭表结构或猜测字段生成画布；必须使用 `eadp bpm graph export`/`validate`/`import` 文件通道，或先在 BPM 设计器落稿。导入只写草稿，并复用 `bpm-flow-graph` 的 blocked 规则（CallActivity、ProjectPosition、智能审核等仍拒绝）。
+- 流程图可来自源环境设计稿或独立业务输入，输入格式不限。独立输入必须先运行 `eadp bpm graph guide`、`eadp bpm graph nodes`、`eadp bpm graph conditions --env <环境> --flow <流程类型>`，只依据已确认的业务语义生成 `eadp.bpm.graph.v1` 规范化图；节点类型、执行人、条件、路径、驳回、页面、接口或子流程不确定时必须提问，禁止猜测或直接构造原始 defJson。导入只写草稿，并复用 `bpm-flow-graph` 的 blocked 规则（CallActivity、ProjectPosition、智能审核等仍拒绝）。
+- 网关条件只能使用目标环境业务实体发布的判定条件字段（`eadp bpm graph conditions` 的 `code`/`name`），不得自造变量名；系统排他网关优先级最高，条件字段能判定的业务分流必须使用系统排他网关，人工排他网关只作为系统无法判定时的兜底。`bpm graph validate` 必须按同一份条件清单校验网关条件，并输出 `CONDITION_VARIABLE_UNKNOWN`、`CONDITION_PROPERTY_UNKNOWN`、`CONDITION_EXPRESSION_MISSING`。
 - BPM 跨环境同步不得迁移或解析源业务实体的 `auditTypeId`、`auditTypeName`；目标业务实体这两个字段始终明确置空，且不得因源环境存在审计对象关联而终止。
 - Skill 描述同步能力时必须提供可直接执行的时间筛选与差异同步示例，并明确 `create`、`update`、`unchanged` 语义及不支持时间参数的资源边界。
 - EADP Skill 安装与升级必须支持 Codex、WorkBuddy、Claude 和 Qoder；Claude 与 Qoder 分别使用其用户级 `skills` 目录，不得混用平台根目录。
@@ -22,4 +23,4 @@
 - 资源发现统一使用 `eadp resource inspect`（无参数列出资源及能力、`eadp resource inspect <name>` 输出契约摘要、`eadp resource inspect <name> <action>` 输出该动作的结构化参数）；已注册资源的写操作由统一资源引擎执行，权限、菜单和 BPM 能力使用对应领域命令。
 - 查询接口只有在资源契约或领域命令明确要求 global 时才允许使用 `tenantCode === "global"` 的环境；未明确要求 global（包括 `tenant.policy: "any"`）时默认按 non-global 查询校验，`query`、`compare`、`sync` 必须在任何远端请求前拒绝 global 环境。
 - 环境间配置迁移必须先校验源环境和目标环境的租户条件；任一环境不满足时立即停止，不得读取迁移数据或执行目标环境写入。
-- BPM 节点约束必须由 CLI 内置能力表提供（`eadp bpm graph nodes`），不得在运行时读取、导入或依赖任何外部项目源码；外部设计稿只作为实现时的行为参考。`bpm graph validate` 必须同时输出 `valid`（能否搬运）与 `designValid`（设计器能否保存），`--strict` 时才把 `designIssues` 视为失败。
+- BPM 节点约束与场景指导必须由 CLI 内置能力表提供（`eadp bpm graph guide`、`eadp bpm graph nodes`），不得在运行时读取、导入或依赖任何外部项目源码；外部设计稿只作为实现时的行为参考。每个节点必须给出适用/不适用场景、选择前所需信息和不确定时的追问。`bpm graph validate` 必须同时输出 `valid`（能否搬运）与 `designValid`（设计器能否保存），`--strict` 时才把 `designIssues` 视为失败。

@@ -105,6 +105,30 @@ describe("bpm 节点能力表", () => {
       edges: { minOut: 2, maxOut: 2, agreeEdge: true }
     });
   });
+
+  it("每个节点都提供适用场景、反例、所需信息和不确定时的追问", () => {
+    for (const rule of listNodeRules({ includeLegacy: true })) {
+      const described = describeNodeRule(rule);
+      const usage = described.usage as Record<string, unknown>;
+      expect(usage.summary, rule.kind).toEqual(expect.any(String));
+      for (const field of ["exampleScenarios", "notFor", "requiredInputs", "askWhenUnclear"]) {
+        expect(usage[field], `${rule.kind}.${field}`).toBeInstanceOf(Array);
+        expect((usage[field] as unknown[]).length, `${rule.kind}.${field}`).toBeGreaterThan(0);
+      }
+    }
+
+    expect(describeNodeRule(listNodeRules({ kind: "Approve" })[0]!).usage).toMatchObject({
+      exampleScenarios: expect.arrayContaining(["部门负责人审批"]),
+      requiredInputs: expect.arrayContaining(["同意去向", "不同意去向"])
+    });
+    expect(describeNodeRule(listNodeRules({ kind: "ExclusiveGateway" })[0]!).usage).toMatchObject({
+      notFor: expect.arrayContaining(["由用户人工选择路径"]),
+      askWhenUnclear: expect.arrayContaining(["未命中任何条件时走哪里？"])
+    });
+    expect(describeNodeRule(listNodeRules({ kind: "TerminateEndEvent" })[0]!).usage).toMatchObject({
+      notFor: expect.arrayContaining(["驳回后返回发起人修改"])
+    });
+  });
 });
 
 describe("bpm 节点设计级校验", () => {

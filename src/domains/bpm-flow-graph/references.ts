@@ -15,6 +15,8 @@ export interface BpmGraphReferences {
   organizations(): Promise<ResourceRecord[]>;
   positionCategories(): Promise<ResourceRecord[]>;
   dimensions(): Promise<ResourceRecord[]>;
+  /** Condition properties one business entity publishes for gateway decisions. */
+  conditionProperties(businessEntityCode: string): Promise<ResourceRecord[]>;
   employeesByIds(ids: readonly string[]): Promise<ResourceRecord[]>;
   employeesByCodes(codes: readonly string[]): Promise<ResourceRecord[]>;
   positionsByIds(ids: readonly string[]): Promise<ResourceRecord[]>;
@@ -79,9 +81,32 @@ class BpmGraphReferencesImpl implements BpmGraphReferences {
 
   positionCategories(): Promise<ResourceRecord[]> {
     return this.cached("conBasicInterface/getListPositionCategory", async () => {
-      const data = await this.client.invoke("conBasicInterface/getListPositionCategory", "POST");
+      // The endpoint only accepts a JSON body; a bodyless POST is rejected
+      // with HttpMediaTypeNotSupportedException before the handler runs.
+      const data = await this.client.invoke(
+        "conBasicInterface/getListPositionCategory",
+        "POST",
+        {}
+      );
       return recordArray(data, "conBasicInterface/getListPositionCategory");
     });
+  }
+
+  conditionProperties(businessEntityCode: string): Promise<ResourceRecord[]> {
+    const code = businessEntityCode.trim();
+    if (code === "") return Promise.resolve([]);
+    return this.cached(
+      `conBusinessEntity/getConditionPropertiesExplain?businessEntityCode=${code}`,
+      async () => {
+        const data = await this.client.invoke(
+          "conBusinessEntity/getConditionPropertiesExplain",
+          "GET",
+          undefined,
+          { businessEntityCode: [code] }
+        );
+        return recordArray(data, "conBusinessEntity/getConditionPropertiesExplain");
+      }
+    );
   }
 
   dimensions(): Promise<ResourceRecord[]> {

@@ -10,9 +10,10 @@
  * pipeline can use them without a browser or a front-end checkout.
  */
 import type { ResourceRecord } from "../../resource/core/client.js";
+import { nodeUsageForKind } from "./node-usage.js";
 
 /** Bump when the embedded contract changes; exposed by `bpm graph nodes`. */
-export const CATALOG_VERSION = "2026-11-02";
+export const CATALOG_VERSION = "2026-11-04";
 
 
 export type NodeGroup = "event" | "task" | "gateway";
@@ -547,12 +548,20 @@ export function describeNodeRule(rule: NodeRule): Record<string, unknown> {
   };
   if (rule.discriminator === "nodeType") example.nodeType = rule.kind;
   if (rule.discriminator === "busType") example.busType = rule.kind;
+  const usage = nodeUsageForKind(rule.kind);
   return {
     kind: rule.kind,
     title: rule.title,
     group: rule.group,
     engineType: rule.engineType,
     discriminator: rule.discriminator,
+    usage: {
+      summary: usage.summary,
+      exampleScenarios: [...usage.exampleScenarios],
+      notFor: [...usage.notFor],
+      requiredInputs: [...usage.requiredInputs],
+      askWhenUnclear: [...usage.askWhenUnclear]
+    },
     configKeys: [...rule.configKeys],
     ...(rule.normal
       ? {

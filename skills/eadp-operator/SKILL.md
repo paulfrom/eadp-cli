@@ -20,7 +20,7 @@ commands:
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
-  `bpm configure`, `bpm graph nodes|export|validate|import`, `trans inspect`,
+  `bpm configure`, `bpm graph guide|nodes|conditions|export|validate|import`, `trans inspect`,
   `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
@@ -121,9 +121,13 @@ Route only these domain intents away from ordinary resource actions:
   `eadp bpm configure ...`; BPM environment migration uses
   `eadp resource compare|sync bpm-migration --select flow=<code-or-name>` for the
   skeleton plus graph in one plan, or the atomic `bpm` / `bpm-flow-graph` entries.
-  Canvas files use `eadp bpm graph export|validate|import`; read node constraints
-  from `eadp bpm graph nodes` (CLI-local, no external source) and never synthesize
-  a canvas from prose when no source draft exists.
+  For graph design from independent business input, run `eadp bpm graph guide` and
+  `eadp bpm graph nodes`; input format is irrelevant. Check each node's usage scenarios
+  and counterexamples, and ask whenever node kind, executor, condition, route, rejection,
+  page, interface, or subprocess is uncertain. Before writing any gateway condition, load
+  the system decision fields with `eadp bpm graph conditions --env <env> --flow <code>`;
+  conditions may only use the variables that list returns. Build only canonical graph files,
+  then use `eadp bpm graph validate|import`; never copy environment IDs or raw `defJson`.
 - EAI node discovery: `eadp trans inspect [node]`; channel publication or
   freezing: `eadp trans publish|freeze`. Channel query, configuration writes,
   comparison, and migration stay in `resource`.
@@ -171,7 +175,8 @@ selected workflow; do not load every reference by default:
 - Generic compare/sync or menu hierarchy: [resource-sync.md](references/resource-sync.md)
 - Any create/update/delete/assign/sync write: [write-contracts.md](references/write-contracts.md)
 - Permission inspection, add-only copying, grant, or revoke: [permission-management.md](references/permission-management.md)
-- BPM discovery or configuration: [bpm-configuration.md](references/bpm-configuration.md)
+- BPM skeleton discovery/configuration: [bpm-configuration.md](references/bpm-configuration.md)
+- BPM graph design, import, or migration: [bpm-flow-graph.md](references/bpm-flow-graph.md)
 - Serial-number migration: [serial-number-sync.md](references/serial-number-sync.md)
 - EAI channel configuration, migration, publication, or freezing: [trans-sync.md](references/trans-sync.md)
 - Explicit rollback: [rollback.md](references/rollback.md)

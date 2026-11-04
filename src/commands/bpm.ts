@@ -18,6 +18,12 @@ import {
   verifyGraphImport,
   writeGraphDraftFile
 } from "../domains/bpm-flow-graph/draft.js";
+import { BPM_GRAPH_GUIDE } from "../domains/bpm-flow-graph/guide.js";
+import {
+  CONDITION_OPERATORS,
+  CONDITION_PRIORITY,
+  loadFlowConditions
+} from "../domains/bpm-flow-graph/conditions.js";
 import {
   CATALOG_VERSION,
   describeNodeRule,
@@ -131,27 +137,44 @@ BPM 回调和 startDefaultFlow 均为可选，真实回调仅用于生成集成�
 
   const graph = bpm
     .command("graph")
-    .description("流程图文件通道：节点能力、导出、校验、导入（只写草稿，不发布）")
+    .description("流程图配置：最佳实践、节点场景、导出、校验、导入（只写草稿，不发布）")
     .addHelpText(
       "after",
       `
 示例：
+  eadp bpm graph guide
   eadp bpm graph nodes
+  eadp bpm graph nodes --kind Approve
+  eadp bpm graph conditions --env dev --flow TBS_PROJECT
   eadp bpm graph export --env dev --flow TBS_PROJECT --out tbs.json
-  eadp bpm graph validate --env ead --file tbs.json
   eadp bpm graph validate --env ead --file tbs.json --strict
   eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json
-  eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json --apply
+  eadp bpm graph import --env ead --flow TBS_PROJECT --file tbs.json --strict --apply
 
+从独立业务输入配置时先运行 guide、nodes 和 conditions：conditions 列出目标环境业务实体
+发布的系统判定条件字段，网关条件只能使用其中的变量；输入格式不限，但业务语义必须明确。
+节点类型、执行人、条件、路径或驳回规则不能唯一确定时必须提问，不得猜测。
 节点约束以 eadp bpm graph nodes 为准（能力表随 CLI 发布，不依赖外部源码）。
-导出的文件是规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），
-可以直接在另一个环境导入；validate 同时给出 valid（能否搬运）与
-designValid（设计器能否保存），--strict 时 designIssues 也视为失败。`
+文件使用规范化图（页面/接口按 URL、人员按 code，不含环境内 ID）；
+validate 同时给出 valid 与 designValid，--strict 时 designIssues 也视为失败。`
     );
 
   graph
+    .command("guide")
+    .description("输出独立业务输入的流程图配置最佳实践（不访问远端、不读取外部文件）")
+    .addHelpText(
+      "after",
+      `
+包含节点选择模式、执行人选择、条件/连线契约、待确认问题、校验与验收步骤。
+业务输入不限文件格式；任何语义不确定都必须先提问，不能套用参考实现猜测。`
+    )
+    .action(() => {
+      printValue(BPM_GRAPH_GUIDE, getRuntimeOptions(root).compact);
+    });
+
+  graph
     .command("nodes")
-    .description("列出 CLI 内置的 BPM 节点能力表（不访问远端、不读取外部源码）")
+    .description("列出 CLI 内置节点约束、适用/不适用场景及待确认问题（不访问远端）")
     .option("--group <group>", "仅显示 task、event 或 gateway")
     .option("--kind <kind>", "仅显示指定节点，如 Approve、ManualExclusiveGateway")
     .option("--include-legacy", "同时显示 MailTask 等历史节点")
@@ -164,7 +187,8 @@ designValid（设计器能否保存），--strict 时 designIssues 也视为失�
   eadp bpm graph nodes --kind Approve
 
 节点能力表随 CLI 一起发布，包含引擎 type、nodeType/busType 存放位置、
-必填配置、出入口规则、执行人要求与跨环境策略，不需要外部源码。`
+必填配置、出入口规则、执行人要求与跨环境策略；usage 给出适用场景、
+不适用场景、选择前所需信息和不确定时的追问，不需要外部源码。`
     )
     .action((options: GraphNodesOptions) => {
       if (options.group && !["task", "event", "gateway"].includes(options.group)) {
@@ -189,6 +213,37 @@ designValid（设计器能否保存），--strict 时 designIssues 也视为失�
         catalogVersion: CATALOG_VERSION,
         nodes: nodes.map(describeNodeRule)
       }, getRuntimeOptions(root).compact);
+    });
+
+  graph
+    .command("conditions")
+    .description("列出目标环境业务实体发布的系统判定条件字段（网关条件只能用这些变量）")
+    .requiredOption("--env <name>", "环境名称")
+    .requiredOption("--flow <code-or-name>", "流程类型 code、名称或 Entity code")
+    .addHelpText(
+      "after",
+      `
+示例：
+  eadp bpm graph conditions --env dev --flow TBS_PROJECT
+
+输出条件字段的 code（表达式 groovyUel 使用的引擎变量）、name（logicUel 使用的中文名称）、
+initValue 与 remark，并给出网关选型优先级：系统排他网关优先级最高。
+条件字段不在此列表中的表达式，设计器保存时会校验失败。`
+    )
+    .action(async (options: GraphConditionsOptions) => {
+      const resolved = await requireBpmEnvironment(store, options.env);
+      const runtime = getRuntimeOptions(root);
+      const client = createGraphClient(resolved, runtime.timeoutMs);
+      const catalog = await loadFlowConditions(client, options.flow);
+      printValue({
+        kind: "eadp.bpm.graph.conditions.v1",
+        environment: resolved.name,
+        flow: catalog.flow,
+        businessEntity: catalog.businessEntity,
+        conditions: catalog.conditions,
+        operators: CONDITION_OPERATORS,
+        priority: CONDITION_PRIORITY
+      }, runtime.compact);
     });
 
   graph
@@ -295,6 +350,11 @@ interface GraphNodesOptions {
   group?: string;
   kind?: string;
   includeLegacy?: boolean;
+}
+
+interface GraphConditionsOptions {
+  env: string;
+  flow: string;
 }
 
 interface GraphValidateOptions {

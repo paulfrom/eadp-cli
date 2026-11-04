@@ -27,15 +27,23 @@ CLI 需要在不连接浏览器、不读取外部项目的前提下，回答三�
 新增 `src/domains/bpm-flow-graph/node-catalog.ts`：
 
 - `NODE_RULES`：19 个当前节点 + 3 个历史节点（`MailTask`、`ScriptTask`、`EventGateway`）。
+- `NODE_USAGE`：每个节点的适用示例、不适用场景、选择前所需信息和不确定时的追问。
 - `CATALOG_VERSION`：能力表版本，由 `eadp bpm graph nodes` 输出。
 - `resolveNodeKind(node)`：从 `type` + `nodeType`/`busType` 解析出节点 `kind`，并返回稳定错误码。
-- `listNodeRules()` / `describeNodeRule()`：供命令与测试使用。
+- `listNodeRules()` / `describeNodeRule()`：供命令与测试使用；输出合并结构约束与场景指导。
 
 每个节点记录：
 
 ```ts
 {
   kind, title, group, engineType, discriminator,
+  usage: {
+    summary,
+    exampleScenarios, // 哪些业务场景适用
+    notFor,           // 哪些场景明确不适用
+    requiredInputs,   // 选择前必须明确的信息
+    askWhenUnclear    // 不确定时必须提出的问题
+  },
   configKeys, normal, serviceRequired, executor,
   edges: { minIn, minOut, maxOut?, agreeEdge?, defaultEdge?, reverseWarning? },
   migration: { policy: "supported" | "blocked", reason? },
@@ -187,7 +195,9 @@ eadp bpm graph nodes --group task
 eadp bpm graph nodes --kind Approve
 ```
 
-输出 `eadp.bpm.graph.nodes.v1`，包含 `catalogVersion` 和每个节点的引擎类型、子类型字段、必填项、出入口规则、执行人要求、迁移策略及 `example` 骨架。
+输出 `eadp.bpm.graph.nodes.v1`，包含 `catalogVersion` 和每个节点的引擎类型、子类型字段、必填项、出入口规则、执行人要求、迁移策略及 `example` 骨架。`usage` 同时给出适用/不适用场景、选择前所需信息和不确定时的追问；AI 必须先确认业务语义，不能仅凭节点名称选型。
+
+独立业务输入的完整设计流程见 [BPM 流程图配置最佳实践](bpm-flow-configuration-best-practices.md)，也可直接运行 `eadp bpm graph guide` 获取 CLI 内置版本。
 
 ### 5.2 `eadp bpm graph validate`
 
@@ -240,7 +250,9 @@ eadp bpm graph validate --env ead --file tbs.json --strict
 ## 6. 代码落点
 
 ```text
-src/domains/bpm-flow-graph/node-catalog.ts   节点能力表 + kind 解析
+src/domains/bpm-flow-graph/node-catalog.ts   节点能力表 + kind 解析 + 场景输出
+src/domains/bpm-flow-graph/node-usage.ts      节点适用场景、反例、所需信息与追问
+src/domains/bpm-flow-graph/guide.ts           独立业务输入的配置与验收最佳实践
 src/domains/bpm-flow-graph/analysis.ts        blocking/design/warnings 分析
 src/domains/bpm-flow-graph/graph.ts           规范化/回填；kind 校验；执行人保真
 src/domains/bpm-flow-graph/draft.ts           validate/import 双结论与 --strict
@@ -255,13 +267,13 @@ src/commands/bpm.ts                           bpm graph nodes / validate --stric
 - `tests/bpm-node-catalog.test.ts`：kind 解析、目录完整性、审批/网关规则、历史类型、阻塞与设计的边界。
 - `tests/bpm-graph-file.test.ts`：`graph nodes` 输出、`designValid`、`--strict`、执行人组合 `type` 保留。
 - `tests/bpm-flow-graph.test.ts`：迁移/幂等/阻断回归；`SelfDefinition` 显示名重建。
-- 全量 268 个用例通过。
+- 2026-11-03 增补场景指导与 `graph guide` 后，全量 273 个用例通过。
 
 ---
 
 ## 8. 非目标
 
 - 不做画布编辑器、自动布局、发布。
-- 不从表结构或猜测字段生成图。
+- 不从未经确认的业务输入或猜测字段生成图；充分的独立业务输入按 `graph guide` 生成规范化文件，语义不确定时先提问。
 - 不读取外部源码；能力表是 CLI 内置数据，版本由 `CATALOG_VERSION` 标识。
 - 不改变 `bpm` / `bpm-flow-graph` / `bpm-migration` 的既有五动作语义。

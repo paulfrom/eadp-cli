@@ -10,6 +10,7 @@ import {
 } from "../../resource/core/errors.js";
 import { selectFlow } from "../bpm/selection.js";
 import { inspectCanonicalGraph } from "./analysis.js";
+import { analyzeGraphConditions, readConditionProperties, type ConditionProperty } from "./conditions.js";
 import { hydrate, stableStringify, toCanonical } from "./graph.js";
 import { graphReferences } from "./references.js";
 import { readFlowDesign } from "./service.js";
@@ -66,6 +67,12 @@ export interface GraphValidationResult {
   flowTypeFound: boolean;
   valid: boolean;
   designValid: boolean;
+  /** Condition fields the target business entity publishes for gateway decisions. */
+  conditions: {
+    checked: boolean;
+    businessEntity?: string;
+    propertyCount?: number;
+  };
   graphs: GraphValidationEntry[];
 }
 
@@ -175,6 +182,7 @@ export async function validateGraphDrafts(
   const refs = graphReferences(client);
   const flow = await findFlowType(refs, file.flow);
   const flowTypeId = flow ? requiredText(flow.id, "目标流程类型缺少 ID") : undefined;
+  const conditions = await loadFlowConditionProperties(client, refs, flow);
   const entries: GraphValidationEntry[] = [];
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
@@ -183,12 +191,18 @@ export async function validateGraphDrafts(
     const designIssues = [...verdict.designIssues];
     const warnings = [...verdict.warnings];
     const missingDependencies: MissingDependency[] = [];
+    if (conditions.warning) warnings.push(conditions.warning);
     if (flowTypeId && blockingIssues.length === 0) {
       try {
         await hydrate(canonical, refs, { flowTypeId });
       } catch (error) {
         collectIssues(error, blockingIssues, missingDependencies);
       }
+    }
+    if (conditions.properties.length > 0) {
+      const conditionVerdict = analyzeGraphConditions(canonical, conditions.properties);
+      designIssues.push(...conditionVerdict.designIssues);
+      warnings.push(...conditionVerdict.warnings);
     }
     const designValid = designIssues.length === 0;
     entries.push({
@@ -209,7 +223,85 @@ export async function validateGraphDrafts(
     flowTypeFound: flow !== undefined,
     valid: flow !== undefined && entries.every((entry) => entry.valid),
     designValid: flow !== undefined && entries.every((entry) => entry.designValid),
+    conditions: {
+      checked: conditions.properties.length > 0,
+      ...(conditions.businessEntity === undefined
+        ? {}
+        : { businessEntity: conditions.businessEntity }),
+      ...(conditions.properties.length === 0
+        ? {}
+        : { propertyCount: conditions.properties.length })
+    },
     graphs: entries
+  };
+}
+
+interface FlowConditionProperties {
+  properties: ConditionProperty[];
+  businessEntity?: string;
+  warning?: BlockingIssue;
+}
+
+/**
+ * Load the condition fields the target business entity publishes. A failure is
+ * reported as a warning so the graph verdict stays visible; the message keeps
+ * the original error so nothing is hidden.
+ */
+async function loadFlowConditionProperties(
+  client: ResourceClient,
+  refs: ReturnType<typeof graphReferences>,
+  flow: ResourceRecord | undefined
+): Promise<FlowConditionProperties> {
+  if (!flow) return { properties: [] };
+  const entityId = typeof flow.businessEntityId === "string"
+    ? flow.businessEntityId.trim()
+    : "";
+  if (entityId === "") {
+    return {
+      properties: [],
+      warning: conditionWarning("目标流程类型未绑定业务实体，无法读取系统判定条件")
+    };
+  }
+  const entities = await refs.businessEntities();
+  const entity = entities.find((item) => item.id === entityId);
+  const entityCode = typeof entity?.code === "string" ? entity.code.trim() : "";
+  if (entityCode === "") {
+    return {
+      properties: [],
+      warning: conditionWarning("目标流程类型的业务实体缺少 code，无法读取系统判定条件")
+    };
+  }
+  try {
+    const properties = await readConditionProperties(client, entityCode);
+    if (properties.length === 0) {
+      return {
+        properties,
+        businessEntity: entityCode,
+        warning: conditionWarning(
+          `目标业务实体 ${entityCode} 未发布任何判定条件字段，无法校验网关条件`
+        )
+      };
+    }
+    return { properties, businessEntity: entityCode };
+  } catch (error) {
+    return {
+      properties: [],
+      businessEntity: entityCode,
+      warning: conditionWarning(`读取系统判定条件失败：${errorMessage(error)}`)
+    };
+  }
+}
+
+function conditionWarning(message: string): BlockingIssue {
+  return {
+    resource: "bpm-flow-graph",
+    field: "graph",
+    reason: "invalid",
+    message,
+    code: "CONDITION_CATALOG_UNAVAILABLE",
+    severity: "warning",
+    scope: "graph",
+    fix: "确认目标环境的业务实体已发布条件属性，并检查 conBusinessEntity/getConditionPropertiesExplain 是否可用"
   };
 }
 
@@ -243,11 +335,18 @@ export async function planGraphImport(
   }
 
   const changes: GraphImportChange[] = [];
+  const conditions = await loadFlowConditionProperties(client, refs, flow);
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
     const verdict = inspectCanonicalGraph(canonical);
-    const designIssues = verdict.designIssues;
-    const warnings = verdict.warnings;
+    const designIssues = [...verdict.designIssues];
+    const warnings = [...verdict.warnings];
+    if (conditions.warning) warnings.push(conditions.warning);
+    if (conditions.properties.length > 0) {
+      const conditionVerdict = analyzeGraphConditions(canonical, conditions.properties);
+      designIssues.push(...conditionVerdict.designIssues);
+      warnings.push(...conditionVerdict.warnings);
+    }
     const blockingIssues = options.strict
       ? [...verdict.blockingIssues, ...designIssues]
       : [...verdict.blockingIssues];

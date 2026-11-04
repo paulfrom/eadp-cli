@@ -230,7 +230,34 @@ describe("bpm graph 文件通道", () => {
       discriminator: "nodeType",
       edges: { minOut: 2, maxOut: 2, agreeEdge: true }
     });
+    expect(nodes[0]).toMatchObject({
+      usage: {
+        exampleScenarios: expect.arrayContaining(["部门负责人审批"]),
+        notFor: expect.any(Array),
+        requiredInputs: expect.arrayContaining(["同意去向", "不同意去向"]),
+        askWhenUnclear: expect.any(Array)
+      }
+    });
     expect(JSON.stringify(output)).not.toContain("sei-bpm-web");
+  });
+
+  it("graph guide 输出与输入格式无关的最佳实践，并要求不确定先提问", async () => {
+    const { fixture } = await setup();
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "guide"
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      kind: "eadp.bpm.graph.guide.v1",
+      guideVersion: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      uncertaintyPolicy: { action: "ASK_USER" }
+    });
+    const text = JSON.stringify(output);
+    expect(text).toContain("输入格式");
+    expect(text).toContain("不得猜测");
+    expect(text).toContain("exampleScenarios");
+    expect(text).toContain("按顺序叠加的可选审批角色");
+    expect(text).toContain("修改并重审");
+    expect(text).not.toContain("Excel");
   });
 
   it("validate --strict 把设计器无法保存的图判为失败", async () => {

@@ -90,7 +90,9 @@ eadp resource sync <name> --source <env> --target <env>
 | `eadp menu create ...` | 按父菜单代码和功能项代码安全新增菜单 | 菜单查询/比较/同步仍使用 `resource ... menu` |
 | `eadp bpm inspect ...` | 从真实项目代码只读发现 BPM 流程骨架 | 不访问远端，不等同于 BPM 资源同步 |
 | `eadp bpm configure ...` | 幂等配置一个项目的 BPM 基础数据 | 跨环境迁移使用 `resource compare/sync bpm-migration`（或原子入口 `bpm`、`bpm-flow-graph`） |
-| `eadp bpm graph nodes` | 列出 CLI 内置的 BPM 节点能力与约束（不访问远端） | 能力表随 CLI 发布，不依赖外部源码 |
+| `eadp bpm graph guide` | 输出独立业务输入的流程图配置最佳实践（不访问远端） | 输入格式不限；语义不确定时先提问，不猜图 |
+| `eadp bpm graph nodes` | 列出节点约束、适用/不适用场景及待确认问题 | 能力表随 CLI 发布，不依赖外部源码 |
+| `eadp bpm graph conditions` | 列出目标环境业务实体发布的系统判定条件字段 | 只读查询；网关条件只能用这些变量，系统排他网关优先级最高 |
 | `eadp bpm graph export/validate/import ...` | 流程图画布文件的可移植导出、校验与导入 | 只写草稿；`validate` 同时输出 `valid` 与 `designValid` |
 | `eadp trans inspect ...` | 只读发现当前环境的 EAI 节点及图配置契约 | 通道配置保存、比较和迁移仍使用 `resource ... trans` |
 | `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 同步不改变生命周期 |
@@ -269,22 +271,31 @@ eadp resource sync bpm-migration \
 先写骨架、再写图草稿，最后分别回查。只想迁移骨架或只想搬图时，仍可分别使用
 `resource sync bpm` 与 `resource sync bpm-flow-graph`。
 
-源环境没有设计稿时，不要在 CLI 里猜画布 JSON；用文件通道把一张已画好的图搬到其他环境：
+流程图既可以来自已有设计稿，也可以来自独立的业务输入；输入格式不限。配置前先读取
+CLI 内置最佳实践和节点场景，不确定时必须提问，不得猜节点、条件、执行人或驳回去向：
 
 ```bash
+eadp bpm graph guide
 eadp bpm graph nodes
+eadp bpm graph nodes --kind Approve
+eadp bpm graph conditions --env dev --flow TBS_PROJECT
 eadp bpm graph export   --env dev --flow TBS_PROJECT --out tbs.json
-eadp bpm graph validate --env ead --file tbs.json
 eadp bpm graph validate --env ead --file tbs.json --strict
-eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --apply
+eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --strict
+eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --strict --apply
 ```
 
-`eadp bpm graph nodes` 输出 CLI 内置的节点能力表（引擎 type、`nodeType`/`busType`、
-必填项、出入口规则、执行人与跨环境策略），不读取任何外部源码。导出文件是规范化图
-（页面/接口按 URL、人员按 code，不含环境内 ID），`import` 只写草稿并回查，重复执行幂等。
-`validate` 同时给出 `valid`（能否搬运）与 `designValid`（设计器能否保存）；
-`--strict` 时 `designIssues` 也计入失败。`CallActivity`、`ProjectPosition`、智能审核等
-仍按 `bpm-flow-graph` 的规则阻断。
+`graph guide` 给出业务澄清、节点选择、执行人绑定、条件/连线、业务验收和导入的完整流程。
+`graph nodes` 输出 CLI 内置的节点能力表（引擎 type、`nodeType`/`busType`、适用与不适用场景、
+选择前所需信息、不确定时的追问、必填项、出入口规则、执行人与跨环境策略），不读取外部源码。
+`graph conditions` 只读列出目标环境业务实体发布的判定条件字段（`code` 用于 `groovyUel`、
+`name` 用于 `logicUel`），并给出网关选型优先级：系统排他网关优先级最高，条件字段能判定的
+分流不得改用人工排他网关。独立业务输入只能生成为 `eadp.bpm.graph.v1` 规范化图（页面/接口按
+URL、人员按 code，不含环境内 ID），不能直接构造原始 `defJson`。`import` 只写草稿并回查，
+重复执行幂等。`validate` 同时给出 `valid` 与 `designValid`，并按系统条件清单校验网关条件；
+结构校验通过不代表业务路径正确。`CallActivity`、`ProjectPosition`、智能审核等仍按
+`bpm-flow-graph` 的规则阻断。
+完整规范见 [BPM 流程图配置最佳实践](docs/bpm-flow-configuration-best-practices.md)。
 
 ## 检查功能权限和数据权限
 
