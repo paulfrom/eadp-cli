@@ -20,7 +20,7 @@ commands:
   the generic engine; the CLI validates capability, tenant, selectors, enums,
   filters, and dependencies, and verifies writes before reporting success.
 - Domain commands: `permission ...`, `menu create`, `bpm inspect`,
-  `bpm configure`, `bpm graph guide|nodes|conditions|export|validate|import`, `trans inspect`,
+  `bpm configure`, `bpm graph guide|nodes|conditions|expression|resolve-executor|layout|export|diff|validate|import`, `trans inspect`,
   `trans publish`, `trans freeze`, `rollback <operation-id...>` handle intents that are not
   ordinary record operations. Never bypass a registered contract or a domain
   command with a raw request.
@@ -126,8 +126,23 @@ Route only these domain intents away from ordinary resource actions:
   and counterexamples, and ask whenever node kind, executor, condition, route, rejection,
   page, interface, or subprocess is uncertain. Before writing any gateway condition, load
   the system decision fields with `eadp bpm graph conditions --env <env> --flow <code>`;
-  conditions may only use the variables that list returns. Build only canonical graph files,
-  then use `eadp bpm graph validate|import`; never copy environment IDs or raw `defJson`.
+  conditions may only use the variables that list returns. Maintain only the Chinese `logicUel`
+  and run `eadp bpm graph expression --env <env> --flow <code> --logic <expression>` to generate
+  the matching `#{...}` `groovyUel` through the designer-compatible server validation; never hand-write
+  divergent pairs or use `${...}`. Build only canonical graph files, then use
+  `eadp bpm graph validate|import`; strict validation requires `designValid=true` and
+  `conditions.expressionValidation.failed=0`. Use `expression --file` for a condition matrix,
+  `resolve-executor --query` for unique Person/Position/PositionType binding, `layout --write --check`
+  for local geometry, `export --trim` for business-only output, and `diff` for read-only file/remote
+  comparison. For independent input, never expand business types × approval stages into a flat graph.
+  Confirm the ordered stage skeleton, estimated node count, and rejection/re-entry policy before
+  generating the full graph; unknown business types must not pass directly to a terminal state. Before
+  `--apply`, require complete Chinese condition labels, zero business-matrix differences, reported
+  coordinate checks, and a preview rendered from the final coordinates. When creating a new flow while
+  preserving an old version, use a completely new definition name and accept only `action=create` in
+  the preview. Import keeps write/verify states separate: a verify failure (exit 2) after a successful
+  write requires the prescribed read-back comparison, never another write. Never copy environment IDs
+  or raw `defJson`.
 - EAI node discovery: `eadp trans inspect [node]`; channel publication or
   freezing: `eadp trans publish|freeze`. Channel query, configuration writes,
   comparison, and migration stay in `resource`.
@@ -165,6 +180,13 @@ or modify the eadp configuration file, never run `eadp update`/`npm`/network
 commands, never search the filesystem for config or CLI installation, and never
 fall back to a legacy or invented command. Report the exact CLI error and wait
 for the user to review it and request a new action.
+
+The sole diagnostic exception is an import that explicitly returns `write.status=success` and
+`verify.status=failed`: the draft write succeeded, so never repeat `--apply` or claim it was not
+written. Export the same target draft once, compare that export with the local file offline, then
+report the confirmed state and the original CLI error as specified in bpm-flow-graph.md. A transport
+failure or server `success=false`, including during this export, still stops immediately with no
+retry or endpoint change.
 
 ## Load references only when needed
 

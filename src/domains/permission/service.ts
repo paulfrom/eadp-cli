@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { resolveEnvironment } from "../../config/resolve.js";
 import { ConfigStore } from "../../config/store.js";
-import { CliError } from "../../errors.js";
+import { CliError, cliErrorDetails } from "../../errors.js";
 import { printValue } from "../../io.js";
 import { OperationRecorder } from "../../operations/recorder.js";
 import { OperationLogStore } from "../../operations/store.js";
@@ -335,7 +335,11 @@ export async function applyFeatureGroup(
     const suffix = recorder.hasActions
       ? `；可使用 operation-id ${recorder.operationId} 回滚已新增的功能项组和应用模块`
       : "";
-    throw new CliError(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+    const message = `${error instanceof Error ? error.message : String(error)}${suffix}`;
+    if (error instanceof CliError) {
+      throw new CliError(message, error.exitCode, cliErrorDetails(error));
+    }
+    throw new CliError(message);
   }
 }
 

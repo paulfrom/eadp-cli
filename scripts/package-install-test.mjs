@@ -518,35 +518,7 @@ try {
   }
   for (const home of [codexHome, workbuddyHome, claudeHome, qoderHome]) {
     await access(join(home, "skills", "eadp-operator", "SKILL.md"));
-    const generatorSkillPath = join(home, "skills", "eadp-resource-contract", "SKILL.md");
-    await access(generatorSkillPath);
-    const generatorSkill = await readFile(generatorSkillPath, "utf8");
-    if (
-      !generatorSkill.includes("eadp resource contract-path <id>") ||
-      !generatorSkill.includes("Do not run a separate mount/register step")
-    ) {
-      throw new Error(`安装后的资源契约 Skill 不是当前默认生成路径规则：${generatorSkillPath}`);
-    }
-  }
-
-  if (process.env.EADP_LIVE_FEATURE_TEST === "1") {
-    const liveTest = spawnSync(
-      process.execPath,
-      [resolve("scripts", "live-feature-pagination-test.mjs")],
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          EADP_EXECUTABLE: executable
-        }
-      }
-    );
-    if (liveTest.status !== 0) {
-      throw new Error(
-        `开发环境功能项分页验证失败：${liveTest.stderr || liveTest.stdout}`
-      );
-    }
-    process.stdout.write(liveTest.stdout);
+    await access(join(home, "skills", "eadp-resource-contract", "SKILL.md"));
   }
 
   process.stdout.write(

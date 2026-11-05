@@ -9,7 +9,7 @@ import { getRuntimeOptions } from "../runtime-options.js";
 
 export function registerRollbackCommand(program: Command, store: ConfigStore): void {
   program.command("rollback <operation-id...>")
-    .description("按本地操作日志回滚一个或多个新增或分配操作（日志保留1天）")
+    .description("按本地操作日志回滚一个或多个新增、分配或删除操作（日志保留1天）")
     .option("--env <name>", "环境名称；必须与原操作环境一致")
     .addHelpText("after", `
 示例：

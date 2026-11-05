@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendRequest } from "../src/http/client.js";
+import { renderCliError } from "../src/errors.js";
+import { resolveEnvironment } from "../src/config/resolve.js";
 import {
   cleanupAll,
   createFixture,
@@ -79,6 +81,70 @@ describe("sendRequest：统一 HTTP 客户端", () => {
     } catch (error) {
       expect(String(error)).not.toContain("must-not-leak");
     }
+  });
+
+  it("EADP success=false 默认透传 detail、traceId 和 requestId", async () => {
+    const server = createMockServer();
+    trackServer(server);
+    server.onRequest("POST", "/api/save", (context) => {
+      context.raw({
+        success: false,
+        message: "系统异常",
+        detail: "SQLException: Field 'name' doesn't have a default value",
+        traceId: "trace-body",
+        requestId: "request-body"
+      });
+    });
+    const baseUrl = await server.start();
+
+    const error = await sendRequest({ baseUrl, path: "/api/save", method: "POST" }).then(
+      () => undefined,
+      (reason: unknown) => reason
+    );
+
+    expect(error).toMatchObject({
+      code: "EADP_REQUEST_FAILED",
+      message: "EADP 请求失败：系统异常",
+      detail: "SQLException: Field 'name' doesn't have a default value",
+      traceId: "trace-body",
+      requestId: "request-body"
+    });
+    expect(renderCliError(error)).toEqual({
+      success: false,
+      code: "EADP_REQUEST_FAILED",
+      message: "EADP 请求失败：系统异常",
+      detail: "SQLException: Field 'name' doesn't have a default value",
+      traceId: "trace-body",
+      requestId: "request-body"
+    });
+  });
+
+  it("HTTP 非 2xx 同样透传详情并回退到响应头中的调用链 ID", async () => {
+    const server = createMockServer();
+    trackServer(server);
+    server.onRequest("GET", "/api/failure", (context) => {
+      context.response.setHeader("x-trace-id", "trace-header");
+      context.response.setHeader("x-request-id", "request-header");
+      context.raw({
+        success: false,
+        message: "系统异常",
+        detail: { exception: "NullPointerException", field: "solidifyFlow" }
+      }, 500);
+    });
+    const baseUrl = await server.start();
+
+    const error = await sendRequest({ baseUrl, path: "/api/failure", method: "GET" }).then(
+      () => undefined,
+      (reason: unknown) => reason
+    );
+
+    expect(renderCliError(error)).toMatchObject({
+      success: false,
+      code: "EADP_REQUEST_FAILED",
+      detail: { exception: "NullPointerException", field: "solidifyFlow" },
+      traceId: "trace-header",
+      requestId: "request-header"
+    });
   });
 
   it("AggregateError 传输失败时保留全部稳定诊断码", async () => {
@@ -209,18 +275,16 @@ describe("sendRequest：与 CLI 环境配置集成", () => {
         context.json({ ok: true });
       });
     }
-    await sendRequest({
-      baseUrl: fixture.baseUrl("alpha"),
-      path: "/probe",
-      method: "GET",
-      token: "alpha-token"
-    });
-    await sendRequest({
-      baseUrl: fixture.baseUrl("beta"),
-      path: "/probe",
-      method: "GET",
-      token: "beta-token"
-    });
+    const config = await fixture.store.load();
+    for (const name of ["alpha", "beta"]) {
+      const environment = resolveEnvironment(config, name);
+      await sendRequest({
+        baseUrl: environment.config.baseUrl,
+        path: "/probe",
+        method: "GET",
+        token: environment.token
+      });
+    }
     expect(seen).toEqual([
       { host: new URL(fixture.baseUrl("alpha")).host, token: "alpha-token" },
       { host: new URL(fixture.baseUrl("beta")).host, token: "beta-token" }

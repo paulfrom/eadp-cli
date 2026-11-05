@@ -1,8 +1,8 @@
 # Rollback workflow
 
-Use this workflow only when the user asks to undo a prior create or assignment made by the EADP CLI.
-Use `eadp rollback --help` as the command authority. This reference supplements
-rollback safety and does not add resource registration or deletion support.
+Use this workflow only when the user asks to undo a prior create, assignment, or contract-declared
+delete made by the EADP CLI. Use `eadp rollback --help` as the command authority. This reference
+supplements rollback safety and does not add resource registration or arbitrary deletion support.
 
 1. Require one or more exact `operationId` values returned by the original applied commands. Do not infer
    them from names, timestamps, remote IDs, or shell history.
@@ -27,6 +27,10 @@ eadp rollback <operation-id> [operation-id...]
 `DELETE userDataRole/removeRelations` 或 `DELETE positionDataRole/removeRelations`；数据角色授权数据值调用
 `POST dataRoleAuthTypeValue/removeRelations`，级联授权值调用
 `POST dataRoleAuthTypeValue/removeRelationsByParentEntityId`。回滚前后均应通过对应查询接口回查，不能以另一种 HTTP 方法替代。
+
+A logged create is rolled back through its remove contract, and a logged assignment through its relation-removal
+contract. A logged contract-declared delete is rolled back through its `restore` contract using the recorded
+pre-delete snapshot, followed by a read-back. These paths do not make arbitrary deletes or updates reversible.
 
 Updates to records that already existed are not included. Preview and unchanged commands do not create
 an `operationId`.

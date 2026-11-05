@@ -1,9 +1,20 @@
+import { BPM_GRAPH_ERROR_CODES } from "./diagnostics.js";
+import { BPM_GRAPH_GOLDEN_SAMPLE, GOLDEN_SAMPLE_REPLACEMENTS } from "./golden.js";
+
 /** Versioned, CLI-local best practices for designing a graph from business facts. */
-export const BPM_GRAPH_GUIDE_VERSION = "2026-11-04";
+export const BPM_GRAPH_GUIDE_VERSION = "2026-11-05";
 
 export const BPM_GRAPH_GUIDE = {
   kind: "eadp.bpm.graph.guide.v1",
   guideVersion: BPM_GRAPH_GUIDE_VERSION,
+  errorCodes: BPM_GRAPH_ERROR_CODES,
+  goldenSample: {
+    description: "最小结构完整样例：系统排他网关、条件边、默认边、审批同意边与显式驳回边。",
+    file: BPM_GRAPH_GOLDEN_SAMPLE,
+    requiredReplacements: GOLDEN_SAMPLE_REPLACEMENTS,
+    validation: "eadp bpm graph validate --env <target> --file golden.json --strict",
+    layout: "eadp bpm graph layout --file golden.json --write --check"
+  },
   purpose: "把独立业务输入转换为可校验、可预览、可回查的规范化流程图；不依赖某个参考实现或输入文件格式。",
   inputPolicy: {
     acceptedEvidence: ["业务规则说明", "结构化表格", "既有设计稿", "页面与接口契约", "目标环境只读查询结果"],
@@ -29,6 +40,7 @@ export const BPM_GRAPH_GUIDE = {
   conditionSource: {
     rule: "网关条件只能使用目标环境业务实体发布的条件字段；先加载清单，再写条件。",
     command: "eadp bpm graph conditions --env <target> --flow <flow-code>",
+    expressionCommand: "eadp bpm graph expression --env <target> --flow <flow-code> --logic '<中文条件表达式>'",
     fields: [
       "code：表达式 groovyUel 使用的引擎变量，例如 #{fileType==\"销售-合同验收\"}",
       "name：中文条件 logicUel 使用的业务名称，例如 文件类型==\"销售-合同验收\"",
@@ -43,6 +55,8 @@ export const BPM_GRAPH_GUIDE = {
     rules: [
       "不得自造变量名；条件变量必须来自 eadp bpm graph conditions 的输出。",
       "logicUel 与 groovyUel 必须表达同一条件：前者用条件名称，后者用条件 code。",
+      "只手写 logicUel，并用 eadp bpm graph expression 生成 #{...} 形式的 groovyUel；不要分别手写两份，也不要使用 ${...}。",
+      "graph expression 与 graph validate 会调用设计器同款 validateExpression，以目标条件 initValue 校验 JUEL 语法和值类型。",
       "业务需要的判定字段系统没有发布时，先提出该字段缺失，不要用近似字段顶替。",
       "同一网关内不要混用系统判定与人工选路。"
     ]
@@ -58,6 +72,11 @@ export const BPM_GRAPH_GUIDE = {
       action: "取回目标环境业务实体发布的系统判定条件字段（code/name/initValue）；所有网关条件只能使用其中的变量，缺失字段先提出问题。"
     },
     {
+      step: "build-expressions",
+      command: "eadp bpm graph expression --env <target> --flow <flow-code> --logic '<中文条件表达式>'",
+      action: "只输入使用条件 name 的 logicUel，取得自动转换且经目标环境 JUEL 校验的 groovyUel；不要分别手写两份表达式。"
+    },
+    {
       step: "select-nodes",
       command: "eadp bpm graph nodes",
       action: "逐节点核对 exampleScenarios、notFor、requiredInputs、askWhenUnclear，再确定 kind；分流优先使用系统排他网关。"
@@ -68,7 +87,8 @@ export const BPM_GRAPH_GUIDE = {
     },
     {
       step: "resolve-bindings",
-      action: "用目标环境只读查询把人员/岗位/岗位类别/组织解析为业务 code，把页面/接口解析为 URL；零个或多个候选都必须停下来澄清。"
+      command: "eadp bpm graph resolve-executor --env <target> --query '<中文名或code>'",
+      action: "统一解析 Person/Position/PositionType 并返回绑定 code；零个或多个候选都会报错并列出候选。页面/接口仍按目标环境 URL 解析。"
     },
     {
       step: "build-canonical-file",
@@ -91,7 +111,7 @@ export const BPM_GRAPH_GUIDE = {
     {
       step: "apply-verify",
       command: "eadp bpm graph import --env <target> --flow <flow-code> --file <graph.json> --strict --apply",
-      action: "仅在用户确认预览后执行；要求 verified=true，并再次预览确认 unchanged。草稿由人在设计器复核并发布。"
+      action: "仅在用户确认预览后执行；write 与 verify 独立返回。write.status=success 而 verify.status=failed 时退出码为 2，写入仍已成功，应按回读节点/边数和差异摘要排查，不得误报整体失败。成功后再次预览确认 unchanged；草稿由人在设计器复核并发布。"
     }
   ],
   selectionPatterns: [
@@ -188,6 +208,7 @@ export const BPM_GRAPH_GUIDE = {
     rules: [
       "条件变量名必须来自 eadp bpm graph conditions 的清单，不得从中文标题或历史示例猜测。",
       "logicUel 与 groovyUel 必须表达同一业务条件：logicUel 用条件名称，groovyUel 用条件 code。",
+      "使用 graph expression 从 logicUel 生成 groovyUel；validate 会检查 #{...} 包裹、双表达式一致性及服务端 JUEL 校验结果。",
       "系统排他网关每个网关恰好一条默认边；未命中路径必须可解释。",
       "连线标题不是机器条件；标题与实际表达式冲突时先澄清。",
       "多个条件可叠加时不得按固定互斥路线处理。",
@@ -205,7 +226,7 @@ export const BPM_GRAPH_GUIDE = {
     "覆盖条件为空、未命中默认值、阈值以下/等于/以上，以及多个条件同时成立的情况。",
     "覆盖同意、不同意、修改后重审、会签、并行汇合及结束后动作。",
     "逐条核对网关条件变量都在 eadp bpm graph conditions 的清单内；缺失字段已提出并得到答复。",
-    "strict validate 同时满足 valid/designValid；所有 missingDependencies 已解决。",
+    "strict validate 同时满足 valid/designValid，conditions.expressionValidation.failed=0；所有 missingDependencies 已解决。",
     "import 预览没有意外 create 或 blocked；apply 后 verified=true，再次预览为 unchanged。",
     "设计器复核草稿和布局后再人工发布；CLI 不自动发布。"
   ],

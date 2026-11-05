@@ -72,6 +72,8 @@ eadp resource sync <name> --source <env> --target <env>
 | `serial-number` | 普通契约 + adapter | query、detail、write、compare、sync | global | 按 `id` 读取明细；复合业务键为 `entityClassName + tenantCode` |
 | `menu` | 行为扩展资源 | query、detail、compare、sync | global | 按 `id` 读取明细；单菜单新增走 `menu create` |
 | `bpm` | 行为扩展资源 | compare、sync | non-global | 跨环境操作走 `resource`；项目发现/配置走 `bpm inspect/configure` |
+| `bpm-flow-graph` | 行为扩展资源 | compare、sync | non-global | 按 `flow` 比较或迁移流程图草稿，不发布 |
+| `bpm-migration` | 聚合行为扩展资源 | compare、sync | non-global | 固定按 `bpm` → `bpm-flow-graph` 顺序迁移骨架与图 |
 | `trans-group` | 普通契约 | query、detail、write、compare、sync | non-global | EAI 通道分组，按 `code` 识别并映射目标分组 ID |
 | `trans` | 行为扩展资源 | query、detail、write、compare、sync | non-global | EAI 通道及图配置；按 `code` 单通道同步，不自动发布或删除 |
 
@@ -93,10 +95,11 @@ eadp resource sync <name> --source <env> --target <env>
 | `eadp bpm graph guide` | 输出独立业务输入的流程图配置最佳实践（不访问远端） | 输入格式不限；语义不确定时先提问，不猜图 |
 | `eadp bpm graph nodes` | 列出节点约束、适用/不适用场景及待确认问题 | 能力表随 CLI 发布，不依赖外部源码 |
 | `eadp bpm graph conditions` | 列出目标环境业务实体发布的系统判定条件字段 | 只读查询；网关条件只能用这些变量，系统排他网关优先级最高 |
+| `eadp bpm graph expression ...` | 从中文 `logicUel` 生成并校验 `groovyUel` | 自动使用 `#{...}` 与条件 code，复用设计器的 `validateExpression` |
 | `eadp bpm graph export/validate/import ...` | 流程图画布文件的可移植导出、校验与导入 | 只写草稿；`validate` 同时输出 `valid` 与 `designValid` |
 | `eadp trans inspect ...` | 只读发现当前环境的 EAI 节点及图配置契约 | 通道配置保存、比较和迁移仍使用 `resource ... trans` |
 | `eadp trans publish/freeze ...` | 显式发布或冻结一个现有通道并回查 | 同步不改变生命周期 |
-| `eadp rollback <operation-id...>` | 撤销操作日志记录的新增或分配 | 只接受已登记回滚契约，不提供通用删除 |
+| `eadp rollback <operation-id...>` | 撤销操作日志记录的新增、分配或删除 | 只接受已登记回滚/恢复契约，不提供通用删除 |
 
 `env` 管理环境，`skill` 管理 AI Skill，`update` 升级 CLI 与 Skill；它们属于工具管理命令，
 不参与资源注册。明确出现权限、菜单新增、BPM 项目配置或回滚意图时，应进入对应领域命令，
@@ -179,9 +182,9 @@ Token 或 Token 环境变量发生变化后，必须重新执行对应的 `env a
 `eadp --timeout 60000 --compact resource inspect`。所有命令默认输出 JSON；
 `--compact` 将普通 JSON 压缩为单行。资源查询默认返回带环境和总数的 JSON 结果。
 
-## 回滚新增与分配
+## 回滚已记录操作
 
-成功产生新增记录或新增分配关系的高层写命令会返回 `operationId`，并在配置目录的
+成功产生新增记录、新增分配关系或按显式契约删除记录的高层写命令会返回 `operationId`，并在配置目录的
 `operations` 子目录按 UTC 日期聚合保存本地 JSONL 操作日志。日志不包含 URL 或 Token，保留 1 天；到期后在
 后续记录或回滚操作时自动清理。
 
@@ -190,9 +193,9 @@ eadp rollback <operation-id>
 ```
 
 `rollback` 由用户事后显式执行，直接实施回滚，不要求 `--apply`。CLI 按原操作的相反顺序撤销：
-先移除本次新增的分配关系，再删除本次新增的实体。删除前会回查记录并比对原写入字段；记录已被
-后续修改、存在服务端依赖、环境不一致或任一接口失败时立即停止，不自动重试。更新已有记录不在
-本回滚范围内；预览和幂等未变更操作不会生成 `operationId`。
+移除本次新增的分配关系，删除本次新增的实体，或按操作前快照恢复本次按显式契约删除的实体。
+执行前会回查相关记录并比对日志快照；记录已被后续修改、存在服务端依赖、环境不一致或任一接口失败时
+立即停止，不自动重试。更新已有记录不在本回滚范围内；预览和幂等未变更操作不会生成 `operationId`。
 
 租户隔离规则：
 
@@ -279,6 +282,7 @@ eadp bpm graph guide
 eadp bpm graph nodes
 eadp bpm graph nodes --kind Approve
 eadp bpm graph conditions --env dev --flow TBS_PROJECT
+eadp bpm graph expression --env dev --flow TBS_PROJECT --logic '文件类型=="信用-客户"'
 eadp bpm graph export   --env dev --flow TBS_PROJECT --out tbs.json
 eadp bpm graph validate --env ead --file tbs.json --strict
 eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --strict
@@ -290,10 +294,12 @@ eadp bpm graph import   --env ead --flow TBS_PROJECT --file tbs.json --strict --
 选择前所需信息、不确定时的追问、必填项、出入口规则、执行人与跨环境策略），不读取外部源码。
 `graph conditions` 只读列出目标环境业务实体发布的判定条件字段（`code` 用于 `groovyUel`、
 `name` 用于 `logicUel`），并给出网关选型优先级：系统排他网关优先级最高，条件字段能判定的
-分流不得改用人工排他网关。独立业务输入只能生成为 `eadp.bpm.graph.v1` 规范化图（页面/接口按
-URL、人员按 code，不含环境内 ID），不能直接构造原始 `defJson`。`import` 只写草稿并回查，
-重复执行幂等。`validate` 同时给出 `valid` 与 `designValid`，并按系统条件清单校验网关条件；
-结构校验通过不代表业务路径正确。`CallActivity`、`ProjectPosition`、智能审核等仍按
+分流不得改用人工排他网关。`graph expression` 只要求维护使用条件 `name` 的 `logicUel`，自动生成
+完整 `#{...}` 形式、使用条件 `code` 的 `groovyUel`，并调用目标环境 `validateExpression` 做与设计器
+相同的 JUEL 校验；字符串字面量中的同名文本不替换。独立业务输入只能生成为 `eadp.bpm.graph.v1`
+规范化图（页面/接口按 URL、人员按 code，不含环境内 ID），不能直接构造原始 `defJson`。`import`
+只写草稿并回查，重复执行幂等。`validate` 同时给出 `valid` 与 `designValid`，检查表达式格式、
+双表达式一致性和服务端校验结果；结构校验通过不代表业务路径正确。`CallActivity`、`ProjectPosition`、智能审核等仍按
 `bpm-flow-graph` 的规则阻断。
 完整规范见 [BPM 流程图配置最佳实践](docs/bpm-flow-configuration-best-practices.md)。
 
@@ -607,7 +613,7 @@ eadp resource sync feature \
 ID；不会复制源环境数据库 ID。`feature` 同步默认编排 `app-module`、`feature-group`、
 `feature`，按父先子后创建/更新并在每一步重新映射目标 ID；若依赖缺失或不唯一，该记录会
 标记为 `blocked` 并列入 `missingDependencies`，不会中断其余记录的完整差异比较。
-目标独有记录只有在资源 `describe` 暴露完整 `deletion`（remove、lookup、restore）契约时
+目标独有记录只有在资源契约声明完整 `deletion`（remove、lookup、restore）时
 才会计划为 `delete`；删除按 feature→feature-group→app-module 逆序执行，并将目标快照写入
 `operationId` 以支持回滚。正式同步执行安全的 `create`、`update`、`delete`，跳过 `blocked`。
 
@@ -626,7 +632,7 @@ eadp resource sync feature-group \
   --apply
 ```
 
-菜单按 `code` 匹配。`--code` 选择该菜单及其全部后代；不提供时比较完整菜单树。同步按
+菜单按 `code` 匹配。`--select code=<code>` 选择该菜单及其全部后代；不提供时比较完整菜单树。同步按
 父菜单优先的顺序执行，并通过源记录的 `parentCode`、`featureCode` 在目标环境重新解析
 `parentId`、`featureId`：
 
@@ -639,7 +645,7 @@ eadp resource sync menu --source global-dev --target global-test --select code=E
 正式同步跳过 `blocked`。已有菜单需要变更父节点（包括移动到根节点）时，CLI 使用服务端
 `menu/move` 的 `TreeNodeMoveParam` 契约，不会尝试通过普通 `save` 改父节点。
 
-同步默认只预览，当前支持 `app-module`、`employee`（别名 `user`）、`feature`、`feature-group`、`menu`、`bpm` 和 `serial-number`。
+同步默认只预览，当前支持 `app-module`、`employee`（别名 `user`）、`feature`、`feature-group`、`serial-number`、`menu`、`bpm`、`bpm-flow-graph`、`bpm-migration`、`trans-group` 和 `trans`。
 执行 `sync` 前会先校验源、目标环境的租户条件；任一环境不满足时立即停止，
 不会读取迁移数据，也不会写入目标环境。
 

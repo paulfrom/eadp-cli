@@ -292,15 +292,44 @@ describe("bpm inspect：从真实项目代码发现流程", () => {
     expect(state.saves).toHaveLength(0);
   });
 
-  it("Entity 全限定名匹配：--flow 只显示指定流程", async () => {
+  it("Entity 全限定名匹配：--flow 从多个流程中只显示指定流程", async () => {
     const project = await createBpmProject();
+    const javaRoot = join(project, "backend", "src", "main", "java", "com", "sdh", "tbs", "project");
+    await writeFile(
+      join(javaRoot, "api", "ChangeApi.java"),
+      'package com.sdh.tbs.project.api; public interface ChangeApi { String PATH = "/change"; }',
+      "utf8"
+    );
+    await writeFile(
+      join(javaRoot, "entity", "Change.java"),
+      "package com.sdh.tbs.project.entity; public class Change extends BaseFlowEntity {}",
+      "utf8"
+    );
+    await writeFile(join(javaRoot, "controller", "ChangeController.java"), `
+package com.sdh.tbs.project.controller;
+import com.sdh.tbs.project.api.ChangeApi;
+import com.sdh.tbs.project.entity.Change;
+/** 项目变更流程 */
+@RequestMapping(path = ChangeApi.PATH)
+public class ChangeController extends BaseFlowController<Change, ChangeDto> { }
+`, "utf8");
     const fixture = await createFixture({
       environments: [{ name: "dev", tenantCode: "tenant-a", token: "secret" }]
     });
-    const result = JSON.parse(await runCommand(fixture.program(), [
+    const all = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "inspect", "--project", project
+    ])) as { flows: Array<{ code: string }> };
+    expect(all.flows.map((flow) => flow.code)).toEqual([
+      "com.sdh.tbs.project.entity.Change",
+      "com.sdh.tbs.project.entity.Project"
+    ]);
+
+    const selected = JSON.parse(await runCommand(fixture.program(), [
       "bpm", "inspect", "--project", project, "--flow", "com.sdh.tbs.project.entity.Project"
-    ])) as { flows: unknown[] };
-    expect(result.flows).toHaveLength(1);
+    ])) as { flows: Array<{ code: string }> };
+    expect(selected.flows.map((flow) => flow.code)).toEqual([
+      "com.sdh.tbs.project.entity.Project"
+    ]);
   });
 
   it("没有 Controller 时按 Entity 全限定名单独发现流程骨架", async () => {

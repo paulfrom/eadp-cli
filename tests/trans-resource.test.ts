@@ -326,7 +326,7 @@ describe("trans 比较与同步", () => {
     expect(rootChange(second).action).toBe("unchanged");
     expect(target.saves).toHaveLength(1);
     expect(target.publishes).toHaveLength(0);
-  }, 15_000);
+  });
 
   it("更新已有通道时保留目标发布状态和图版本", async () => {
     const fixture = await nonGlobalFixture();

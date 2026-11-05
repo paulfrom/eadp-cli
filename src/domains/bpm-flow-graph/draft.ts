@@ -10,10 +10,18 @@ import {
 } from "../../resource/core/errors.js";
 import { selectFlow } from "../bpm/selection.js";
 import { inspectCanonicalGraph } from "./analysis.js";
-import { analyzeGraphConditions, readConditionProperties, type ConditionProperty } from "./conditions.js";
+import {
+  analyzeGraphConditions,
+  analyzeRemoteGraphConditions,
+  readConditionProperties,
+  type ConditionExpressionValidationCache,
+  type ConditionProperty
+} from "./conditions.js";
 import { hydrate, stableStringify, toCanonical } from "./graph.js";
 import { graphReferences } from "./references.js";
 import { readFlowDesign } from "./service.js";
+import { mapGraphServerError } from "./server-errors.js";
+import { diffCanonicalGraphs, graphSize, type CanonicalGraphDiff, type GraphSize } from "./diff.js";
 
 export const GRAPH_DRAFT_KIND = "eadp.bpm.graph.v1" as const;
 
@@ -38,6 +46,12 @@ export interface GraphImportChange {
   designIssues?: BlockingIssue[];
   warnings?: BlockingIssue[];
   missingDependencies?: MissingDependency[];
+  /** Designer-compatible server validation counts for this graph. */
+  conditionExpressions?: {
+    attempted: number;
+    validated: number;
+    failed: number;
+  };
   /** Canonical string used for comparison and verification. */
   canonical: string;
   /** Design payload for the target environment; only for writable changes. */
@@ -72,6 +86,11 @@ export interface GraphValidationResult {
     checked: boolean;
     businessEntity?: string;
     propertyCount?: number;
+    expressionValidation?: {
+      attempted: number;
+      validated: number;
+      failed: number;
+    };
   };
   graphs: GraphValidationEntry[];
 }
@@ -137,7 +156,8 @@ export function parseGraphDraftFile(value: unknown): GraphDraftFile {
 /** Export every design draft of one flow type in portable canonical form. */
 export async function exportGraphDrafts(
   client: ResourceClient,
-  flowSelector: string
+  flowSelector: string,
+  options: { allowEmpty?: boolean } = {}
 ): Promise<GraphDraftFile> {
   const refs = graphReferences(client);
   const [flows, entities] = await Promise.all([refs.flowTypes(), refs.businessEntities()]);
@@ -146,7 +166,7 @@ export async function exportGraphDrafts(
   const flowTypeId = requiredText(flow.id, "源流程类型缺少 ID");
   const definitions = (await refs.flowDefinitions())
     .filter((definition) => definition.flowTypeId === flowTypeId);
-  if (definitions.length === 0) {
+  if (definitions.length === 0 && !options.allowEmpty) {
     throw new CliError(
       `流程类型 ${code} 下没有流程图定义，无法导出；请先在 BPM 设计器落稿`,
       1,
@@ -168,6 +188,127 @@ export async function exportGraphDrafts(
   return { kind: GRAPH_DRAFT_KIND, flow: code, graphs };
 }
 
+/** Keep only portable business flow content: nodes, edges, conditions and executors. */
+export function trimGraphDraftFile(file: GraphDraftFile): GraphDraftFile {
+  return {
+    kind: GRAPH_DRAFT_KIND,
+    flow: file.flow,
+    graphs: file.graphs.map((draft) => {
+      const process = isRecord(draft.graph.process) ? draft.graph.process : {};
+      const nodes = isRecord(process.nodes) ? process.nodes : {};
+      const trimmedNodes: ResourceRecord = {};
+      for (const [nodeId, value] of Object.entries(nodes)) {
+        if (!isRecord(value)) continue;
+        const config = isRecord(value.nodeConfig) ? value.nodeConfig : {};
+        const targets = Array.isArray(value.target) ? value.target : [];
+        trimmedNodes[nodeId] = {
+          id: value.id,
+          type: value.type,
+          ...(value.nodeType === undefined ? {} : { nodeType: value.nodeType }),
+          ...(value.busType === undefined ? {} : { busType: value.busType }),
+          name: value.name,
+          target: targets.filter(isRecord).map((target) => ({
+            ...(target.id === undefined ? {} : { id: target.id }),
+            ...(target.edgeId === undefined ? {} : { edgeId: target.edgeId }),
+            targetId: target.targetId,
+            uel: trimUel(target.uel)
+          })),
+          nodeConfig: {
+            executor: cloneJson(config.executor ?? [])
+          }
+        };
+      }
+      return {
+        name: draft.name,
+        graph: {
+          process: {
+            startUEL: cloneJson(process.startUEL ?? {}),
+            nodes: trimmedNodes
+          }
+        }
+      };
+    })
+  };
+}
+
+function trimUel(value: unknown): unknown {
+  const uel = isRecord(value) ? value : {};
+  const result: ResourceRecord = {};
+  for (const field of ["name", "logicUel", "groovyUel", "agree", "isDefault", "isReverse"]) {
+    if (uel[field] !== undefined) result[field] = cloneJson(uel[field]);
+  }
+  return result;
+}
+
+function cloneJson<T>(value: T): T {
+  return value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
+}
+
+export interface GraphDraftDiffEntry extends CanonicalGraphDiff {
+  name: string;
+  action: "create" | "update" | "unchanged" | "remote-only";
+}
+
+/** Read-only canonical diff between a local file and the latest remote drafts. */
+export async function diffGraphDrafts(
+  client: ResourceClient,
+  flowSelector: string,
+  file: GraphDraftFile
+): Promise<{
+  flow: string;
+  equal: boolean;
+  summary: Record<string, number>;
+  graphs: GraphDraftDiffEntry[];
+}> {
+  const remote = await exportGraphDrafts(client, flowSelector, { allowEmpty: true });
+  if (file.flow && !sameText(file.flow, remote.flow)) {
+    throw new CliError(`流程图文件属于流程类型 ${file.flow}，与环境流程类型 ${remote.flow} 不一致`, 1, {
+      code: "INVALID_ARGUMENT"
+    });
+  }
+  const remoteByName = new Map<string, GraphDraft>();
+  for (const draft of remote.graphs) {
+    const key = draft.name.toLowerCase();
+    if (remoteByName.has(key)) {
+      throw new CliError(`环境中存在同名流程定义，无法唯一比较：${draft.name}`, 1, {
+        code: "INVALID_ARGUMENT"
+      });
+    }
+    remoteByName.set(key, draft);
+  }
+  const graphs: GraphDraftDiffEntry[] = [];
+  const localNames = new Set<string>();
+  for (const draft of file.graphs) {
+    const key = draft.name.toLowerCase();
+    if (localNames.has(key)) throw new CliError(`流程图文件中存在同名流程定义：${draft.name}`);
+    localNames.add(key);
+    const match = remoteByName.get(key);
+    const localCanonical = stableStringify(draft.graph);
+    const diff = diffCanonicalGraphs(localCanonical, match ? stableStringify(match.graph) : "{}");
+    graphs.push({
+      name: draft.name,
+      action: !match ? "create" : diff.equal ? "unchanged" : "update",
+      ...diff
+    });
+  }
+  for (const draft of remote.graphs) {
+    if (localNames.has(draft.name.toLowerCase())) continue;
+    graphs.push({
+      name: draft.name,
+      action: "remote-only",
+      ...diffCanonicalGraphs("{}", stableStringify(draft.graph))
+    });
+  }
+  const summary: Record<string, number> = { create: 0, update: 0, unchanged: 0, "remote-only": 0 };
+  for (const entry of graphs) summary[entry.action] = (summary[entry.action] ?? 0) + 1;
+  return {
+    flow: remote.flow,
+    equal: graphs.every((entry) => entry.action === "unchanged"),
+    summary,
+    graphs
+  };
+}
+
 export interface GraphValidationOptions {
   /** Treat designer-invalid graphs as validation failures. */
   strict?: boolean;
@@ -183,6 +324,8 @@ export async function validateGraphDrafts(
   const flow = await findFlowType(refs, file.flow);
   const flowTypeId = flow ? requiredText(flow.id, "目标流程类型缺少 ID") : undefined;
   const conditions = await loadFlowConditionProperties(client, refs, flow);
+  const expressionCache: ConditionExpressionValidationCache = new Map();
+  const expressionValidation = { attempted: 0, validated: 0, failed: 0 };
   const entries: GraphValidationEntry[] = [];
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
@@ -203,6 +346,20 @@ export async function validateGraphDrafts(
       const conditionVerdict = analyzeGraphConditions(canonical, conditions.properties);
       designIssues.push(...conditionVerdict.designIssues);
       warnings.push(...conditionVerdict.warnings);
+      if (flowTypeId) {
+        const remote = await analyzeRemoteGraphConditions(
+          client,
+          flowTypeId,
+          canonical,
+          conditions.properties,
+          expressionCache
+        );
+        designIssues.push(...remote.designIssues);
+        warnings.push(...remote.warnings);
+        expressionValidation.attempted += remote.attempted;
+        expressionValidation.validated += remote.validated;
+        expressionValidation.failed += remote.failed;
+      }
     }
     const designValid = designIssues.length === 0;
     entries.push({
@@ -230,7 +387,7 @@ export async function validateGraphDrafts(
         : { businessEntity: conditions.businessEntity }),
       ...(conditions.properties.length === 0
         ? {}
-        : { propertyCount: conditions.properties.length })
+        : { propertyCount: conditions.properties.length, expressionValidation })
     },
     graphs: entries
   };
@@ -336,23 +493,40 @@ export async function planGraphImport(
 
   const changes: GraphImportChange[] = [];
   const conditions = await loadFlowConditionProperties(client, refs, flow);
+  const expressionCache: ConditionExpressionValidationCache = new Map();
   for (const draft of file.graphs) {
     const canonical = stableStringify(draft.graph);
     const verdict = inspectCanonicalGraph(canonical);
     const designIssues = [...verdict.designIssues];
     const warnings = [...verdict.warnings];
+    let conditionExpressions: GraphImportChange["conditionExpressions"];
     if (conditions.warning) warnings.push(conditions.warning);
     if (conditions.properties.length > 0) {
       const conditionVerdict = analyzeGraphConditions(canonical, conditions.properties);
       designIssues.push(...conditionVerdict.designIssues);
       warnings.push(...conditionVerdict.warnings);
+      const remote = await analyzeRemoteGraphConditions(
+        client,
+        flowTypeId,
+        canonical,
+        conditions.properties,
+        expressionCache
+      );
+      designIssues.push(...remote.designIssues);
+      warnings.push(...remote.warnings);
+      conditionExpressions = {
+        attempted: remote.attempted,
+        validated: remote.validated,
+        failed: remote.failed
+      };
     }
     const blockingIssues = options.strict
       ? [...verdict.blockingIssues, ...designIssues]
       : [...verdict.blockingIssues];
     const extra = {
       ...(designIssues.length === 0 ? {} : { designIssues }),
-      ...(warnings.length === 0 ? {} : { warnings })
+      ...(warnings.length === 0 ? {} : { warnings }),
+      ...(conditionExpressions === undefined ? {} : { conditionExpressions })
     };
     if (blockingIssues.length > 0) {
       changes.push({
@@ -447,10 +621,15 @@ export async function applyGraphImport(
   for (const change of plan.changes) {
     if (change.action !== "create" && change.action !== "update") continue;
     if (!change.hydrated) throw new CliError(`流程图变更 ${change.name} 缺少待写入内容`);
-    const saved = await client.invoke("defFlowVersion/saveOrDeploy", "POST", {
-      defJson: change.hydrated,
-      deploy: false
-    });
+    let saved: unknown;
+    try {
+      saved = await client.invoke("defFlowVersion/saveOrDeploy", "POST", {
+        defJson: change.hydrated,
+        deploy: false
+      });
+    } catch (error) {
+      throw mapGraphServerError(error, change);
+    }
     if (!isRecord(saved)) throw new CliError("defFlowVersion/saveOrDeploy 返回格式无效");
     const definitionId = requiredText(saved.flowDefinitionId,
       "defFlowVersion/saveOrDeploy 未返回 flowDefinitionId");
@@ -475,23 +654,77 @@ export async function applyGraphImport(
   }
 }
 
-/** Re-read every written draft and compare it with the file. */
+export interface GraphVerificationEntry {
+  name: string;
+  definitionId?: string;
+  verified: boolean;
+  expected: GraphSize;
+  actual: GraphSize;
+  differenceCount: number;
+  differences: CanonicalGraphDiff["differences"];
+  error?: string;
+}
+
+export interface GraphVerificationReport {
+  verified: boolean;
+  readBack: GraphSize;
+  graphs: GraphVerificationEntry[];
+}
+
+/** Re-read every non-blocked draft and retain detailed evidence on mismatch. */
 export async function verifyGraphImport(
   client: ResourceClient,
   plan: GraphImportPlan
-): Promise<boolean> {
+): Promise<GraphVerificationReport> {
   const refs = graphReferences(client);
+  const graphs: GraphVerificationEntry[] = [];
   for (const change of plan.changes) {
     if (change.action === "blocked") continue;
-    const definitionId = change.definitionId;
-    if (!definitionId) return false;
-    const design = await readFlowDesign(client, definitionId);
-    const defJson = design?.defJson;
-    if (typeof defJson !== "string" || defJson.trim() === "") return false;
-    const actual = await canonicalizeTarget(defJson, refs);
-    if (actual !== change.canonical) return false;
+    const expected = graphSize(JSON.parse(change.canonical) as unknown);
+    const entry: GraphVerificationEntry = {
+      name: change.name,
+      ...(change.definitionId === undefined ? {} : { definitionId: change.definitionId }),
+      verified: false,
+      expected,
+      actual: { nodes: 0, edges: 0 },
+      differenceCount: 0,
+      differences: []
+    };
+    try {
+      if (!change.definitionId) throw new CliError("写入结果缺少 flowDefinitionId，无法回读");
+      const design = await readFlowDesign(client, change.definitionId);
+      const defJson = design?.defJson;
+      if (typeof defJson !== "string" || defJson.trim() === "") {
+        throw new CliError("回读结果没有 defJson 设计稿");
+      }
+      const actualCanonical = await canonicalizeTarget(defJson, refs);
+      const actualParsed = JSON.parse(actualCanonical) as unknown;
+      entry.actual = graphSize(actualParsed);
+      const diff = diffCanonicalGraphs(change.canonical, actualCanonical);
+      entry.differenceCount = diff.differenceCount;
+      entry.differences = diff.differences;
+      entry.verified = diff.equal;
+      if (!diff.equal) {
+        entry.error = `回读图与本地文件存在 ${diff.differenceCount} 处差异`;
+      }
+    } catch (error) {
+      entry.error = errorMessage(error);
+      if (entry.differenceCount === 0 && entry.differences.length === 0) {
+        const diff = diffCanonicalGraphs(change.canonical, "{}");
+        entry.differenceCount = diff.differenceCount;
+        entry.differences = diff.differences;
+      }
+    }
+    graphs.push(entry);
   }
-  return true;
+  return {
+    verified: graphs.every((entry) => entry.verified),
+    readBack: graphs.reduce((total, entry) => ({
+      nodes: total.nodes + entry.actual.nodes,
+      edges: total.edges + entry.actual.edges
+    }), { nodes: 0, edges: 0 }),
+    graphs
+  };
 }
 
 export function summarizeImport(plan: GraphImportPlan): Record<string, number> {

@@ -11,6 +11,17 @@ export type CliErrorCode =
   | "REQUIRED_SELECTOR_MISSING"
   | "GRAPH_SOURCE_EMPTY"
   | "GRAPH_FLOW_ENTITY_MISSING"
+  | "CONDITION_EXPRESSION_MISSING"
+  | "CONDITION_PROPERTY_UNKNOWN"
+  | "CONDITION_EXPRESSION_INVALID"
+  | "CONDITION_EXPRESSION_MISMATCH"
+  | "CONDITION_LABEL_MISSING"
+  | "CONDITION_OVERLAP"
+  | "CONDITION_COVERAGE_INCOMPLETE"
+  | "GRAPH_SERVER_VALIDATION_FAILED"
+  | "GRAPH_IMPORT_VERIFY_FAILED"
+  | "EXECUTOR_NOT_FOUND"
+  | "EXECUTOR_AMBIGUOUS"
   | "RESOURCE_DIRECTORY_INVALID"
   | "RESOURCE_DIRECTORY_MISSING"
   | "RESOURCE_CONTRACT_INVALID"
@@ -26,6 +37,12 @@ export interface CliErrorDetails {
   requiredInput?: string;
   /** Per-file or per-item diagnostics collected before the command stops. */
   issues?: readonly CliErrorIssue[];
+  /** Server-provided failure detail, preserved without truncation. */
+  detail?: unknown;
+  /** Server or gateway trace identifier. */
+  traceId?: string;
+  /** Server or gateway request identifier. */
+  requestId?: string;
 }
 
 export interface CliErrorIssue {
@@ -39,6 +56,9 @@ export class CliError extends Error {
   readonly candidates: readonly string[] | undefined;
   readonly requiredInput: string | undefined;
   readonly issues: readonly CliErrorIssue[] | undefined;
+  readonly detail: unknown | undefined;
+  readonly traceId: string | undefined;
+  readonly requestId: string | undefined;
 
   constructor(message: string, exitCode = 1, details: CliErrorDetails = {}) {
     super(message);
@@ -48,6 +68,9 @@ export class CliError extends Error {
     this.candidates = details.candidates;
     this.requiredInput = details.requiredInput;
     this.issues = details.issues;
+    this.detail = details.detail;
+    this.traceId = details.traceId;
+    this.requestId = details.requestId;
   }
 }
 
@@ -70,7 +93,10 @@ export function renderCliError(error: unknown): Record<string, unknown> {
       ...(error.requiredInput === undefined ? {} : { requiredInput: error.requiredInput }),
       ...(error.issues === undefined
         ? {}
-        : { issues: error.issues.map((issue) => ({ ...issue })) })
+        : { issues: error.issues.map((issue) => ({ ...issue })) }),
+      ...(error.detail === undefined ? {} : { detail: error.detail }),
+      ...(error.traceId === undefined ? {} : { traceId: error.traceId }),
+      ...(error.requestId === undefined ? {} : { requestId: error.requestId })
     };
   }
   if (isCommanderError(error)) {
@@ -84,6 +110,19 @@ export function renderCliError(error: unknown): Record<string, unknown> {
     success: false,
     code: "INTERNAL_ERROR",
     message: error instanceof Error ? error.message : String(error)
+  };
+}
+
+/** Copy every structured field when adding context to an existing CLI error. */
+export function cliErrorDetails(error: CliError): CliErrorDetails {
+  return {
+    code: error.code,
+    ...(error.candidates === undefined ? {} : { candidates: error.candidates }),
+    ...(error.requiredInput === undefined ? {} : { requiredInput: error.requiredInput }),
+    ...(error.issues === undefined ? {} : { issues: error.issues }),
+    ...(error.detail === undefined ? {} : { detail: error.detail }),
+    ...(error.traceId === undefined ? {} : { traceId: error.traceId }),
+    ...(error.requestId === undefined ? {} : { requestId: error.requestId })
   };
 }
 

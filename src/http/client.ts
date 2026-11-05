@@ -1,4 +1,4 @@
-import { CliError } from "../errors.js";
+import { CliError, type CliErrorDetails } from "../errors.js";
 
 export interface RequestOptions {
   baseUrl: string;
@@ -89,14 +89,12 @@ export async function sendRequest(options: RequestOptions): Promise<ResponseResu
   };
 
   if (!response.ok) {
-    throw new CliError(`HTTP ${response.status}：${formatCompact(data)}`, 1, {
-      code: "EADP_REQUEST_FAILED"
-    });
+    throw new CliError(`HTTP ${response.status}：${formatCompact(data)}`, 1,
+      requestFailureDetails(data, result.headers));
   }
   if (isEadpFailure(data)) {
-    throw new CliError(`EADP 请求失败：${data.message || "未知错误"}`, 1, {
-      code: "EADP_REQUEST_FAILED"
-    });
+    throw new CliError(`EADP 请求失败：${readText(data, "message") ?? "未知错误"}`, 1,
+      requestFailureDetails(data, result.headers));
   }
   return result;
 }
@@ -167,10 +165,30 @@ function readText(value: unknown, field: string): string | undefined {
   return typeof text === "string" && text.trim() !== "" ? text.trim() : undefined;
 }
 
-function isEadpFailure(value: unknown): value is { success: false; message?: string } {
+function requestFailureDetails(
+  data: unknown,
+  headers: Record<string, string>
+): CliErrorDetails {
+  const body = typeof data === "object" && data !== null && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : undefined;
+  const traceId = (body ? readText(body, "traceId") : undefined) ??
+    readText(headers, "x-trace-id") ?? readText(headers, "trace-id");
+  const requestId = (body ? readText(body, "requestId") : undefined) ??
+    readText(headers, "x-request-id") ?? readText(headers, "request-id");
+  return {
+    code: "EADP_REQUEST_FAILED",
+    ...(body && "detail" in body && body.detail !== undefined ? { detail: body.detail } : {}),
+    ...(traceId === undefined ? {} : { traceId }),
+    ...(requestId === undefined ? {} : { requestId })
+  };
+}
+
+function isEadpFailure(value: unknown): value is Record<string, unknown> & { success: false } {
   return (
     typeof value === "object" &&
     value !== null &&
+    !Array.isArray(value) &&
     "success" in value &&
     (value as { success: unknown }).success === false
   );

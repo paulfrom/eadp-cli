@@ -5,8 +5,8 @@ import type { EadpConfig } from "../config/schema.js";
 import { ConfigStore } from "../config/store.js";
 import {
   CliError,
+  cliErrorDetails,
   errorMessage,
-  type CliErrorCode,
   type CliErrorIssue
 } from "../errors.js";
 import { getRuntimeOptions, type RuntimeOptions } from "../runtime-options.js";
@@ -982,8 +982,8 @@ function operationError(error: unknown, recorder: OperationRecorder | undefined)
   const suffix = recorder?.hasActions
     ? `；可使用 operation-id ${recorder.operationId} 回滚已新增记录`
     : "";
-  const code: CliErrorCode = error instanceof CliError ? error.code : "CLI_ERROR";
-  return new CliError(`${errorMessage(error)}${suffix}`, 1, { code });
+  const details = error instanceof CliError ? cliErrorDetails(error) : { code: "CLI_ERROR" as const };
+  return new CliError(`${errorMessage(error)}${suffix}`, 1, details);
 }
 
 function parseFilter(source: string): ResourceFilter {

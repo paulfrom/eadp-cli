@@ -9,8 +9,10 @@ then `resource sync bpm-flow-graph --select flow=<code-or-name>`, or use
 skeleton-then-graph order. For independent business input, run `eadp bpm graph guide`,
 `eadp bpm graph nodes` and `eadp bpm graph conditions --env <env> --flow <code>`: select nodes
 only from confirmed semantics, load the system decision fields before writing any gateway
-condition, ask when uncertain, and create a canonical graph file for `validate/import`; never
-guess raw canvas JSON or copy IDs.
+condition, ask when uncertain, and use `eadp bpm graph expression --env <env> --flow <code> --logic
+<expression>` to generate the matching `logicUel`/`groovyUel` pair through target-side JUEL validation.
+Create a canonical graph file for `validate/import`; never hand-write divergent expression pairs,
+guess raw canvas JSON, or copy IDs.
 
 When the BPM action, environments, flow selector, or option is missing or
 ambiguous, run only the needed `eadp bpm ... --help` or

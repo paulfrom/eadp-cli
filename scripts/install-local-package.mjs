@@ -36,7 +36,7 @@ const checks = [
   { args: ["env", "--help"], expected: "管理 EADP 环境" },
   { args: ["env", "remove", "--help"], expected: "移除环境" },
   {
-    args: ["resource", "list"],
+    args: ["resource", "inspect"],
     expected: [
       '"kind": "eadp.resource.catalog.v2"',
       '"name": "feature"',
@@ -44,7 +44,7 @@ const checks = [
     ]
   },
   {
-    args: ["resource", "describe", "feature"],
+    args: ["resource", "inspect", "feature"],
     expected: [
       '"kind": "eadp.resource.contract.v1"',
       '"id": "feature"',

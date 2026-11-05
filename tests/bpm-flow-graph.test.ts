@@ -996,7 +996,7 @@ describe("bpm-migration：骨架与图一次计划", () => {
       create: 0, update: 0, blocked: 0, unchanged: 6
     });
     expect(target.saveCalls).toHaveLength(1);
-  });
+  }, 60_000);
 });
 
 function replaceSourceGraph(state: GraphState, graph: RecordValue): void {

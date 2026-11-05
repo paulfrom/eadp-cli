@@ -1,6 +1,6 @@
 {
   "name": "eadp-cli",
-  "version": "0.13.11",
+  "version": "0.13.13",
   "description": "面向 EADP 多环境的资源与权限编排命令行工具",
   "type": "module",
   "bin": {
@@ -17,16 +17,14 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:live:feature-pagination": "node ./scripts/live-feature-pagination-test.mjs",
     "presmoke": "npm run build",
     "smoke": "node ./scripts/smoke-test.mjs",
     "test:package": "node ./scripts/package-install-test.mjs",
     "install:local": "npm pack && node ./scripts/install-local-package.mjs && node ./scripts/install-local-skill.mjs",
     "postinstall": "node ./scripts/ensure-contracts-directory.mjs",
     "release": "node ./scripts/release.mjs",
-    "check": "npm run build && npm test",
-    "prepack": "npm run check",
-    "dbg": "node debug-pack.mjs"
+    "check": "npm test",
+    "prepack": "npm run check"
   },
   "engines": {
     "node": ">=22"

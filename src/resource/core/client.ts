@@ -506,46 +506,6 @@ export class ResourceClient {
   }
 }
 
-/** Validate one EADP page for callers that need the legacy completion helper. */
-export function shouldFinishContractPagination(
-  pagination: NonNullable<ResourceContract["pagination"]>,
-  responseData: unknown,
-  pageRowCount: number,
-  accumulatedRowCount: number,
-  pageNumber: number
-): boolean {
-  if (pagination.pageSize !== EADP_PAGE_SIZE || pagination.startPage !== 1) {
-    throw new CliError("资源 EADP 分页必须从第 1 页开始且每页 500 条");
-  }
-  const page = parseEadpPage(responseData, "资源分页", isRecord, pagination.rowsField);
-  if (page.page !== pageNumber || page.rows.length !== pageRowCount) {
-    throw new CliError("资源分页响应 page 或 rows 与请求不一致");
-  }
-  if (accumulatedRowCount > page.records) {
-    throw new CliError("资源分页响应 records 小于已读取记录数");
-  }
-  if (page.total === 0) {
-    if (pageNumber !== 1 || page.records !== 0 || page.rows.length !== 0) {
-      throw new CliError("资源分页响应空页结构不一致");
-    }
-    return true;
-  }
-  const expectedTotal = Math.ceil(page.records / EADP_PAGE_SIZE);
-  if (page.total !== expectedTotal) {
-    throw new CliError(`资源分页响应 total 页数与 records=${page.records} 不一致`);
-  }
-  if (pageNumber > page.total) {
-    throw new CliError("资源分页响应页码超过 total 页数");
-  }
-  if (pageNumber < page.total && page.rows.length !== EADP_PAGE_SIZE) {
-    throw new CliError(`资源分页提前结束：已读取第 ${pageNumber}/${page.total} 页`);
-  }
-  if (pageNumber === page.total && accumulatedRowCount !== page.records) {
-    throw new CliError(`资源分页记录不完整：已读取 ${accumulatedRowCount}/${page.records} 条`);
-  }
-  return pageNumber === page.total;
-}
-
 export function createResourceClient(options: ResourceClientOptions): ResourceClient {
   return new ResourceClient(options);
 }

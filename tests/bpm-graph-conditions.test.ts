@@ -9,6 +9,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   analyzeGraphConditions,
+  buildConditionExpression,
   extractConditionVariables,
   extractUnknownPropertyNames
 } from "../src/domains/bpm-flow-graph/conditions.js";
@@ -18,6 +19,7 @@ import {
   eadpPage,
   expectNoWrites,
   runCommand,
+  runExpectError,
   type MockEadpServer
 } from "./helpers/index.js";
 
@@ -46,6 +48,18 @@ function registerRoutes(server: MockEadpServer): void {
   });
   server.onEndsWith("/conBusinessEntity/getConditionPropertiesExplain", (context) => {
     context.json(CONDITION_PROPERTIES);
+  });
+  server.onEndsWith("/conBusinessEntity/validateExpression", (context) => {
+    const body = context.body as RecordValue;
+    if (body.expression === "#{fileType==}") {
+      context.raw({ success: false, message: "表达式语法错误", data: null });
+      return;
+    }
+    if (body.expression === "#{fileType!=}") {
+      context.fail("validation unavailable", 500);
+      return;
+    }
+    context.json(null);
   });
   server.onEndsWith("/conPage/findByPage", (context) => {
     context.json(eadpPage([]));
@@ -151,12 +165,83 @@ describe("bpm graph 系统判定条件", () => {
     expect(order[0]).toMatchObject({ rank: 1, kind: "ExclusiveGateway" });
     expect(order[order.length - 1]).toMatchObject({ kind: "ManualExclusiveGateway" });
     expect(priority.rule).toContain("系统排他网关");
+    expect((output.expression as RecordValue).command).toContain("eadp bpm graph expression");
 
     const request = fixture.server("target").requests.find((item) =>
       item.path.endsWith("/conBusinessEntity/getConditionPropertiesExplain")
     );
     expect(request?.query.get("businessEntityCode")).toBe("com.example.Project");
     expectNoWrites(fixture.server("target"), /(save|delete|deploy|write)/i);
+  });
+
+  it("graph expression 从中文条件生成并远程校验 groovyUel，且不替换字符串字面量", async () => {
+    const fixture = await setup();
+    const logic = "文件类型==\"文件类型\"&&累计授信金额（客户）>= 3000000";
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "expression", "--env", "target", "--flow", "TBS_PROJECT",
+      "--logic", logic
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      kind: "eadp.bpm.graph.expression.v1",
+      environment: "target",
+      flow: { code: "TBS_PROJECT" },
+      expression: {
+        logicUel: logic,
+        groovyUel: "#{fileType==\"文件类型\"&&customerCreditAmount>= 3000000}"
+      },
+      validated: true,
+      validatedBy: "conBusinessEntity/validateExpression"
+    });
+    const request = fixture.server("target").requests.find((item) =>
+      item.path.endsWith("/conBusinessEntity/validateExpression")
+    );
+    expect(request?.body).toEqual({
+      flowTypeId: "flow-1",
+      expression: "#{fileType==\"文件类型\"&&customerCreditAmount>= 3000000}"
+    });
+  });
+
+  it("graph expression --file 一次返回条件矩阵且相同表达式只校验一次", async () => {
+    const fixture = await setup();
+    const file = join(fixture.directory, "conditions.json");
+    const logicA = "文件类型==\"信用-客户\"";
+    const logicB = "累计授信金额（客户）>=3000000";
+    await writeFile(file, JSON.stringify({
+      expressions: [
+        { key: "credit", logicUel: logicA },
+        { key: "credit-copy", logicUel: logicA },
+        { key: "amount", logicUel: logicB }
+      ]
+    }), "utf8");
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "expression", "--env", "target", "--flow", "TBS_PROJECT", "--file", file
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      kind: "eadp.bpm.graph.expression.batch.v1",
+      valid: true,
+      attempted: 3,
+      validated: 3,
+      failed: 0,
+      serverCalls: 2
+    });
+    const expressions = output.expressions as RecordValue[];
+    expect(expressions).toHaveLength(3);
+    expect(expressions.map((item) => item.key)).toEqual(["credit", "credit-copy", "amount"]);
+    expect(expressions[0]!.expression).toEqual(expressions[1]!.expression);
+    expect(expressions[2]!.expression).toEqual({
+      logicUel: logicB,
+      groovyUel: "#{customerCreditAmount>=3000000}"
+    });
+    expect(fixture.server("target").count(
+      "POST", /\/conBusinessEntity\/validateExpression$/
+    )).toBe(2);
+  });
+
+  it("表达式生成器拒绝清单外的中文条件", () => {
+    expect(() => buildConditionExpression("客户类型==\"信用-客户\"", [{
+      code: "fileType",
+      name: "文件类型"
+    }])).toThrowError(/系统未提供的判定条件：客户类型/);
   });
 
   it("validate 按系统条件清单校验网关条件", async () => {
@@ -188,7 +273,117 @@ describe("bpm graph 系统判定条件", () => {
     const passedCodes = (passedEntry.designIssues as RecordValue[]).map((issue) => issue.code);
     expect(passedCodes).not.toContain("CONDITION_VARIABLE_UNKNOWN");
     expect(passedCodes).not.toContain("CONDITION_PROPERTY_UNKNOWN");
-    expect(passed).toMatchObject({ valid: true, designValid: true });
+    expect(passed).toMatchObject({
+      valid: true,
+      designValid: true,
+      conditions: {
+        expressionValidation: { attempted: 1, validated: 1, failed: 0 }
+      }
+    });
+  });
+
+  it("校验 #{...} 格式以及 logicUel/groovyUel 一致性", () => {
+    const properties = CONDITION_PROPERTIES.map((property) => ({
+      code: String(property.code),
+      name: String(property.name)
+    }));
+    const malformed = analyzeGraphConditions(
+      JSON.stringify(gatewayGraph("${fileType==\"信用-客户\"}", "")),
+      properties
+    );
+    expect(malformed.designIssues.map((issue) => issue.code)).toContain(
+      "CONDITION_EXPRESSION_INVALID"
+    );
+
+    const mismatch = analyzeGraphConditions(
+      JSON.stringify(gatewayGraph(
+        "#{fileType==\"信用-客户\"}",
+        "审批类型==\"信用-客户\""
+      )),
+      properties
+    );
+    expect(mismatch.designIssues.map((issue) => issue.code)).toContain(
+      "CONDITION_EXPRESSION_MISMATCH"
+    );
+
+    const formattingOnly = analyzeGraphConditions(
+      JSON.stringify(gatewayGraph(
+        "#{ fileType == \"信用-客户\" }",
+        "文件类型==\"信用-客户\""
+      )),
+      properties
+    );
+    expect(formattingOnly.designIssues.map((issue) => issue.code)).not.toContain(
+      "CONDITION_EXPRESSION_MISMATCH"
+    );
+  });
+
+  it("validate 合并设计器服务端 JUEL 校验失败", async () => {
+    const fixture = await setup();
+    const file = await writeGraphFile(
+      fixture.directory,
+      gatewayGraph("#{fileType==}", "文件类型==")
+    );
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "validate", "--env", "target", "--file", file
+    ])) as RecordValue;
+    const entry = (output.graphs as RecordValue[])[0]!;
+    const invalid = (entry.designIssues as RecordValue[]).find((issue) =>
+      issue.code === "CONDITION_EXPRESSION_INVALID"
+    );
+    expect(invalid?.message).toContain("表达式语法错误");
+    expect(output).toMatchObject({
+      designValid: false,
+      conditions: {
+        expressionValidation: { attempted: 1, validated: 0, failed: 1 }
+      }
+    });
+
+    const preview = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+      "--file", file, "--strict"
+    ])) as RecordValue;
+    expect(preview.summary).toMatchObject({ blocked: 1, create: 0 });
+    expect(fixture.server("target").count("POST", /\/defFlowVersion\/saveOrDeploy$/)).toBe(0);
+  });
+
+  it("表达式校验发生 HTTP 故障时终止导入且不写草稿", async () => {
+    const fixture = await setup();
+    const file = await writeGraphFile(
+      fixture.directory,
+      gatewayGraph("#{fileType!=}", "文件类型!=")
+    );
+    const message = await runExpectError(fixture.program(), [
+      "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+      "--file", file, "--strict", "--apply"
+    ]);
+    expect(message).toContain("HTTP 500");
+    expect(fixture.server("target").count("POST", /\/defFlowVersion\/saveOrDeploy$/)).toBe(0);
+  });
+
+  it("启动条件和网关使用相同表达式时只远程校验一次", async () => {
+    const fixture = await setup();
+    const graph = gatewayGraph(
+      "#{fileType==\"信用-客户\"}",
+      "文件类型==\"信用-客户\""
+    );
+    (graph.process as RecordValue).startUEL = {
+      groovyUel: "#{fileType==\"信用-客户\"}",
+      logicUel: "文件类型==\"信用-客户\""
+    };
+    const file = await writeGraphFile(fixture.directory, graph);
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "validate", "--env", "target", "--file", file
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      conditions: {
+        expressionValidation: { attempted: 2, validated: 2, failed: 0 }
+      }
+    });
+    expect(fixture.server("target").count(
+      "POST",
+      /\/conBusinessEntity\/validateExpression$/
+    )).toBe(1);
   });
 
   it("import --strict 拒绝使用系统未提供条件的图", async () => {
@@ -267,6 +462,9 @@ describe("bpm graph 系统判定条件", () => {
       .toEqual(["customerCreditAmount", "fileType"]);
     expect(extractConditionVariables("${approveResult == true}")).toEqual([]);
     expect(extractConditionVariables("#{oneTimePayment==true}")).toEqual(["oneTimePayment"]);
+    expect(extractConditionVariables(
+      "#{expenseTypeCategories.contains('业务招待费')&&expenseTypeCategories.size()==1&&!creatorAccount=='10001489'}"
+    )).toEqual(["creatorAccount", "expenseTypeCategories"]);
     expect(extractUnknownPropertyNames("文件类型==\"信用-客户\"", ["文件类型"])).toEqual([]);
     expect(extractUnknownPropertyNames(
       "累计授信金额（客户）>=3000000",
@@ -285,6 +483,10 @@ describe("bpm graph 系统判定条件", () => {
     expect(loadStep?.command).toContain("eadp bpm graph conditions");
     const conditionSource = guide.conditionSource as RecordValue;
     expect(conditionSource.command).toContain("eadp bpm graph conditions");
+    expect(conditionSource.expressionCommand).toContain("eadp bpm graph expression");
+    expect(steps.find((step) => step.step === "build-expressions")?.command).toContain(
+      "eadp bpm graph expression"
+    );
     expect((conditionSource.priority as RecordValue).order[0]).toContain("ExclusiveGateway");
     expect(JSON.stringify(guide.prohibitions)).toContain("不得自造条件变量名");
 

@@ -6,7 +6,7 @@
 
 ## 1. 目标与事实来源
 
-本规范把人工完成稿中可复用的配置范式沉淀到 CLI，使 AI 不再依赖某个参考实现。业务输入可以是规则说明、结构化表格、既有设计稿、页面/接口契约或目标环境只读查询结果；输入采用何种文件格式不影响节点选择。
+本规范对应 CLI 内置的 `eadp bpm graph guide` 配置流程，不依赖某个参考实现。业务输入可以是规则说明、结构化表格、既有设计稿、页面/接口契约或目标环境只读查询结果；输入采用何种文件格式不影响节点选择。
 
 发生信息差异时，按以下顺序处理：
 
@@ -96,7 +96,10 @@ eadp bpm graph nodes --kind ExclusiveGateway
 
 ```text
 eadp bpm graph conditions --env <target> --flow <flow-code>
+eadp bpm graph expression --env <target> --flow <flow-code> --logic '文件类型=="信用-客户"'
 ```
+
+第一条读取条件清单；第二条从中文 `logicUel` 自动生成 `#{...}` 形式的 `groovyUel`，并调用设计器同款 `validateExpression` 做目标环境 JUEL 校验。不要分别手写两份表达式。
 
 输出中每个条件字段包含：
 
@@ -121,10 +124,11 @@ eadp bpm graph conditions --env <target> --flow <flow-code>
 规则：
 
 - 条件变量必须来自 `eadp bpm graph conditions` 的清单，不得从中文标题、节点名称或其他环境猜测；
-- `logicUel` 用条件 `name`，`groovyUel` 用条件 `code`，两者必须表达同一规则；
+- `logicUel` 用条件 `name`，`groovyUel` 用条件 `code`，两者必须表达同一规则；使用 `graph expression` 从前者生成后者，字符串字面量中的同名文本不替换；
+- `groovyUel` 必须是完整非空的 `#{...}`，不能使用 `${...}` 或裸表达式；服务端求值为 `false` 不等于表达式非法；
 - 业务需要的判定字段系统没有发布时，先提出“字段缺失”，不要用相近字段顶替；
 - 同一个网关内不要混用系统判定与人工选路；
-- `validate` 会按同一份清单校验，命中 `CONDITION_VARIABLE_UNKNOWN`、`CONDITION_PROPERTY_UNKNOWN`、`CONDITION_EXPRESSION_MISSING` 时 `designValid=false`。
+- `validate` 会按同一份清单校验，并复用设计器的服务端 JUEL 校验；命中 `CONDITION_VARIABLE_UNKNOWN`、`CONDITION_PROPERTY_UNKNOWN`、`CONDITION_EXPRESSION_MISSING`、`CONDITION_EXPRESSION_INVALID` 或 `CONDITION_EXPRESSION_MISMATCH` 时 `designValid=false`。
 
 ## 5. 典型组合模式
 
@@ -202,7 +206,7 @@ eadp bpm graph conditions --env <target> --flow <flow-code>
 - 空值如何参与判断；
 - 比较符及阈值是否包含等号。
 
-`logicUel` 与 `groovyUel` 必须表达同一条件，变量名不得从中文标题猜测。连线标题与实际表达式冲突时先澄清。
+`logicUel` 与 `groovyUel` 必须表达同一条件，变量名不得从中文标题猜测。只维护中文 `logicUel`，通过 `eadp bpm graph expression` 生成并经目标环境校验 `groovyUel`。连线标题与实际表达式冲突时先澄清。
 
 连线底线：
 
@@ -230,6 +234,7 @@ eadp bpm graph conditions --env <target> --flow <flow-code>
 eadp bpm graph guide
 eadp bpm graph nodes
 eadp bpm graph conditions --env <target> --flow <flow-code>
+eadp bpm graph expression --env <target> --flow <flow-code> --logic '<中文条件表达式>'
 eadp bpm graph validate --env <target> --file <graph.json> --strict
 eadp bpm graph import --env <target> --flow <flow-code> --file <graph.json> --strict
 eadp bpm graph import --env <target> --flow <flow-code> --file <graph.json> --strict --apply
@@ -238,7 +243,7 @@ eadp bpm graph import --env <target> --flow <flow-code> --file <graph.json> --st
 执行要求：
 
 1. 写入前，用代表性业务输入核对预期路径、跳过路径和驳回路径。
-2. `validate --strict` 同时满足 `valid=true`、`designValid=true`，并解决全部缺失依赖。
+2. `validate --strict` 同时满足 `valid=true`、`designValid=true`、`conditions.expressionValidation.failed=0`，并解决全部缺失依赖。
 3. 预览核对目标定义及 `create/update/blocked`；意外 `create` 不是“更安全”，可能是定义匹配错误。
 4. 用户确认同一预览后再 `--apply`，要求 `verified=true`。
 5. 再次预览应为 `unchanged`；草稿在设计器复核后由人发布。

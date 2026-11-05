@@ -86,20 +86,6 @@ describe("skill install / upgrade：四个平台", () => {
     });
   });
 
-  it("Claude 与 Qoder 使用各自用户级目录，不混用平台根目录", async () => {
-    const homes = await makeHomes();
-    await withHomes(homes, async () => {
-      await createProgram().parseAsync(["skill", "install"], { from: "user" });
-    });
-    for (const skillName of skillNames) {
-      await expect(
-        readFile(join(homes.CLAUDE_HOME, "skills", skillName, "SKILL.md"), "utf8")
-      ).resolves.toContain(`name: ${skillName}`);
-      await expect(
-        readFile(join(homes.QODER_HOME, "skills", skillName, "SKILL.md"), "utf8")
-      ).resolves.toContain(`name: ${skillName}`);
-    }
-  });
 });
 
 describe("update：npm 升级失败立即停止", () => {

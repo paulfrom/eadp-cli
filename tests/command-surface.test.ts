@@ -107,6 +107,7 @@ describe("统一命令面", () => {
       return true;
     });
     rollback?.outputHelp();
+    expect(help).toContain("新增、分配或删除");
     expect(help).toContain("不要求 --apply");
     expect(help).not.toMatch(/^\s+--apply\b/m);
   });

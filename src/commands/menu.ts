@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolveEnvironment, type ResolvedEnvironment } from "../config/resolve.js";
 import { ConfigStore } from "../config/store.js";
-import { CliError } from "../errors.js";
+import { CliError, cliErrorDetails } from "../errors.js";
 import { getRuntimeOptions, type RuntimeOptions } from "../runtime-options.js";
 import { printValue } from "../io.js";
 import { OperationRecorder } from "../operations/recorder.js";
@@ -95,6 +95,9 @@ export function registerMenuCommands(root: Command, store: ConfigStore): void {
         printValue({ kind: "eadp.menu.apply.v1", environment: resolved.name, applied: true, action: "create", desired: { ...desired, code: savedCode }, actual, operationId, verified }, runtime.compact);
       } catch (error) {
         await recorder.fail(error);
+        if (error instanceof CliError) {
+          throw new CliError(error.message, error.exitCode, cliErrorDetails(error));
+        }
         throw new CliError(error instanceof Error ? error.message : String(error));
       }
     });

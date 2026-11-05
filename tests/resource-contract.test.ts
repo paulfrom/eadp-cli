@@ -1,5 +1,5 @@
 /**
- * 资源契约声明与通用引擎单元测试：注册校验、分页语义、阶段钩子、change-set 信封。
+ * 资源契约声明与通用引擎单元测试：注册校验、阶段钩子、change-set 信封。
  */
 import { describe, expect, it } from "vitest";
 import { createResourceRegistry, type ResourceContract } from "../src/resource/core/contracts.js";
@@ -14,10 +14,7 @@ import {
   createResourcePhaseHooksRegistry,
   type ResourcePhaseHooks
 } from "../src/resource/core/engine.js";
-import {
-  shouldFinishContractPagination,
-  type ResourceClient
-} from "../src/resource/core/client.js";
+import type { ResourceClient } from "../src/resource/core/client.js";
 import { createSpecialResourceHandlerRegistry } from "../src/resource/handlers/registry.js";
 import { createResourceModuleCatalog } from "../src/resource/modules/contracts.js";
 
@@ -213,34 +210,6 @@ describe("声明式资源契约：注册校验", () => {
       { code: "order", name: "小写通道" }
     );
     expect(plan.changes[0]).toMatchObject({ key: "order", action: "create" });
-  });
-});
-
-describe("分页契约语义", () => {
-  it("按 EADP total 页数和 records 总记录数聚合", () => {
-    const pagination = {
-      pageField: "pageInfo",
-      pageNumberField: "page",
-      pageSizeField: "rows",
-      startPage: 1,
-      rowsField: "rows",
-      pageSize: 500,
-      totalSemantics: "pages" as const
-    };
-    expect(shouldFinishContractPagination(
-      pagination,
-      { page: 1, records: 501, total: 2, summaryInfo: null, rows: Array.from({ length: 500 }, () => ({ id: "x" })) },
-      500,
-      500,
-      1
-    )).toBe(false);
-    expect(shouldFinishContractPagination(
-      pagination,
-      { page: 2, records: 501, total: 2, summaryInfo: null, rows: [{ id: "y" }] },
-      1,
-      501,
-      2
-    )).toBe(true);
   });
 });
 

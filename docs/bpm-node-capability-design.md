@@ -1,10 +1,6 @@
 # BPM 节点能力（CLI 内置能力表）
 
-> 日期：2026-11-02  
-> 状态：已实现  
-> 原则：**能力表随 CLI 发布，不读取、不依赖任何外部源码或仓库；CLI 仍然不做画布编辑器。**
-
----
+能力表随 CLI 发布，不读取、不依赖任何外部源码或仓库；CLI 不做画布编辑器。运行 `eadp bpm graph nodes` 可获取当前安装版本的完整能力表。
 
 ## 1. 目标与边界
 
@@ -24,7 +20,7 @@ CLI 需要在不连接浏览器、不读取外部项目的前提下，回答三�
 
 ## 2. 内置能力表
 
-新增 `src/domains/bpm-flow-graph/node-catalog.ts`：
+`src/domains/bpm-flow-graph/node-catalog.ts` 定义：
 
 - `NODE_RULES`：19 个当前节点 + 3 个历史节点（`MailTask`、`ScriptTask`、`EventGateway`）。
 - `NODE_USAGE`：每个节点的适用示例、不适用场景、选择前所需信息和不确定时的追问。
@@ -151,7 +147,7 @@ CLI 需要在不连接浏览器、不读取外部项目的前提下，回答三�
 ]
 ```
 
-CLI 现在：
+CLI 按以下规则保持执行人语义：
 
 1. 规范化时保留 `type`，以 `(type, userType)` 区分分片。
 2. 写回时每个分片重新带上 `type`，不再依赖设计器的兼容反推。
@@ -243,7 +239,7 @@ eadp bpm graph validate --env ead --file tbs.json --strict
 
 ### 5.4 迁移入口
 
-`resource sync bpm-flow-graph` / `bpm-migration` 继续只按 `blockingIssues` 决策；plan `details.graphWarnings` 汇总逆向标识、历史类型、执行人组合等 warning。
+`resource sync bpm-flow-graph` / `bpm-migration` 仅按 `blockingIssues` 决策；plan `details.graphWarnings` 汇总逆向标识、历史类型、执行人组合等 warning。
 
 ---
 
@@ -262,18 +258,9 @@ src/commands/bpm.ts                           bpm graph nodes / validate --stric
 
 ---
 
-## 7. 测试
-
-- `tests/bpm-node-catalog.test.ts`：kind 解析、目录完整性、审批/网关规则、历史类型、阻塞与设计的边界。
-- `tests/bpm-graph-file.test.ts`：`graph nodes` 输出、`designValid`、`--strict`、执行人组合 `type` 保留。
-- `tests/bpm-flow-graph.test.ts`：迁移/幂等/阻断回归；`SelfDefinition` 显示名重建。
-- 2026-11-03 增补场景指导与 `graph guide` 后，全量 273 个用例通过。
-
----
-
-## 8. 非目标
+## 7. 非目标
 
 - 不做画布编辑器、自动布局、发布。
 - 不从未经确认的业务输入或猜测字段生成图；充分的独立业务输入按 `graph guide` 生成规范化文件，语义不确定时先提问。
 - 不读取外部源码；能力表是 CLI 内置数据，版本由 `CATALOG_VERSION` 标识。
-- 不改变 `bpm` / `bpm-flow-graph` / `bpm-migration` 的既有五动作语义。
+- `bpm`、`bpm-flow-graph`、`bpm-migration` 均复用统一 ChangeSet 动作与 `blocked` 语义。

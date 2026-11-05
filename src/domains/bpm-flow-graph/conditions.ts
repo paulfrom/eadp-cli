@@ -2,8 +2,16 @@ import { CliError } from "../../errors.js";
 import type { ResourceClient, ResourceRecord } from "../../resource/core/client.js";
 import type { BlockingIssue } from "../../resource/core/errors.js";
 import { selectFlow } from "../bpm/selection.js";
+import {
+  conditionExpressionBody,
+  conditionExpressionsMatch,
+  extractUnknownPropertyNames,
+  validateConditionExpression
+} from "./expression.js";
 import { resolveNodeKind } from "./node-catalog.js";
 import { graphReferences } from "./references.js";
+
+export { buildConditionExpression, extractUnknownPropertyNames } from "./expression.js";
 
 /**
  * System-provided flow decision conditions.
@@ -32,6 +40,8 @@ export interface ConditionProperty {
 
 export interface FlowConditionCatalog {
   flow: { code: string; name?: string };
+  /** Target flow ID is required by the designer's validateExpression endpoint. */
+  flowTypeId: string;
   businessEntity: { code: string; name?: string };
   conditions: ConditionProperty[];
 }
@@ -60,6 +70,20 @@ export const CONDITION_OPERATORS: readonly { name: string; code: string }[] = [
  * be decided from the condition properties the environment publishes; every
  * other gateway kind is a fallback for cases the platform cannot decide.
  */
+export const CONDITION_EXPRESSION_CONTRACT = {
+  command: "eadp bpm graph expression --env <target> --flow <flow-code> --logic '<中文条件表达式>'",
+  input: "logicUel 使用条件字段 name；字符串、数字、布尔值和允许值必须有明确业务语义。",
+  output: "expression.logicUel 与 expression.groovyUel 可直接用于 process.startUEL 或系统网关连线的 uel。",
+  wrapper: "#{...}",
+  serverValidation: "conBusinessEntity/validateExpression 使用目标流程类型和条件 initValue 校验 JUEL；false 求值结果仍代表表达式合法。",
+  rules: [
+    "只手写 logicUel，由 graph expression 生成 groovyUel，不要分别维护两份。",
+    "groovyUel 必须恰好使用 #{...} 包裹，不使用 ${...}，也不能是裸表达式。",
+    "条件 name 按最长优先替换为 code，字符串字面量中的同名文本不替换。",
+    "非默认系统网关路径必须有表达式；默认路径不配置表达式。"
+  ]
+} as const;
+
 export const CONDITION_PRIORITY = {
   rule: "业务分流优先使用系统排他网关（ExclusiveGateway），其优先级高于人工排他、包容和并行网关。",
   order: [
@@ -148,6 +172,7 @@ export async function loadFlowConditions(
   const [flows, entities] = await Promise.all([refs.flowTypes(), refs.businessEntities()]);
   const flow = selectTargetFlow(flows, entities, flowSelector);
   const code = requiredText(flow.code, "流程类型缺少 code");
+  const flowTypeId = requiredText(flow.id, `流程类型 ${code} 缺少 ID`);
   const entityId = text(flow.businessEntityId);
   if (!entityId) {
     throw new CliError(`流程类型 ${code} 未绑定业务实体，无法读取系统判定条件`, 1, {
@@ -162,6 +187,7 @@ export async function loadFlowConditions(
   const conditions = await readConditionProperties(client, entityCode);
   return {
     flow: { code, ...(text(flow.name) === undefined ? {} : { name: text(flow.name)! }) },
+    flowTypeId,
     businessEntity: {
       code: entityCode,
       ...(text(entity?.name) === undefined ? {} : { name: text(entity?.name)! })
@@ -183,32 +209,59 @@ export function analyzeGraphConditions(
 ): ConditionAnalysis {
   const designIssues: BlockingIssue[] = [];
   const warnings: BlockingIssue[] = [];
-  const graph = parseGraph(canonical);
-  const process = isRecord(graph.process) ? graph.process : undefined;
-  if (!process) return { designIssues, warnings };
-
   const knownCodes = new Set(properties.map((property) => property.code));
   const knownNames = new Set(properties.map((property) => property.name));
 
-  const startUel = normalizeUel(process.startUEL);
-  inspectCondition({
-    uel: startUel,
+  for (const entry of collectConditionEntries(canonical)) {
+    inspectCondition({
+      ...entry,
+      knownCodes,
+      knownNames,
+      properties,
+      designIssues,
+      warnings
+    });
+    const expression = text(entry.uel.groovyUel);
+    if (!expression && entry.required) {
+      designIssues.push(issue(
+        "CONDITION_EXPRESSION_MISSING",
+        `${entry.label}没有配置条件表达式，非默认路径必须配置条件`,
+        entry.nodeId,
+        entry.nodeName,
+        "使用 eadp bpm graph expression 根据中文条件生成表达式，或将该连线设为默认路径"
+      ));
+    }
+  }
+  return { designIssues, warnings };
+}
+
+interface ConditionEntry {
+  uel: Record<string, unknown>;
+  label: string;
+  nodeId: string | undefined;
+  nodeName: string | undefined;
+  /** Start conditions are optional; non-default gateway exits are required. */
+  required: boolean;
+}
+
+function collectConditionEntries(canonical: string): ConditionEntry[] {
+  const graph = parseGraph(canonical);
+  const process = isRecord(graph.process) ? graph.process : undefined;
+  if (!process) return [];
+  const entries: ConditionEntry[] = [{
+    uel: normalizeUel(process.startUEL),
     label: "流程启动条件",
     nodeId: undefined,
     nodeName: undefined,
-    knownCodes,
-    knownNames,
-    designIssues,
-    warnings
-  });
+    required: false
+  }];
 
   const nodes = isRecord(process.nodes) ? process.nodes : undefined;
-  if (!nodes) return { designIssues, warnings };
+  if (!nodes) return entries;
   for (const [key, value] of Object.entries(nodes)) {
     if (!isRecord(value)) continue;
     const kind = resolveNodeKind(value).rule?.kind;
-    // Only system-decided gateways carry conditions; approval edges use
-    // `uel.agree` and manual gateways are chosen by a person at runtime.
+    // Approval edges use uel.agree; manual gateways are selected by a person.
     if (kind !== "ExclusiveGateway" && kind !== "InclusiveGateway") continue;
     const name = text(value.name) ?? key;
     const targets = Array.isArray(value.target) ? value.target : [];
@@ -218,47 +271,42 @@ export function analyzeGraphConditions(
       const expression = text(uel.groovyUel);
       const isDefault = uel.isDefault === true || uel.isDefault === "true";
       if (!expression && isDefault) continue;
-      const label = `【${name}】的连线`;
-      inspectCondition({
+      entries.push({
         uel,
-        label,
+        label: `【${name}】的连线`,
         nodeId: key,
         nodeName: name,
-        knownCodes,
-        knownNames,
-        designIssues,
-        warnings
+        required: !isDefault
       });
-      if (!expression && !isDefault) {
-        designIssues.push(issue(
-          "CONDITION_EXPRESSION_MISSING",
-          `${label}没有配置条件表达式，非默认路径必须配置条件`,
-          key,
-          name,
-          "在设计器中为该连线配置表达式，或将其设为默认路径"
-        ));
-      }
     }
   }
-  return { designIssues, warnings };
+  return entries;
 }
 
-interface ConditionCheck {
-  uel: Record<string, unknown>;
-  label: string;
-  nodeId: string | undefined;
-  nodeName: string | undefined;
+interface ConditionCheck extends ConditionEntry {
   knownCodes: Set<string>;
   knownNames: Set<string>;
+  properties: readonly ConditionProperty[];
   designIssues: BlockingIssue[];
   warnings: BlockingIssue[];
 }
 
 function inspectCondition(check: ConditionCheck): void {
-  const { uel, label, nodeId, nodeName, knownCodes, knownNames, designIssues } = check;
+  const {
+    uel, label, nodeId, nodeName, knownCodes, knownNames, properties, designIssues
+  } = check;
   const groovy = text(uel.groovyUel);
   const logic = text(uel.logicUel);
   if (groovy) {
+    if (conditionExpressionBody(groovy) === undefined) {
+      designIssues.push(issue(
+        "CONDITION_EXPRESSION_INVALID",
+        `${label}的 groovyUel 必须是完整的 #{...} 表达式且内容不能为空`,
+        nodeId,
+        nodeName,
+        "不要直接使用 ${...}、裸表达式或嵌套包裹；可用 eadp bpm graph expression 重新生成"
+      ));
+    }
     for (const variable of extractConditionVariables(groovy)) {
       if (knownCodes.has(variable) || ENGINE_VARIABLES.has(variable)) continue;
       const available = [...knownCodes].join("、");
@@ -283,6 +331,15 @@ function inspectCondition(check: ConditionCheck): void {
         "中文条件必须使用条件字段的名称，表达式必须使用它的 code"
       ));
     }
+    if (groovy && !conditionExpressionsMatch(logic, groovy, properties)) {
+      designIssues.push(issue(
+        "CONDITION_EXPRESSION_MISMATCH",
+        `${label}的 logicUel 与 groovyUel 不是同一条件`,
+        nodeId,
+        nodeName,
+        "只维护中文 logicUel，并用 eadp bpm graph expression 重新生成 groovyUel，不要分别手写两份"
+      ));
+    }
   }
   if (!groovy && logic) {
     designIssues.push(issue(
@@ -290,7 +347,7 @@ function inspectCondition(check: ConditionCheck): void {
       `${label}只有中文条件，缺少可执行表达式`,
       nodeId,
       nodeName,
-      "同时配置 groovyUel（使用条件字段 code，形如 #{code==\"值\"}）"
+      "使用 eadp bpm graph expression 根据 logicUel 生成 groovyUel"
     ));
   }
 }
@@ -316,31 +373,72 @@ export function extractConditionVariables(expression: string): string[] {
   return [...found].sort();
 }
 
+export interface RemoteConditionAnalysis extends ConditionAnalysis {
+  /** Expression locations sent to the target environment. */
+  attempted: number;
+  validated: number;
+  failed: number;
+}
+
+/** Cache by expression text so repeated branches are validated only once. */
+export type ConditionExpressionValidationCache = Map<string, Promise<string | undefined>>;
+
 /**
- * Find the Chinese condition labels that do not exist in the published list.
- * Known labels are removed first (longest first, like the designer does), then
- * operators, literals and numbers; whatever text is left names an unknown field.
+ * Apply the designer's server-side JUEL validation to every locally plausible
+ * expression. Unknown variables and malformed wrappers are already reported by
+ * local analysis, so those expressions are not sent a second time.
  */
-export function extractUnknownPropertyNames(
-  logic: string,
-  knownNames: readonly string[]
-): string[] {
-  let rest = stripLiterals(logic);
-  const sorted = [...knownNames].sort((a, b) => b.length - a.length);
-  for (const name of sorted) {
-    if (name === "") continue;
-    rest = rest.split(name).join(" ");
+export async function analyzeRemoteGraphConditions(
+  client: ResourceClient,
+  flowTypeId: string,
+  canonical: string,
+  properties: readonly ConditionProperty[],
+  cache: ConditionExpressionValidationCache = new Map()
+): Promise<RemoteConditionAnalysis> {
+  const designIssues: BlockingIssue[] = [];
+  const knownCodes = new Set(properties.map((property) => property.code));
+  let attempted = 0;
+  let validated = 0;
+  let failed = 0;
+
+  for (const entry of collectConditionEntries(canonical)) {
+    const expression = text(entry.uel.groovyUel);
+    if (!expression || conditionExpressionBody(expression) === undefined) continue;
+    const variables = extractConditionVariables(expression);
+    if (variables.some((variable) => !knownCodes.has(variable) && !ENGINE_VARIABLES.has(variable))) {
+      continue;
+    }
+    attempted += 1;
+    let pending = cache.get(expression);
+    if (!pending) {
+      pending = validateConditionExpression(client, flowTypeId, expression)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          // A ResultData(success=false) is the validator's normal negative
+          // answer. Transport/HTTP failures must stop the command instead of
+          // being misreported as an invalid expression or followed by writes.
+          if (error instanceof CliError && error.message.startsWith("EADP 请求失败：")) {
+            return error.message;
+          }
+          throw error;
+        });
+      cache.set(expression, pending);
+    }
+    const failure = await pending;
+    if (failure === undefined) {
+      validated += 1;
+      continue;
+    }
+    failed += 1;
+    designIssues.push(issue(
+      "CONDITION_EXPRESSION_INVALID",
+      `${entry.label}的表达式未通过目标环境校验：${failure}`,
+      entry.nodeId,
+      entry.nodeName,
+      "按服务端返回修正 JUEL 语法、运算符或条件值类型；可用 eadp bpm graph expression 单独生成并校验"
+    ));
   }
-  rest = rest.replace(/[（）()\[\]{}]/g, " ");
-  rest = rest.replace(/==|!=|<=|>=|&&|\|\||[!<>]/g, " ");
-  rest = rest.replace(/[0-9]/g, " ");
-  const unknown = new Set<string>();
-  for (const token of rest.split(/\s+/)) {
-    if (token === "") continue;
-    if (!/[\u4e00-\u9fff]/.test(token)) continue;
-    unknown.add(token);
-  }
-  return [...unknown].sort();
+  return { designIssues, warnings: [], attempted, validated, failed };
 }
 
 function selectTargetFlow(

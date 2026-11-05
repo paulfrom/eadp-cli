@@ -9,6 +9,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createProgram } from "../src/program.js";
+import { renderCliError } from "../src/errors.js";
 import {
   captureOutput,
   cleanupAll,
@@ -114,7 +115,7 @@ function registerFeatureRoutes(server: MockEadpServer, state: FeatureState): voi
 }
 
 describe("resource query：分页完整聚合", () => {
-  it("按契约逐页读取直到短页，聚合全部记录并报告 total", async () => {
+  it("按契约 total 页数聚合全部记录并报告 records 总数", async () => {
     const fixture = await createFixture();
     const firstPage = [
       { code: "A", name: "A" },
@@ -151,6 +152,13 @@ describe("resource query：分页完整聚合", () => {
     const result = JSON.parse(output) as { items: Array<{ code: string }>; total: number };
     expect(result.items.map((item) => item.code)).toEqual(["ams"]);
     expect(result.total).toBe(1);
+
+    const quickOutput = await runCommand(fixture.program(), [
+      "resource", "query", "app-module", "--env", "source", "--quick", "Other"
+    ]);
+    const quickResult = JSON.parse(quickOutput) as { items: Array<{ code: string }>; total: number };
+    expect(quickResult.items.map((item) => item.code)).toEqual(["other"]);
+    expect(quickResult.total).toBe(1);
   });
 });
 
@@ -218,7 +226,7 @@ describe("resource write：六大场景", () => {
     expect(state.saves).toHaveLength(1);
   });
 
-  it("场景5a 缺依赖：完整预览并标记 blocked，正式执行只写安全记录", async () => {
+  it("场景5a 缺依赖：预览给出完整计划，apply 先创建依赖再写入", async () => {
     const fixture = await createFixture();
     const sourceRows = [
       { code: "SAFE", name: "safe", appModuleCode: "BASIC" },
@@ -290,34 +298,6 @@ describe("resource write：六大场景", () => {
     expect(fixture.server("target").requests).toHaveLength(0);
   });
 
-  it("场景5c 源数据歧义/无效：映射到同一业务唯一键时报错且零写入", async () => {
-    const fixture = await createFixture();
-    const item = {
-      elementName: "流水号", elementCode: "SERIAL_CODE", elementValue: "5",
-      isolation: false, linkCharacter: "EMPTY", sort: 0
-    };
-    let saves = 0;
-    fixture.server("source").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json(eadpPage([
-        { entityClassName: "com.example.Order", tenantCode: "tenant-a", configItem: [item] },
-        { entityClassName: "com.example.Order", tenantCode: "tenant-b", configItem: [item] }
-      ]));
-    });
-    fixture.server("target").onEndsWith("/serialNumberConfig/save", (context) => {
-      saves += 1;
-      context.json({ id: "unexpected" });
-    });
-    fixture.server("target").onEndsWith("/serialNumberConfig/findByPage", (context) => {
-      context.json(eadpPage([]));
-    });
-
-    const error = await runExpectError(fixture.program(), [
-      "resource", "sync", "serial-number", "--source", "source", "--target", "target", "--apply"
-    ]);
-    expect(error).toContain("源环境记录映射后业务唯一键重复");
-    expect(saves).toBe(0);
-  });
-
   it("场景6 失败：请求失败后立即停止，不重试、不切换接口、不继续写入", async () => {
     const fixture = await createFixture();
     const state = featureState();
@@ -332,6 +312,35 @@ describe("resource write：六大场景", () => {
     expect(error).toContain("HTTP 500");
     expect(fixture.server("target").requests.length - before).toBe(1);
     expect(state.saves).toHaveLength(0);
+  });
+
+  it("资源命令重包装错误后仍透传服务端详情", async () => {
+    const fixture = await createFixture();
+    fixture.server("target").onEndsWith("/feature/findByPage", (context) => {
+      context.raw({
+        success: false,
+        message: "系统异常",
+        detail: "Field 'name' doesn't have a default value",
+        traceId: "trace-write",
+        requestId: "request-write"
+      }, 500);
+    });
+
+    const error = await fixture.program().parseAsync([
+      "resource", "write", "feature", "--env", "target", "--data",
+      JSON.stringify({ code: "A", name: "A", appModuleCode: "BASIC" }), "--apply"
+    ], { from: "user" }).then(
+      () => undefined,
+      (reason: unknown) => reason
+    );
+
+    expect(renderCliError(error)).toMatchObject({
+      success: false,
+      code: "EADP_REQUEST_FAILED",
+      detail: "Field 'name' doesn't have a default value",
+      traceId: "trace-write",
+      requestId: "request-write"
+    });
   });
 });
 

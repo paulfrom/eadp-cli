@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BPM_GRAPH_GOLDEN_SAMPLE } from "../src/domains/bpm-flow-graph/golden.js";
 import {
   cleanupAll,
   createFixture,
@@ -33,6 +34,7 @@ interface GraphFileState {
   employees: RecordValue[];
   positionCategories: RecordValue[];
   saveCalls: RecordValue[];
+  corruptReadBack?: boolean;
   sequence: number;
 }
 
@@ -159,7 +161,18 @@ function registerRoutes(server: MockEadpServer, state: GraphFileState): void {
   });
   server.onEndsWith("/defFlowVersion/getFlowDesign", (context) => {
     const body = context.body as { flowDefinitionId?: string };
-    context.json(body.flowDefinitionId ? state.versions.get(body.flowDefinitionId) ?? null : null);
+    const version = body.flowDefinitionId ? state.versions.get(body.flowDefinitionId) ?? null : null;
+    if (state.corruptReadBack && version && String(body.flowDefinitionId).startsWith("target-def-")) {
+      const copy = { ...version } as RecordValue;
+      const parsed = JSON.parse(String(version.defJson)) as RecordValue;
+      const process = parsed.process as RecordValue;
+      const nodes = process.nodes as RecordValue;
+      (nodes.StartEvent_1 as RecordValue).target = [];
+      copy.defJson = JSON.stringify(parsed);
+      context.json(copy);
+      return;
+    }
+    context.json(version);
   });
   server.onEndsWith("/defFlowVersion/saveOrDeploy", (context) => {
     const body = context.body as { defJson?: string; deploy?: boolean };
@@ -238,7 +251,11 @@ describe("bpm graph 文件通道", () => {
         askWhenUnclear: expect.any(Array)
       }
     });
+    expect(JSON.stringify(output.errorCodes)).toContain("CONDITION_OVERLAP");
+    expect(JSON.stringify(output.errorCodes)).toContain("EXECUTOR_AMBIGUOUS");
     expect(JSON.stringify(output)).not.toContain("sei-bpm-web");
+    expect(fixture.server("source").requests).toHaveLength(0);
+    expect(fixture.server("target").requests).toHaveLength(0);
   });
 
   it("graph guide 输出与输入格式无关的最佳实践，并要求不确定先提问", async () => {
@@ -257,7 +274,14 @@ describe("bpm graph 文件通道", () => {
     expect(text).toContain("exampleScenarios");
     expect(text).toContain("按顺序叠加的可选审批角色");
     expect(text).toContain("修改并重审");
-    expect(text).not.toContain("Excel");
+    expect(text).toContain("CONDITION_LABEL_MISSING");
+    expect(text).toContain("GRAPH_IMPORT_VERIFY_FAILED");
+    expect(output.goldenSample).toMatchObject({
+      file: { kind: "eadp.bpm.graph.v1" },
+      requiredReplacements: expect.any(Array)
+    });
+    expect(JSON.stringify(output.goldenSample)).toContain("ExclusiveGateway_1");
+    expect(JSON.stringify(output.goldenSample)).toContain("isReverse");
   });
 
   it("validate --strict 把设计器无法保存的图判为失败", async () => {
@@ -457,5 +481,151 @@ describe("bpm graph 文件通道", () => {
     ]);
     expect(error).toContain("defJson");
     expect(error).toContain("bpm graph export");
+  });
+
+  it("import 写入成功但回读不一致时分别报告 write/verify 和退出码 2", async () => {
+    const { fixture, target, file } = await setup();
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    target.corruptReadBack = true;
+    const previousExitCode = process.exitCode;
+    try {
+      const output = JSON.parse(await runCommand(fixture.program(), [
+        "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+        "--file", file, "--apply"
+      ])) as RecordValue;
+      expect(process.exitCode).toBe(2);
+      expect(output).toMatchObject({
+        applied: true,
+        verified: false,
+        write: { status: "success", exitCode: 0, written: 1 },
+        verify: {
+          status: "failed",
+          code: "GRAPH_IMPORT_VERIFY_FAILED",
+          exitCode: 2,
+          readBack: { nodes: 3, edges: 1 }
+        }
+      });
+      const verification = output.verify as RecordValue;
+      const entry = (verification.graphs as RecordValue[])[0]!;
+      expect(entry.expected).toEqual({ nodes: 3, edges: 2 });
+      expect(entry.actual).toEqual({ nodes: 3, edges: 1 });
+      expect(entry.differenceCount as number).toBeGreaterThan(0);
+      expect(entry.differences as unknown[]).not.toHaveLength(0);
+      expect(target.saveCalls).toHaveLength(1);
+      expect(target.saveCalls[0]).toMatchObject({ deploy: false });
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it("表达式边缺少 uel.name 时 --strict 拒绝导入并指出具体边", async () => {
+    const { fixture, target, file } = await setup();
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    const content = JSON.parse(await readFile(file, "utf8")) as RecordValue;
+    const draft = (content.graphs as RecordValue[])[0]!;
+    const process = (draft.graph as RecordValue).process as RecordValue;
+    const task = (process.nodes as RecordValue).UserTask_2 as RecordValue;
+    (task.target as RecordValue[])[0]!.uel = { name: " ", groovyUel: "#{amount>1}" };
+    await writeFile(file, JSON.stringify(content), "utf8");
+
+    const preview = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "import", "--env", "target", "--flow", "TBS_PROJECT",
+      "--file", file, "--strict"
+    ])) as RecordValue;
+    expect(preview.summary).toMatchObject({ blocked: 1, create: 0 });
+    const change = (preview.changes as RecordValue[])[0]!;
+    const issue = (change.designIssues as RecordValue[]).find((item) =>
+      item.code === "CONDITION_LABEL_MISSING"
+    );
+    expect(issue).toMatchObject({
+      nodeId: "UserTask_2",
+      edgeId: "UserTask_2->EndEvent_3[0]"
+    });
+    expect(target.saveCalls).toHaveLength(0);
+  });
+
+  it("export --trim 只保留节点、边、条件和执行人，diff 只读返回规范化差异", async () => {
+    const { fixture, source, target, file } = await setup();
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT", "--out", file
+    ]);
+    const trimmedFile = join(fixture.directory, "trimmed.json");
+    await runCommand(fixture.program(), [
+      "bpm", "graph", "export", "--env", "source", "--flow", "TBS_PROJECT",
+      "--out", trimmedFile, "--trim"
+    ]);
+    const trimmed = JSON.parse(await readFile(trimmedFile, "utf8")) as RecordValue;
+    const draft = (trimmed.graphs as RecordValue[])[0]!;
+    expect(Object.keys(draft.graph as RecordValue)).toEqual(["process"]);
+    const process = (draft.graph as RecordValue).process as RecordValue;
+    expect(Object.keys(process).sort()).toEqual(["nodes", "startUEL"]);
+    const task = (process.nodes as RecordValue).UserTask_2 as RecordValue;
+    expect(task.x).toBeUndefined();
+    expect(task.y).toBeUndefined();
+    expect(Object.keys(task.nodeConfig as RecordValue)).toEqual(["executor"]);
+    expect((task.target as RecordValue[])[0]).toHaveProperty("targetId");
+
+    const same = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "diff", "--file", file, "--env", "source", "--flow", "TBS_PROJECT"
+    ])) as RecordValue;
+    expect(same).toMatchObject({ equal: true, summary: { unchanged: 1 } });
+    const create = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "diff", "--file", file, "--env", "target", "--flow", "TBS_PROJECT"
+    ])) as RecordValue;
+    expect(create).toMatchObject({ equal: false, summary: { create: 1 } });
+
+    const changed = JSON.parse(await readFile(file, "utf8")) as RecordValue;
+    const graph = (changed.graphs as RecordValue[])[0]!.graph as RecordValue;
+    const changedProcess = graph.process as RecordValue;
+    ((changedProcess.nodes as RecordValue).UserTask_2 as RecordValue).name = "新审批名称";
+    await writeFile(file, JSON.stringify(changed), "utf8");
+    const update = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "diff", "--file", file, "--env", "source", "--flow", "TBS_PROJECT"
+    ])) as RecordValue;
+    expect(update).toMatchObject({ equal: false, summary: { update: 1 } });
+    expect(JSON.stringify(update)).toContain("process.nodes.UserTask_2.name");
+    expect(source.saveCalls).toHaveLength(0);
+    expect(target.saveCalls).toHaveLength(0);
+  });
+
+  it("layout --write --check 对 golden sample 自动布点后穿节点/交叉/重叠均为 0", async () => {
+    const { fixture } = await setup();
+    const file = join(fixture.directory, "golden.json");
+    await writeFile(file, JSON.stringify(BPM_GRAPH_GOLDEN_SAMPLE), "utf8");
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "layout", "--file", file, "--write", "--check"
+    ])) as RecordValue;
+    expect(output).toMatchObject({ written: true, checked: true, clean: true });
+    const graph = (output.graphs as RecordValue[])[0]!;
+    expect(graph).toMatchObject({
+      throughNodeEdges: 0,
+      crossingEdges: 0,
+      overlappingNodes: 0
+    });
+    expect(graph.width as number).toBeGreaterThan(0);
+    expect(graph.height as number).toBeGreaterThan(0);
+    expect(fixture.server("source").requests).toHaveLength(0);
+    expect(fixture.server("target").requests).toHaveLength(0);
+  });
+
+  it("resolve-executor 命令返回唯一 Person 绑定及规范化 executor 片段", async () => {
+    const { fixture } = await setup();
+    const output = JSON.parse(await runCommand(fixture.program(), [
+      "bpm", "graph", "resolve-executor", "--env", "target", "--query", "张三"
+    ])) as RecordValue;
+    expect(output).toMatchObject({
+      kind: "eadp.bpm.graph.executor.v1",
+      binding: { bindingType: "Person", code: "E1001", name: "张三" },
+      codeField: "employeeCodes",
+      executor: {
+        type: "Person",
+        userType: "Person",
+        employeeCodes: ["E1001"]
+      }
+    });
   });
 });
