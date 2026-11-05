@@ -4,6 +4,7 @@ import {
   type NodeIssue,
   type NodeRule
 } from "./node-catalog.js";
+import { analyzeGraphSemantics } from "./semantics.js";
 
 type RecordValue = Record<string, unknown>;
 
@@ -172,6 +173,7 @@ export function analyzeGraph(graph: RecordValue): GraphValidation {
     ));
   }
 
+  design.push(...analyzeGraphSemantics(graph));
   return { blockingIssues: dedupe(blocking), designIssues: dedupe(design), warnings: dedupe(warnings) };
 }
 

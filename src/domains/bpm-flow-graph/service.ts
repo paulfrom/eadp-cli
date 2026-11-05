@@ -18,6 +18,7 @@ import { selectFlow } from "../bpm/selection.js";
 import { inspectCanonicalGraph } from "./analysis.js";
 import { hydrate, toCanonical } from "./graph.js";
 import { graphReferences, type BpmGraphReferences } from "./references.js";
+import { mapGraphServerError } from "./server-errors.js";
 
 type RecordValue = Record<string, unknown>;
 
@@ -301,10 +302,15 @@ async function applyFlowGraphs(
       flowTypeId,
       ...(targetDefinition ? { targetDefinition } : {})
     });
-    const saved = await client.invoke("defFlowVersion/saveOrDeploy", "POST", {
-      defJson,
-      deploy: false
-    });
+    let saved: unknown;
+    try {
+      saved = await client.invoke("defFlowVersion/saveOrDeploy", "POST", {
+        defJson,
+        deploy: false
+      });
+    } catch (error) {
+      throw mapGraphServerError(error, { name, canonical: graph });
+    }
     if (!isRecord(saved)) {
       throw new CliError("defFlowVersion/saveOrDeploy 返回格式无效");
     }

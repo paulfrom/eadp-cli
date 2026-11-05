@@ -13,7 +13,7 @@ import type { ResourceRecord } from "../../resource/core/client.js";
 import { nodeUsageForKind } from "./node-usage.js";
 
 /** Bump when the embedded contract changes; exposed by `bpm graph nodes`. */
-export const CATALOG_VERSION = "2026-11-04";
+export const CATALOG_VERSION = "2026-11-05";
 
 
 export type NodeGroup = "event" | "task" | "gateway";

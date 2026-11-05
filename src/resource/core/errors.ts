@@ -21,6 +21,11 @@ export interface BlockingIssue {
   scope?: "graph" | "node" | "edge" | "executor";
   nodeId?: string;
   nodeName?: string;
+  /** Stable edge identity and exact JSON location when an issue belongs to one edge. */
+  edgeId?: string;
+  jsonPath?: string;
+  expectedType?: string;
+  actualValue?: unknown;
   /** Actionable repair hint for humans and agents. */
   fix?: string;
 }
